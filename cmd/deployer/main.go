@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/toyinogun/deployer/internal/config"
+	"github.com/toyinogun/deployer/internal/store"
 )
 
 func main() {
@@ -28,6 +29,25 @@ func run() error {
 		return err
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
+
+	// Migrations run at startup, before anything can serve, so a boot on an empty
+	// volume produces a migrated database rather than a running binary with no
+	// tables (spec 0002).
+	st, err := store.Open(store.Options{Path: cfg.DBPath, BusyTimeout: cfg.DBBusyTimeout})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := st.Close(); err != nil {
+			slog.Error("closing the database failed", "error", err)
+		}
+	}()
+	migrateCtx, cancelMigrate := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelMigrate()
+	if err := st.Migrate(migrateCtx); err != nil {
+		return err
+	}
+	slog.Info("database ready", "path", cfg.DBPath, "pod", cfg.PodName)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
