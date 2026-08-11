@@ -9,7 +9,7 @@ metadata:
 spec:
   description: The Deployer control plane, and nothing else in the cluster.
   sourceRepos:
-    - git@github.com:toyinogun/deployer.git
+    - https://github.com/toyinogun/deployer.git
   # The only namespace this project may write to. An app-<slug> namespace created
   # by the control plane at runtime is out of scope by construction, so prune
   # cannot reach it.
@@ -36,7 +36,7 @@ metadata:
 spec:
   project: deployer
   source:
-    repoURL: git@github.com:toyinogun/deployer.git
+    repoURL: https://github.com/toyinogun/deployer.git
     targetRevision: main
     path: deploy
   destination:
