@@ -165,9 +165,21 @@ kubectl get ingress -A -o json \
 ## GitOps
 
 ```bash
-# AC-14: no plain token anywhere
-grep -rn "CLOUDFLARE_API_TOKEN\|cloudflare.*token" k3sprox-gitops/ | grep -v SealedSecret
-# expect no matches
+# AC-14: no plain token anywhere.
+# Assert on the value, not on nearby words. A sealed value sits three lines
+# below the word SealedSecret, so filtering by that word leaves the ciphertext
+# line matching and the check fails on a correctly sealed repository.
+
+# no plain Secret manifest exists at all
+grep -rln '^kind: Secret$' --include='*.yaml' k3sprox-gitops/
+# expect no output
+
+# and every token value in the repository is sealed-secrets ciphertext,
+# which always begins Ag. A raw Cloudflare token is 40 characters of
+# base62 and would not match, so a non zero count is a blocking failure.
+grep -rhE '^[[:space:]]+[A-Za-z_-]*[Tt]oken:' --include='*.yaml' k3sprox-gitops/ \
+  | awk '{print $2}' | grep -vc '^Ag'
+# expect 0
 
 # AC-15: ArgoCD cannot see or prune a runtime created namespace
 argocd app get deployer -o json | jq '.spec.destination, .spec.syncPolicy'
