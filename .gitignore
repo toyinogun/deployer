@@ -1,0 +1,4 @@
+/deployer
+
+# Original plan document, its content lives in docs/scope and docs/specs
+*.pdf

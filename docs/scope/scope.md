@@ -1,0 +1,184 @@
+# Scope: Deployer
+
+Deployer is a small internal platform that lets an AI coding agent (Claude Code, Codex, Gemini and friends) deploy an application it just wrote onto your homelab k3s cluster, over MCP, as long as the caller holds a valid account token. The person never touches kubectl, Docker, or YAML.
+
+**Build approach:** Tracer Bullet (prove the whole pipe works end to end before building any part of it fully).
+**Workflow:** GA (after `/develop`: `/check verify`, then `/test`, then a fresh model `/check review`, then `/document`). The project default level of rigor. `/architect` is the recommended first stop for a feature with a real decision, but skippable when you already know the build. Any feature can carry its own tag (e.g. `· Beta`) to do more or less.
+
+_These are recommendations to keep your build orderly, not requirements. Skip anything that does not fit: if you already know how to build a feature, use `/develop` and skip `/architect`. You decide when a feature is `done`._
+
+## Settled for the MVP
+
+Decisions you already made, so no feature reopens them:
+
+- The runtime is your existing k3s cluster, and the control plane runs inside it as a workload.
+- Source arrives as a tarball uploaded by the MCP client. There is no Git server, no repo provisioning, no Git credentials anywhere.
+- Builds use Buildpacks with no config, and fall back to the project's Dockerfile when one is present.
+- Callers authenticate with a platform issued API token. No identity provider, no OAuth in the MVP.
+- Apps are reachable on your LAN or VPN only, on a hostname under one wildcard domain.
+- Apps are stateless. No databases, no volumes, no object storage in the MVP.
+- Isolation is enforced, not advisory: own namespace, non root, dropped capabilities, resource ceilings, and network policy that stops apps reaching each other or your cluster services.
+
+## What the cluster already gives you
+
+Verified live on 2026-08-11, so no feature needs to build these. Feature 4 should use them rather than install its own.
+
+| Need | Already running |
+|---|---|
+| Cluster | k3s v1.35.5+k3s1, 4 nodes (`k3sprox-cp-0` plus 3 workers), 172.16.70.20 to .23 |
+| Networking and policy | Cilium 1.16.5, so NetworkPolicy is genuinely enforced |
+| Ingress | ingress-nginx 1.11.3 on 172.16.70.40, plus a `tailscale` ingress class |
+| Certificates | cert-manager v1.16.2 |
+| Load balancer IPs | MetalLB 0.14.9; 172.16.70.41 and .42 are free again |
+| Storage | Longhorn 1.11.1, `longhorn` is the default StorageClass |
+| GitOps | ArgoCD v3.3.6, root app from `k3sprox-gitops`, 12 apps healthy |
+| Secrets | sealed-secrets 0.36.6 |
+| Access | Tailscale operator; you reach the cluster as context `k3sprox-operator.tail62ceef.ts.net` |
+
+Deployer needs to add, on top of this: an image registry, a builder, the control plane and its database, app routing under a wildcard hostname, and the MCP server.
+
+## At a glance
+
+| # | Feature | Phase | Status |
+|---|---------|-------|--------|
+| 1 | Stack & architecture | Foundation | done |
+| 2 | Coding standards & tooling | Foundation | planned |
+| 3 | Platform data model | Foundation | planned |
+| 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | planned |
+| 5 | First deploy end to end | Slice 1 | planned |
+| 6 | Async deployment jobs & status | Slice 2 | planned |
+| 7 | Application logs | Slice 3 | planned |
+| 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
+| 9 | Workload isolation & network policy | Slice 5 | planned |
+| 10 | Dockerfile build path | Slice 6 | planned |
+| 11 | App environment configuration | Slice 7 | planned |
+| 12 | Rollback & release history | Slice 8 | planned |
+| 13 | App lifecycle: list & decommission | Slice 9 | planned |
+
+## Foundations
+
+### 1. Stack & architecture · done
+Decide the language, framework, database, build tooling, and how the control plane, build worker, and deploy worker are split, then scaffold a runnable project. Every later slice sits on this.
+**Done when:** the stack and the plane split are recorded in a spec, and the empty scaffold boots locally and passes build.
+spec [0001](../specs/0001-stack-and-architecture/index.md) · code in `cmd/deployer`, `internal/config`
+- [x] Decide the stack (spec): `/architect stack & architecture`
+- [x] Scaffold from the decision: `/develop stack & architecture`
+- [ ] Verify it: `/check verify stack & architecture` — skipped
+- [ ] Test it: `/test stack & architecture` — skipped
+- [ ] Review it (fresh model): `/check review stack & architecture` — skipped
+- [ ] Document it: `/document stack & architecture` — skipped
+
+### 2. Coding standards & tooling
+Capture the conventions from the real scaffolded project, then install lint, format, type checking, and pre-commit enforcement.
+**Done when:** root `AGENTS.md` reflects the real stack, and lint, format, and type checks run clean.
+- [ ] Capture conventions + tooling choices: `/audit`
+- [ ] Install the tooling: `/develop tooling`
+
+### 3. Platform data model · needs a decision
+The entities the whole platform turns on: accounts, API tokens, apps, deployments, deployment events, releases. Getting this wrong is the most expensive thing to redo, so it is decided once, up front, before any slice writes to it.
+**Done when:** the schema supports the deployment state machine, release history for rollback, and per app ownership, and it migrates cleanly on a fresh database.
+- [ ] Design it (spec): `/architect platform data model`
+
+### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · needs a decision
+The ground the platform stands on inside k3s: how the control plane is deployed and what service account rights it holds, the namespace layout for platform versus user apps, the ingress controller, and how one wildcard hostname plus TLS reaches an app container.
+**Done when:** the control plane runs in the cluster with a scoped service account, and a hand deployed hello world container is reachable over HTTPS on a generated hostname from your LAN or VPN.
+- [ ] Design it (spec): `/architect cluster foundation`
+
+## Slice 1: First deploy end to end
+
+### 5. First deploy end to end · needs a decision
+The tracer bullet, and the walking skeleton in one. An agent holding a valid token calls one MCP tool, the source tarball uploads, Buildpacks builds an image, the platform deploys it to k3s with enforced defaults, and the agent gets back a healthy hostname. Real auth, real build, real cluster, deliberately narrow: one token, one sample app, one language, no status polling, no logs, no rollback yet.
+**Done when:** from a fresh Claude Code session you can say "deploy this app" and reach the running app on its hostname, with the deployment recorded against a real account and app record.
+- [ ] Design it (spec): `/architect first deploy end to end`
+
+## Slice 2: Async deployment jobs & status
+
+### 6. Async deployment jobs & status · needs a decision
+Thickens the deploy segment. The deploy call returns a job identifier immediately instead of holding the connection open through a build, the deployment walks a real state machine, and the agent can ask how it is going and get a useful answer when it fails.
+**Done when:** a deploy returns a job id within a second, every state transition is recorded, a `deployment_status` MCP call reports the current state, and a failed build reports a sanitized reason rather than a timeout.
+- [ ] Design it (spec): `/architect async deployment jobs & status`
+
+## Slice 3: Application logs
+
+### 7. Application logs · needs a decision
+Thickens the readback segment so an agent can debug an app it deployed without you opening a terminal. Bounded, redacted application logs only, never cluster or platform internals.
+**Done when:** a `get_logs` MCP call returns recent application output for an app the caller owns, bounded in size and time, with secrets and tokens redacted, and platform logs are never exposed.
+- [ ] Design it (spec): `/architect application logs`
+
+## Slice 4: Accounts, API tokens & app ownership
+
+### 8. Accounts, API tokens & app ownership · needs a decision
+Thickens the auth segment from the single token of slice 1 into something real: multiple accounts, tokens you can mint and revoke, and apps that belong to an owner so one account cannot deploy over or read another's app.
+**Done when:** tokens are stored hashed and can be revoked, every API call resolves to an account, a caller cannot deploy to, read logs from, or delete an app they do not own, and every denial is recorded.
+- [ ] Design it (spec): `/architect accounts, API tokens & app ownership`
+
+## Slice 5: Workload isolation & network policy
+
+### 9. Workload isolation & network policy · needs a decision
+Thickens the runtime segment into a boundary you can trust with code an AI wrote. The platform owns the workload manifest completely and the user cannot inject privileged fields into it.
+**Done when:** every app runs non root with dropped capabilities and CPU and memory ceilings, privileged mode and host mounts and host networking are impossible to request, and network policy blocks an app from reaching another app or your cluster services while still serving traffic through ingress.
+- [ ] Design it (spec): `/architect workload isolation & network policy`
+
+## Slice 6: Dockerfile build path
+
+### 10. Dockerfile build path
+Thickens the build segment with the escape hatch: when the project ships a Dockerfile, build that instead of running Buildpack detection, so apps Buildpacks cannot handle still deploy.
+**Done when:** a project with a Dockerfile builds through it, a project without one still builds through Buildpacks, and which path ran is recorded on the deployment.
+- [ ] Build it: `/develop dockerfile build path`
+
+## Slice 7: App environment configuration
+
+### 11. App environment configuration · needs a decision
+Thickens the app contract so deployed apps can actually be configured. The platform injects `PORT` and any values set for the app, and decides what happens to values that are sensitive.
+**Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables, a change triggers a new release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
+- [ ] Design it (spec): `/architect app environment configuration`
+
+## Slice 8: Rollback & release history
+
+### 12. Rollback & release history
+Thickens the release segment. Every healthy deploy is a known good release, and going back to one re promotes the exact prior image rather than rebuilding from source.
+**Done when:** an agent can list an app's recent releases and roll back to one, the rollback re promotes the stored image digest without a build, health is re verified, and a failed new release never replaces a healthy current one.
+- [ ] Build it: `/develop rollback & release history`
+
+## Slice 9: App lifecycle: list & decommission
+
+### 13. App lifecycle: list & decommission
+Closes the loop. An agent can see what it has deployed and tear an app down cleanly, which matters most when the agent is generating throwaway apps.
+**Done when:** a caller can list their apps with current state and hostname, and delete an app so its workload, route, namespace resources, and hostname are all released, with the delete recorded.
+- [ ] Build it: `/develop app lifecycle`
+
+## Deferred
+Out of scope for the current build pass, kept so the plan stays honest.
+
+- **Web UI**: view apps, releases, and logs without an agent · needs a decision
+- **App databases**: a provisioned Postgres database and role per app · needs a decision
+- **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
+- **Public exposure**: real public hostnames with certificates, chosen per app · needs a decision
+- **Image and dependency scanning**: block a release on a critical finding · needs a decision
+- **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
+- **Platform backup and restore**: back up the metadata database and rehearse the restore · needs a decision
+- **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
+- **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
+
+## Legend
+
+**The decision box.** Every feature carries exactly one, the sub-task whose label ends with `(spec)`. Its wording varies (`Design it (spec)` normally, `Decide the stack (spec)` on Stack & architecture), so skills locate it by that `(spec)` suffix, never by an exact label. Every other box is an execution box and `/architect` never ticks one.
+
+**Feature lifecycle**: the scope updates as a feature moves; each row is what it shows and who sets it:
+
+| State | Set by | The feature shows |
+|---|---|---|
+| `planned` · needs a decision | `/scope` | one box: `Design it (spec): /architect <feature>` |
+| `in-progress` (designed) | **`/architect` at spec capture** | `Design it` ticked; spec linked; `Build it: /develop <feature>` + **2 to 5 milestones**; the tier's closing boxes (`Verify it`, `Test it`, `Review it`, `Document it`); any surfaced follow-up enrolled |
+| `in-progress` (building) | `/develop` | milestone sub-boxes tick one by one; code pointer filled |
+| `in-progress` (verified) | `/check verify` | `Build it` + milestones ticked; `Verify it` ticked |
+| `done` | **you, when you decide it is** (any skill sets it when you say so); `/sync` reconciles | boxes you ran ticked, skipped ones marked skipped; at GA the suggested point to call it done is after `/test`; `/sync` captures conventions |
+
+- **Next step** = the first unticked box (always a command or a tracked milestone).
+- **needs a decision** = run `/architect` first; otherwise straight to `/develop` (or `/audit` for standards & tooling). The tag drops once the spec is captured.
+- **Atomic build tasks live in the spec's `## Build plan`, not here**: the scope carries only the milestone rollup.
+- **Status** `planned` → `in-progress` → `done`, plus `existing` (pre-workflow) and `dropped` (de-scoped, kept for history).
+- **Approach tag** beside a heading (e.g. `· Facade`) overrides the project default for that feature; no tag = inherits it.
+- **Workflow tier tag** beside a heading (e.g. `· Beta`) sets that one feature's rigor above or below the project default; no tag inherits the default.
+- **Workflow** (header line) is the project default, what runs after `/develop`: **Prototype** = nothing; **Alpha** = `/check verify`; **Beta** = `/check verify` then `/test`; **GA** = adds a fresh model `/check review` then `/document`. A feature built on an unratified decision (an `Assumed` spec) stays flagged, but that never blocks `done`.
+- **Pointer line** (`spec <n> · code in <path>`): the spec link added by `/architect`, the code path by `/develop`.
