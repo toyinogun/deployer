@@ -54,12 +54,14 @@ These are done once, by hand, outside this repository, and the build does not
 work without them. They are step by step in
 [verify.md](../docs/specs/0003-cluster-foundation/verify.md).
 
-1. Expose the existing `ingress-nginx-controller` Service through the Tailscale
-   operator. A **Service** level exposure, never an Ingress on the `tailscale`
-   class: an Ingress there would terminate TLS at Tailscale with a `ts.net`
-   certificate and break the whole wildcard design.
-2. Point a wildcard DNS record `*.<domain>` at the tailnet address that device is
-   given.
+1. Advertise `172.16.70.40/32` from the pfSense subnet router, approve the route
+   in the Tailscale admin console, grant `172.16.70.40/32:443` in the tailnet
+   policy file, and add the matching pfSense firewall pass rule on `tailscale0`.
+   All four, the ACL and the firewall are separate gates. Do **not** expose the
+   controller Service through the Tailscale operator: it was tried and does not
+   work on this cluster, see the spec's rationale.
+2. Point a wildcard DNS record `*.<domain>`, and the apex, at `172.16.70.40`, as
+   DNS only records rather than proxied ones.
 3. Seal a Cloudflare API token scoped to `Zone.DNS: Edit` on the one zone into the
    `cert-manager` namespace, which is this cluster's cert-manager cluster resource
    namespace.

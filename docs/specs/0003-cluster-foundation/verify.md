@@ -15,37 +15,54 @@ These are done by a human, not by code, and they are the part nothing in the rep
    ```
 
 2. A Cloudflare API token scoped to `Zone.DNS: Edit` on the one zone, sealed with `kubeseal` into that namespace and committed to `k3sprox-gitops`.
-3. The ingress-nginx controller Service exposed through the Tailscale operator, a Service level exposure and not an Ingress on the `tailscale` class. Get the address it is given with `tailscale status`, then set a wildcard DNS record `*.$DOMAIN` pointing at it.
+3. The tailnet entry path, which is three separate things and all of them live outside this repository:
+   - pfSense advertises `172.16.70.40/32` onto the tailnet, alongside the `172.16.60.0/24` route it already carries.
+   - The route is approved in the Tailscale admin console, under the pfSense machine.
+   - The tailnet policy file carries the grant `{"action":"accept","src":["group:prod"],"dst":["172.16.70.40/32:443"]}`. `group:prod` already exists in your policy file and contains your own account.
+   - pfSense's own firewall has a pass rule on the `tailscale0` interface to `172.16.70.40:443`, next to the one already there for the camera VLAN. The tailnet ACL and the pfSense firewall are two separate gates and both must allow it. Skipping this one produces a timeout that looks identical to AC-12 passing.
+
+   Then set a wildcard DNS record `*.$DOMAIN` and an apex record `$DOMAIN`, both A records to `172.16.70.40`, both **DNS only** in Cloudflare. A proxied record cannot reach a private address and would defeat the boundary. The apex needs the record because the certificate covers the bare domain too.
+
+   Do not expose the controller Service through the Tailscale operator. It was tried on 2026-08-11 and does not work on this cluster; the reason is in [rationale.md](rationale.md).
 4. The ingress-nginx `--default-ssl-certificate` flag, or its Helm equivalent, pointed at the wildcard secret. This restarts the controller and briefly interrupts TLS for the twelve apps already behind it.
 
 ## Routing, DNS, and TLS
 
 ```bash
-# AC-10: the wildcard resolves to a tailnet address
-dig +short "hello.$DOMAIN"          # expect a 100.x.y.z address
+# AC-10: the wildcard resolves to the ingress address, and the route is live
+dig +short "hello.$DOMAIN"          # expect 172.16.70.40
+tailscale status --json | grep -A3 pfSense    # expect 172.16.70.40/32 among its routes
+# from a tailnet device that is NOT on the LAN, or the route is not what you are testing
+curl -sS -o /dev/null -w '%{http_code}\n' -H "Host: nothing.$DOMAIN" http://172.16.70.40/
+# expect 404 from nginx: the hop works, the hostname just has no Ingress yet
 
 # AC-8: the wildcard certificate is issued and Ready by the production issuer
 kubectl -n ingress-nginx get certificate
 kubectl -n ingress-nginx describe certificate wildcard-apps | grep -E 'Issuer|Status|Not After'
 
 # AC-9: nginx serves the wildcard for a host that has no Ingress at all
-echo | openssl s_client -connect "$(dig +short hello.$DOMAIN):443" \
+echo | openssl s_client -connect 172.16.70.40:443 \
   -servername "nothing-here.$DOMAIN" 2>/dev/null | openssl x509 -noout -subject -issuer
 # expect subject CN *.$DOMAIN, issuer Let's Encrypt
 
-# AC-11: the hello world answers over HTTPS with a trusted certificate, from a tailnet device
+# AC-11: the hello world answers over HTTPS with a trusted certificate,
+# run this from a tailnet device that is NOT on the LAN
 curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' "https://hello-<suffix>.$DOMAIN"
 # expect: 200 0
 ```
 
-**AC-12** cannot be checked from the cluster. From a phone on mobile data with Tailscale off, or any machine off the tailnet:
+**AC-11 must be run from off the LAN.** Run from your desk it proves ordinary LAN routing and says nothing about the tailnet path, which is the part that is new and the part that can break. A phone on mobile data with Tailscale **on** is the right device.
+
+**AC-12** cannot be checked from the cluster, the LAN, or the tailnet. From a phone on mobile data with Tailscale **off**:
 
 ```bash
-dig +short "hello-<suffix>.$DOMAIN"                 # resolves, same 100.x address
+dig +short "hello-<suffix>.$DOMAIN"                 # resolves, 172.16.70.40
 curl -m 10 "https://hello-<suffix>.$DOMAIN"          # expect a connection timeout, not a 4xx or 5xx
 ```
 
-A timeout is the pass. Any HTTP response at all means the app is reachable off the tailnet and the boundary is broken.
+**Prove the path is up before you trust this timeout.** A withdrawn route, a pfSense outage, or the missing firewall rule all produce the same timeout as a correctly enforced boundary, so a broken path reads as a pass. Immediately before or after, from a tailnet device off the LAN, confirm AC-11 still returns 200. A timeout in one place and a 200 in the other is the real pass; timeouts in both mean the path is broken, not that the boundary works.
+
+A timeout is the pass. Any HTTP response at all means the app is reachable from the public internet, which is what this criterion exists to catch. Reaching it from your own LAN without Tailscale is expected and is not a failure.
 
 ## Namespaces and admission
 
@@ -120,6 +137,12 @@ kubectl -n deployer-system get pod -l app=deployer \
 curl -sS "https://deployer.<tailnet>.ts.net/healthz"    # expect 200
 curl -sS -o /dev/null -w '%{http_code}\n' "https://deployer.$DOMAIN/healthz"
 # expect 404 from nginx: the platform is not on the app wildcard
+
+# AC-13: and nothing routes the platform onto the app facing controller at all
+kubectl get ingress -A -o json \
+  | jq -r '.items[] | select(.spec.ingressClassName=="nginx") | "\(.metadata.namespace)/\(.metadata.name)"'
+# expect no deployer-system entry: the isolation rests on the platform having no
+# nginx class Ingress, so check that rather than assuming it
 ```
 
 **AC-16** is covered by the unit tests in `internal/config`, not by a cluster check. Run `go test ./internal/config/...` and confirm a case exists for each new setting being missing and being malformed.
