@@ -1,7 +1,7 @@
 # 0002. Platform data model for accounts, apps, deployments, and releases
 
 **Date**: 2026-08-11
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
@@ -300,18 +300,18 @@ There is deliberately no public `CreateRelease`. A release only ever comes into 
 
 The project builds by Tracer Bullet, so the order below proves the schema end to end on the deploy path first (a real migration, a real open, a real deployment moving states and producing a release) before filling in the tables that slices 4, 7, and 8 will use. The whole model migrates in one file at step 2; what is staged is the query surface, not the schema.
 
-1. Add `internal/ids`: prefixed ULID generation over `oklog/ulid`, one exported constructor per entity prefix, plus a `Clock` interface and a fixed clock for tests. Satisfies **AC-3**.
-2. Write the single `goose` migration creating all nine tables with every CHECK constraint (including the `from_state` states, the `GLOB` key pattern, and the one of `upload_id` or `source_release_id` rule), foreign key, unique constraint, partial unique index, and read index described above, embedded with `go:embed`. Satisfies **AC-1**, **AC-4**, **AC-7**, **AC-11**, **AC-16**.
-3. Add `internal/store`: SQLite open with WAL, `foreign_keys=ON`, and the busy timeout set once at open, migrations run at process start, `sqlc` configured and generating. Validate `DEPLOYER_DB_BUSY_TIMEOUT_MS`, `DEPLOYER_RETENTION_DAYS`, and `DEPLOYER_POD_NAME` in `internal/config`. Wire it into `cmd/deployer` startup so a boot on an empty volume produces a migrated database. Satisfies **AC-1**, **AC-2**.
-4. Write the deployment lifecycle: the one `Transition` function owning the legal transition table, writing the row, its event, and the `started_at` or `finished_at` stamp in one transaction, plus `RecordBuildResult`. Satisfies **AC-5**, **AC-6**.
-5. Write `Create` with its first event, supersession with its cancel event, and the exactly one source rule, plus `ClaimNext` with the conditional claim and `claimed_by`. All transactional. Satisfies **AC-5**, **AC-7**, **AC-8**, **AC-16**.
-6. Write the app queries: create with slug derivation, collision retry, and permanent retirement, plus get, paginated list, and soft delete. Satisfies **AC-11**, **AC-12**.
-7. Write `MarkHealthy` as one transaction: transition, event, release numbering, digest copied from the row, config snapshot, and the `current_release_id` update. Then the rollback create path that copies its digest from `source_release_id` and takes the shortcut state path. Satisfies **AC-9**, **AC-10**.
-8. Define the narrow per domain store interfaces in the consuming packages and have `internal/store` satisfy them, so no use case package imports the store. Satisfies **AC-18** structurally.
-9. Write the account, token, and audit queries: resolve by hash with revocation and expiry handling, and the audit record helper. Satisfies **AC-13**, **AC-14**.
-10. Write the config queries with the split read surface (`ListForResponse` for tool responses, `ListForDeploy` for the deploy path) and the upload redeem conditional update. Satisfies **AC-15**.
-11. Write the retention sweep: failed and cancelled deployments by `finished_at` taking their events with them, then aged standalone events by `occurred_at`, then redeemed or expired uploads older than 24 hours, children before parents throughout. Satisfies **AC-17**.
-12. Write the store test suite against a real SQLite file in a temporary directory, covering every critical test scenario above, including the concurrency and constraint cases. Satisfies **AC-18** and every AC above.
+1. [x] Add `internal/ids`: prefixed ULID generation over `oklog/ulid`, one exported constructor per entity prefix, plus a `Clock` interface and a fixed clock for tests. Satisfies **AC-3**.
+2. [x] Write the single `goose` migration creating all nine tables with every CHECK constraint (including the `from_state` states, the `GLOB` key pattern, and the one of `upload_id` or `source_release_id` rule), foreign key, unique constraint, partial unique index, and read index described above, embedded with `go:embed`. Satisfies **AC-1**, **AC-4**, **AC-7**, **AC-11**, **AC-16**.
+3. [x] Add `internal/store`: SQLite open with WAL, `foreign_keys=ON`, and the busy timeout set once at open, migrations run at process start, `sqlc` configured and generating. Validate `DEPLOYER_DB_BUSY_TIMEOUT_MS`, `DEPLOYER_RETENTION_DAYS`, and `DEPLOYER_POD_NAME` in `internal/config`. Wire it into `cmd/deployer` startup so a boot on an empty volume produces a migrated database. Satisfies **AC-1**, **AC-2**.
+4. [x] Write the deployment lifecycle: the one `Transition` function owning the legal transition table, writing the row, its event, and the `started_at` or `finished_at` stamp in one transaction, plus `RecordBuildResult`. Satisfies **AC-5**, **AC-6**.
+5. [x] Write `Create` with its first event, supersession with its cancel event, and the exactly one source rule, plus `ClaimNext` with the conditional claim and `claimed_by`. All transactional. Satisfies **AC-5**, **AC-7**, **AC-8**, **AC-16**.
+6. [x] Write the app queries: create with slug derivation, collision retry, and permanent retirement, plus get, paginated list, and soft delete. Satisfies **AC-11**, **AC-12**.
+7. [x] Write `MarkHealthy` as one transaction: transition, event, release numbering, digest copied from the row, config snapshot, and the `current_release_id` update. Then the rollback create path that copies its digest from `source_release_id` and takes the shortcut state path. Satisfies **AC-9**, **AC-10**.
+8. [ ] Define the narrow per domain store interfaces in the consuming packages and have `internal/store` satisfy them, so no use case package imports the store. Satisfies **AC-18** structurally.
+9. [x] Write the account, token, and audit queries: resolve by hash with revocation and expiry handling, and the audit record helper. Satisfies **AC-13**, **AC-14**.
+10. [x] Write the config queries with the split read surface (`ListForResponse` for tool responses, `ListForDeploy` for the deploy path) and the upload redeem conditional update. Satisfies **AC-15**.
+11. [x] Write the retention sweep: failed and cancelled deployments by `finished_at` taking their events with them, then aged standalone events by `occurred_at`, then redeemed or expired uploads older than 24 hours, children before parents throughout. Satisfies **AC-17**.
+12. [x] Write the store test suite against a real SQLite file in a temporary directory, covering every critical test scenario above, including the concurrency and constraint cases. Satisfies **AC-18** and every AC above.
 
 ## Consequences
 

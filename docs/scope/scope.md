@@ -77,14 +77,14 @@ Capture the conventions from the real scaffolded project, then install lint, for
 ### 3. Platform data model · in-progress
 The entities the whole platform turns on: accounts, API tokens, apps, deployments, deployment events, releases. Getting this wrong is the most expensive thing to redo, so it is decided once, up front, before any slice writes to it.
 **Done when:** the schema supports the deployment state machine, release history for rollback, and per app ownership, and it migrates cleanly on a fresh database.
-spec [0002](../specs/0002-platform-data-model/index.md)
+spec [0002](../specs/0002-platform-data-model/index.md) · code in `internal/store`, `internal/domain`, `internal/ids`
 - [x] Design it (spec): `/architect platform data model`
-- [ ] Build it: `/develop platform data model`
-  - [ ] Ids, the one migration, and a booting migrated database — AC-1, AC-2, AC-3, AC-4
-  - [ ] Deployment lifecycle: transitions, events, create with supersession, the claim — AC-5, AC-6, AC-7, AC-8, AC-16
-  - [ ] Apps, releases, rollback, and the store interfaces — AC-9, AC-10, AC-11, AC-12
-  - [ ] Accounts, tokens, audit, config, uploads, and the retention sweep — AC-13, AC-14, AC-15, AC-17
-  - [ ] Store test suite against a real SQLite file — AC-18
+- [x] Build it: `/develop platform data model`
+  - [x] Ids, the one migration, and a booting migrated database — AC-1, AC-2, AC-3, AC-4
+  - [x] Deployment lifecycle: transitions, events, create with supersession, the claim — AC-5, AC-6, AC-7, AC-8, AC-16
+  - [x] Apps, releases, rollback, and the store interfaces — AC-9, AC-10, AC-11, AC-12
+  - [x] Accounts, tokens, audit, config, uploads, and the retention sweep — AC-13, AC-14, AC-15, AC-17
+  - [x] Store test suite against a real SQLite file — AC-18
 - [ ] Verify it: `/check verify platform data model`
 - [ ] Test it: `/test platform data model`
 - [ ] Review it (fresh model): `/check review platform data model`
