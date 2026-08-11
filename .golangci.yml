@@ -1,0 +1,19 @@
+version: "2"
+
+linters:
+  # The standard set is errcheck, govet, ineffassign, staticcheck, unused.
+  default: standard
+  enable:
+    # AGENTS.md requires wrapping with %w and sentinel errors for branching,
+    # so the one rule worth machine enforcing is error comparison and wrapping.
+    - errorlint
+  exclusions:
+    generated: strict
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+# ponytail: standard set plus one linter. Add more (revive for exported doc
+# comments, gosec, sloglint) when a real miss justifies the noise.
