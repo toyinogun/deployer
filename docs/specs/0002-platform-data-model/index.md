@@ -1,7 +1,7 @@
 # 0002. Platform data model for accounts, apps, deployments, and releases
 
 **Date**: 2026-08-11
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

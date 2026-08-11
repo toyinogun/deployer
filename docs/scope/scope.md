@@ -43,7 +43,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 |---|---------|-------|--------|
 | 1 | Stack & architecture | Foundation | done |
 | 2 | Coding standards & tooling | Foundation | done |
-| 3 | Platform data model | Foundation | in-progress |
+| 3 | Platform data model | Foundation | done |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | in-progress |
 | 5 | First deploy end to end | Slice 1 | planned |
 | 6 | Async deployment jobs & status | Slice 2 | planned |
@@ -74,7 +74,7 @@ Capture the conventions from the real scaffolded project, then install lint, for
 - [x] Capture conventions + tooling choices: `/audit`
 - [x] Install the tooling: `/develop tooling` — `.golangci.yml`, `.githooks/pre-commit`, `.github/workflows/ci.yml`
 
-### 3. Platform data model · in-progress
+### 3. Platform data model · done
 The entities the whole platform turns on: accounts, API tokens, apps, deployments, deployment events, releases. Getting this wrong is the most expensive thing to redo, so it is decided once, up front, before any slice writes to it.
 **Done when:** the schema supports the deployment state machine, release history for rollback, and per app ownership, and it migrates cleanly on a fresh database.
 spec [0002](../specs/0002-platform-data-model/index.md) · code in `internal/store`, `internal/domain`, `internal/ids`
