@@ -43,7 +43,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 |---|---------|-------|--------|
 | 1 | Stack & architecture | Foundation | done |
 | 2 | Coding standards & tooling | Foundation | done |
-| 3 | Platform data model | Foundation | planned |
+| 3 | Platform data model | Foundation | in-progress |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | planned |
 | 5 | First deploy end to end | Slice 1 | planned |
 | 6 | Async deployment jobs & status | Slice 2 | planned |
@@ -74,10 +74,21 @@ Capture the conventions from the real scaffolded project, then install lint, for
 - [x] Capture conventions + tooling choices: `/audit`
 - [x] Install the tooling: `/develop tooling` — `.golangci.yml`, `.githooks/pre-commit`, `.github/workflows/ci.yml`
 
-### 3. Platform data model · needs a decision
+### 3. Platform data model · in-progress
 The entities the whole platform turns on: accounts, API tokens, apps, deployments, deployment events, releases. Getting this wrong is the most expensive thing to redo, so it is decided once, up front, before any slice writes to it.
 **Done when:** the schema supports the deployment state machine, release history for rollback, and per app ownership, and it migrates cleanly on a fresh database.
-- [ ] Design it (spec): `/architect platform data model`
+spec [0002](../specs/0002-platform-data-model/index.md)
+- [x] Design it (spec): `/architect platform data model`
+- [ ] Build it: `/develop platform data model`
+  - [ ] Ids, the one migration, and a booting migrated database — AC-1, AC-2, AC-3, AC-4
+  - [ ] Deployment lifecycle: transitions, events, create with supersession, the claim — AC-5, AC-6, AC-7, AC-8, AC-16
+  - [ ] Apps, releases, rollback, and the store interfaces — AC-9, AC-10, AC-11, AC-12
+  - [ ] Accounts, tokens, audit, config, uploads, and the retention sweep — AC-13, AC-14, AC-15, AC-17
+  - [ ] Store test suite against a real SQLite file — AC-18
+- [ ] Verify it: `/check verify platform data model`
+- [ ] Test it: `/test platform data model`
+- [ ] Review it (fresh model): `/check review platform data model`
+- [ ] Document it: `/document platform data model`
 
 ### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · needs a decision
 The ground the platform stands on inside k3s: how the control plane is deployed and what service account rights it holds, the namespace layout for platform versus user apps, the ingress controller, and how one wildcard hostname plus TLS reaches an app container.
@@ -156,7 +167,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Public exposure**: real public hostnames with certificates, chosen per app · needs a decision
 - **Image and dependency scanning**: block a release on a critical finding · needs a decision
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
-- **Platform backup and restore**: back up the metadata database and rehearse the restore · needs a decision
+- **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 
