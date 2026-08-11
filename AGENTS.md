@@ -28,10 +28,16 @@ go run ./cmd/deployer
 go build ./...
 
 # Test
-go test ./...
+go test -race ./...
 
 # Format, vet, lint (all three gate a commit)
 gofmt -l . && go vet ./... && golangci-lint run
+
+# Once per clone: turn on the pre commit hook
+git config core.hooksPath .githooks
+
+# Once per machine, if golangci-lint is missing
+brew install golangci-lint   # or: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2
 ```
 
 ## Specs
@@ -53,11 +59,10 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 
 ## Tooling
 
-Chosen here, installed by `/develop tooling`:
-
-- Lint and format: `gofmt`, `go vet`, `golangci-lint` (staticcheck and errcheck defaults, no strict custom set).
-- Pre commit hook: format, vet, lint, and build on staged Go files. Tests are not in the hook.
-- CI: one GitHub Actions workflow on push, running gofmt check, `go vet`, `golangci-lint`, `go test`, then `ko build`.
+- Lint and format: `gofmt`, `go vet`, `golangci-lint` ([.golangci.yml](.golangci.yml): the standard linter set plus `errorlint`, which enforces the `%w` wrapping rule above).
+- Pre commit hook: [.githooks/pre-commit](.githooks/pre-commit), running format, vet, lint, and build on staged Go files. Tests are not in the hook.
+- CI: [.github/workflows/ci.yml](.github/workflows/ci.yml), on push to `main` and on every pull request: gofmt check, `go vet`, `golangci-lint`, `go test -race`, then `ko build`.
+- The golangci-lint version is pinned in two places, the CI workflow (`v2.12`) and the hook's install hint. They can drift; keep them together when you bump one.
 
 ## Git
 
