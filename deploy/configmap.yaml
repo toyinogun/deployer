@@ -4,10 +4,10 @@ metadata:
   name: deployer-config
   namespace: deployer-system
 data:
-  # CHANGE ME before the first apply. This is the wildcard domain apps are served
-  # under, and it must match the Cloudflare zone the wildcard certificate and the
-  # wildcard A record are created in (spec 0003, AC-8, AC-10).
-  DEPLOYER_APP_DOMAIN: apps.example.com
+  # The wildcard domain apps are served under. The wildcard certificate and the
+  # wildcard A record both live in the toyintest.org Cloudflare zone and must
+  # match this exactly (spec 0003, AC-8, AC-10).
+  DEPLOYER_APP_DOMAIN: deploy.toyintest.org
 
   # Both live on the Longhorn volume mounted at /data.
   DEPLOYER_DB_PATH: /data/deployer.db

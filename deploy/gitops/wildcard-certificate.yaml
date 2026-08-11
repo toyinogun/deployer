@@ -15,8 +15,9 @@ spec:
   issuerRef:
     kind: ClusterIssuer
     name: letsencrypt-staging
-  # CHANGE ME to your real DEPLOYER_APP_DOMAIN. The bare domain is included so a
-  # request to the apex does not fail TLS; the wildcard covers every app.
+  # The bare domain is included so a request to the apex does not fail TLS; the
+  # wildcard covers every app. A slug never contains a dot, so every app name is
+  # exactly one label and always matches the wildcard.
   dnsNames:
-    - "*.apps.example.com"
-    - apps.example.com
+    - "*.deploy.toyintest.org"
+    - deploy.toyintest.org

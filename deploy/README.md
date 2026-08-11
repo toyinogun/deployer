@@ -25,11 +25,7 @@ creates at runtime.
 
 ## Before the first apply
 
-1. **Set the domain.** `DEPLOYER_APP_DOMAIN` in `configmap.yaml` is
-   `apps.example.com` and must be changed. The same value appears in the Ingress
-   host in `hello-world.yaml` and in `gitops/wildcard-certificate.yaml`.
-
-2. **Create the registry Secret.** `deployment.yaml` reads
+1. **Create the registry Secret.** `deployment.yaml` reads
    `DEPLOYER_REGISTRY_HOST`, `_USER`, and `_PASSWORD` from a Secret named
    `deployer-registry`, and `internal/config` refuses to boot without all three.
    Slice 1 owns the real registry. Until then, a placeholder is enough to get the
@@ -44,7 +40,7 @@ creates at runtime.
 
    Replace it with a SealedSecret when slice 1 mints the real credentials.
 
-3. **Build the image.** `deployment.yaml` carries a `ko://` reference, so it is
+2. **Build the image.** `deployment.yaml` carries a `ko://` reference, so it is
    resolved by `ko` rather than applied raw:
 
    ```bash
