@@ -31,7 +31,9 @@ func run() error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte("ok\n"))
+		if _, err := w.Write([]byte("ok\n")); err != nil {
+			slog.WarnContext(r.Context(), "healthz write failed", "error", err)
+		}
 	})
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -44,7 +46,12 @@ func run() error {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		srv.Shutdown(shutdownCtx)
+		// A shutdown that times out means connections were still in flight. Log it
+		// rather than dropping it: it is the difference between a clean pod swap
+		// and one that cut a deploy off mid request.
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			slog.Error("graceful shutdown failed", "error", err)
+		}
 	}()
 
 	slog.Info("deployer listening", "addr", cfg.Listen, "app_domain", cfg.AppDomain)

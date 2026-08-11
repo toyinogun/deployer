@@ -42,7 +42,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | # | Feature | Phase | Status |
 |---|---------|-------|--------|
 | 1 | Stack & architecture | Foundation | done |
-| 2 | Coding standards & tooling | Foundation | planned |
+| 2 | Coding standards & tooling | Foundation | done |
 | 3 | Platform data model | Foundation | planned |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | planned |
 | 5 | First deploy end to end | Slice 1 | planned |
@@ -68,11 +68,11 @@ spec [0001](../specs/0001-stack-and-architecture/index.md) · code in `cmd/deplo
 - [ ] Review it (fresh model): `/check review stack & architecture` — skipped
 - [ ] Document it: `/document stack & architecture` — skipped
 
-### 2. Coding standards & tooling
+### 2. Coding standards & tooling · done
 Capture the conventions from the real scaffolded project, then install lint, format, type checking, and pre-commit enforcement.
 **Done when:** root `AGENTS.md` reflects the real stack, and lint, format, and type checks run clean.
-- [ ] Capture conventions + tooling choices: `/audit`
-- [ ] Install the tooling: `/develop tooling`
+- [x] Capture conventions + tooling choices: `/audit`
+- [x] Install the tooling: `/develop tooling` — `.golangci.yml`, `.githooks/pre-commit`, `.github/workflows/ci.yml`
 
 ### 3. Platform data model · needs a decision
 The entities the whole platform turns on: accounts, API tokens, apps, deployments, deployment events, releases. Getting this wrong is the most expensive thing to redo, so it is decided once, up front, before any slice writes to it.
