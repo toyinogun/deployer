@@ -85,10 +85,10 @@ spec [0002](../specs/0002-platform-data-model/index.md) · code in `internal/sto
   - [x] Apps, releases, rollback, and the store interfaces — AC-9, AC-10, AC-11, AC-12
   - [x] Accounts, tokens, audit, config, uploads, and the retention sweep — AC-13, AC-14, AC-15, AC-17
   - [x] Store test suite against a real SQLite file — AC-18
-- [ ] Verify it: `/check verify platform data model`
-- [ ] Test it: `/test platform data model`
-- [ ] Review it (fresh model): `/check review platform data model`
-- [ ] Document it: `/document platform data model`
+- [x] Verify it: `/check verify platform data model`
+- [x] Test it: `/test platform data model`
+- [x] Review it (fresh model): `/check review platform data model`
+- [x] Document it: `/document platform data model`
 
 ### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · needs a decision
 The ground the platform stands on inside k3s: how the control plane is deployed and what service account rights it holds, the namespace layout for platform versus user apps, the ingress controller, and how one wildcard hostname plus TLS reaches an app container.

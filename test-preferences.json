@@ -1,0 +1,9 @@
+{
+  "tool": "go testing (stdlib)",
+  "gate": null,
+  "additionalTools": [],
+  "e2eTool": "none",
+  "testDir": "same package as source",
+  "filePattern": "*_test.go",
+  "packageManager": "go"
+}

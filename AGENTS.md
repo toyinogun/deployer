@@ -30,6 +30,9 @@ go build ./...
 # Test
 go test -race ./...
 
+# Regenerate the sqlc query code after editing internal/store/queries or the migration
+sqlc generate
+
 # Format, vet, lint (all three gate a commit)
 gofmt -l . && go vet ./... && golangci-lint run
 
@@ -86,5 +89,7 @@ Declined: argocd-gitops, sqlite-database-expert, kubernetes-specialist (registry
 ## Context files
 
 <!-- Nested AGENTS.md files are listed here as they are created -->
+
+- [internal/store/AGENTS.md](internal/store/AGENTS.md): the SQLite data layer, the sqlc generate loop, the migration, and the sentinel errors callers branch on.
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
