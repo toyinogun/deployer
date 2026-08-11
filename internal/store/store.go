@@ -9,11 +9,13 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 	"time"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite" // pure Go driver, registered as "sqlite"
 
+	"github.com/toyinogun/deployer/internal/domain"
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store/sqlcgen"
 )
@@ -23,9 +25,10 @@ var migrationsFS embed.FS
 
 // Store holds the open database and the clock every timestamp comes from.
 type Store struct {
-	db    *sql.DB
-	q     *sqlcgen.Queries
-	clock ids.Clock
+	db     *sql.DB
+	q      *sqlcgen.Queries
+	clock  ids.Clock
+	suffix func() string
 }
 
 // Options configures Open.
@@ -37,6 +40,9 @@ type Options struct {
 	BusyTimeout time.Duration
 	// Clock supplies every timestamp written. Nil means the system clock.
 	Clock ids.Clock
+	// SuffixSource produces the random tail of a new app slug. Nil means real
+	// randomness; a test pins it to make a collision certain rather than rare.
+	SuffixSource func() string
 }
 
 // Open opens the database with WAL journaling, foreign keys enforced, and the
@@ -48,6 +54,9 @@ func Open(opts Options) (*Store, error) {
 	}
 	if opts.Clock == nil {
 		opts.Clock = ids.SystemClock{}
+	}
+	if opts.SuffixSource == nil {
+		opts.SuffixSource = domain.RandomSuffix
 	}
 
 	dsn := fmt.Sprintf(
@@ -63,18 +72,32 @@ func Open(opts Options) (*Store, error) {
 		_ = db.Close()
 		return nil, fmt.Errorf("store: connecting to %s: %w", opts.Path, err)
 	}
-	return &Store{db: db, q: sqlcgen.New(db), clock: opts.Clock}, nil
+	return &Store{db: db, q: sqlcgen.New(db), clock: opts.Clock, suffix: opts.SuffixSource}, nil
+}
+
+// migrations builds a goose provider for this store. The provider API is used
+// rather than goose's package level helpers because those write to process wide
+// globals, which is a data race the moment two stores migrate at once.
+func (s *Store) migrations() (*goose.Provider, error) {
+	sub, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		return nil, fmt.Errorf("store: reading the embedded migrations: %w", err)
+	}
+	p, err := goose.NewProvider(goose.DialectSQLite3, s.db, sub)
+	if err != nil {
+		return nil, fmt.Errorf("store: preparing migrations: %w", err)
+	}
+	return p, nil
 }
 
 // Migrate brings the database up to the latest embedded migration. It is safe to
 // call on every boot: an already migrated file is left alone.
 func (s *Store) Migrate(ctx context.Context) error {
-	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return fmt.Errorf("store: selecting migration dialect: %w", err)
+	p, err := s.migrations()
+	if err != nil {
+		return err
 	}
-	if err := goose.UpContext(ctx, s.db, "migrations"); err != nil {
+	if _, err := p.Up(ctx); err != nil {
 		return fmt.Errorf("store: running migrations: %w", err)
 	}
 	return nil
@@ -83,12 +106,11 @@ func (s *Store) Migrate(ctx context.Context) error {
 // MigrateDown rolls the database back one migration. It exists for tests and for
 // a deliberate operator rollback, never for the boot path.
 func (s *Store) MigrateDown(ctx context.Context) error {
-	goose.SetBaseFS(migrationsFS)
-	goose.SetLogger(goose.NopLogger())
-	if err := goose.SetDialect("sqlite3"); err != nil {
-		return fmt.Errorf("store: selecting migration dialect: %w", err)
+	p, err := s.migrations()
+	if err != nil {
+		return err
 	}
-	if err := goose.DownContext(ctx, s.db, "migrations"); err != nil {
+	if _, err := p.Down(ctx); err != nil {
 		return fmt.Errorf("store: rolling back migrations: %w", err)
 	}
 	return nil

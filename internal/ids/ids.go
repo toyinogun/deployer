@@ -36,6 +36,13 @@ var (
 )
 
 // New returns a fresh id for the given prefix, stamped with t.
+//
+// Ids are always distinct. They also sort, as text, into the order they were
+// created, as long as t never moves backwards: a timestamp earlier than the last
+// one reseeds the entropy, so ordering within that millisecond is lost even
+// though uniqueness is not. Every caller passes a Clock, and the wall clock only
+// goes backwards on a time correction, so this is a property of the id, not a
+// promise the platform relies on for correctness.
 func New(p Prefix, t time.Time) string {
 	mu.Lock()
 	defer mu.Unlock()

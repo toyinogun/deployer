@@ -28,7 +28,7 @@ func (s *Store) CreateApp(ctx context.Context, accountID, name string) (App, err
 			ID:        ids.New(ids.App, s.clock.Now()),
 			AccountID: accountID,
 			Name:      name,
-			Slug:      domain.DeriveSlug(name),
+			Slug:      domain.DeriveSlugWithSuffix(name, s.suffix()),
 			CreatedAt: now,
 			UpdatedAt: now,
 		})
@@ -179,6 +179,9 @@ func (s *Store) ListConfigForDeploy(ctx context.Context, appID string) ([]Config
 
 // SetConfig writes one configuration key, replacing any existing value.
 func (s *Store) SetConfig(ctx context.Context, appID, key, value string, isSecret bool) error {
+	if !domain.ValidConfigKey(key) {
+		return fmt.Errorf("store: %q: %w", key, ErrInvalidKey)
+	}
 	secret := int64(0)
 	if isSecret {
 		secret = 1
