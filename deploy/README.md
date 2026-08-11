@@ -40,12 +40,22 @@ creates at runtime.
 
    Replace it with a SealedSecret when slice 1 mints the real credentials.
 
-2. **Build the image.** `deployment.yaml` carries a `ko://` reference, so it is
-   resolved by `ko` rather than applied raw:
+2. **The image.** You do not build it by hand. `deployment.yaml` carries a real
+   `ghcr.io/toyinogun/deployer@sha256:...` digest, and the `publish` job in
+   [ci.yml](../.github/workflows/ci.yml) rewrites that line on every push to
+   `main`, then commits it. ArgoCD applies the file as written, so it must always
+   hold a digest a kubelet can pull: never a `ko://` reference, which nothing in
+   the ArgoCD path resolves, and never a mutable tag.
+
+   Once per repository, after the first publish, set the `deployer` package on
+   GitHub to **public**. A ghcr.io package starts private, and a private one needs
+   an imagePullSecret in `deployer-system` that nothing here creates.
+
+   To publish from your laptop instead, for a change you do not want to push yet:
 
    ```bash
-   KO_DOCKER_REPO=<your registry> ko resolve -f deploy/ > /tmp/deployer.yaml
-   kubectl apply -f /tmp/deployer.yaml
+   KO_DOCKER_REPO=ghcr.io/toyinogun/deployer ko build --bare --platform=linux/amd64 ./cmd/deployer
+   # paste the printed digest into deploy/deployment.yaml
    ```
 
 ## The four things no file here can tell you

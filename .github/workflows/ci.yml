@@ -38,9 +38,64 @@ jobs:
       - name: go test
         run: go test -race ./...
 
-      # ko builds the image straight from the module, no Dockerfile. This only
-      # proves it builds; pushing is a separate job once the registry exists.
+      # ko builds the image straight from the module, no Dockerfile. On a pull
+      # request this only proves it builds; the publish job below pushes.
       - uses: ko-build/setup-ko@v0.9
 
       - name: ko build
         run: ko build --push=false --platform=linux/amd64 ./cmd/deployer
+
+  # Publishes the image and writes its digest into deploy/deployment.yaml, which
+  # is the file ArgoCD applies verbatim. Without this the manifest carries a
+  # placeholder digest no kubelet can pull.
+  publish:
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # to commit the pinned digest back to main
+      packages: write # to push to ghcr.io
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: ko-build/setup-ko@v0.9
+
+      - name: Publish and pin the digest
+        env:
+          # --bare puts the image at exactly this repo rather than appending the
+          # import path, so the reference stays short and stable.
+          KO_DOCKER_REPO: ghcr.io/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          echo "${{ github.token }}" | ko login ghcr.io -u "${{ github.actor }}" --password-stdin
+          image=$(ko build --bare --platform=linux/amd64 ./cmd/deployer)
+          echo "published $image"
+          case "$image" in
+            *@sha256:*) ;;
+            *) echo "ko returned no digest: $image" >&2; exit 1 ;;
+          esac
+          # Anchored on the leading spaces and the key so nothing else in the file
+          # can match. The | delimiter keeps the digest's own characters safe.
+          sed -i -E "s|^( +)image: ghcr\.io/.*$|\1image: ${image}|" deploy/deployment.yaml
+          grep -q "image: ${image}$" deploy/deployment.yaml
+
+      - name: Commit the pinned digest
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- deploy/deployment.yaml; then
+            echo "digest unchanged, nothing to commit"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add deploy/deployment.yaml
+          # [skip ci] so this commit does not start another run. The digest would
+          # be identical on a second pass, so the loop would end anyway, but not
+          # spending a full CI run to discover that is cheaper.
+          git commit -m "chore(deploy): pin the control plane image digest [skip ci]"
+          git push

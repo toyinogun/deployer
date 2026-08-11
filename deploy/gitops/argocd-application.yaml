@@ -25,6 +25,13 @@ spec:
       kind: ClusterRole
     - group: rbac.authorization.k8s.io
       kind: ClusterRoleBinding
+    # The fence that keeps the two cluster wide rights in rbac.yaml from reaching
+    # kube-system. It ships with the control plane, so the project must be able
+    # to manage it.
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicy
+    - group: admissionregistration.k8s.io
+      kind: ValidatingAdmissionPolicyBinding
 ---
 apiVersion: argoproj.io/v1alpha1
 kind: Application

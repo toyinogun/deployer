@@ -26,6 +26,25 @@ metadata:
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted
 ---
+# The control plane's own reach into this namespace. ClusterRole/deployer-app is
+# bound nowhere by default, so the platform holds no rights here until it creates
+# this binding, which is exactly how it stays out of kube-system (AC-3).
+# Hand written here because this namespace is hand applied; slice 1 composes the
+# same object in Go alongside the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer
+  namespace: app-hello-a1b2c3
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: deployer-app
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: deployer-system
+---
 apiVersion: v1
 kind: ResourceQuota
 metadata:
