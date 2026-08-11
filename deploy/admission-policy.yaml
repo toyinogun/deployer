@@ -1,0 +1,55 @@
+# The fence around the two cluster wide rights in rbac.yaml.
+#
+# RBAC cannot say "namespaces, but only ones named app-*", and it cannot say
+# "rolebindings, but not in kube-system". Without this policy the control plane
+# could delete kube-system, or bind ClusterRole/deployer-app into kube-system and
+# read every secret in the cluster. Admission can express both limits, so it does.
+#
+# ValidatingAdmissionPolicy is built into the API server (GA since 1.30, and this
+# cluster runs k3s v1.35), so this adds no controller and no webhook to keep alive.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: deployer-namespace-scope
+spec:
+  # Fail closed. If the policy cannot be evaluated the request is refused, which
+  # is the safe direction for a rule whose whole job is to stop an escalation.
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "DELETE"]
+        resources: ["namespaces"]
+      - apiGroups: ["rbac.authorization.k8s.io"]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "DELETE"]
+        resources: ["rolebindings"]
+  matchConditions:
+    # Everyone else is unaffected. This is a leash on one identity, not a cluster
+    # wide rule, so a human or ArgoCD applying the same kinds is untouched.
+    - name: only-the-control-plane
+      expression: "request.userInfo.username == 'system:serviceaccount:deployer-system:deployer'"
+  variables:
+    # On CREATE the incoming object is in `object` and `oldObject` is null; on
+    # DELETE it is the other way round. This picks whichever one is present.
+    - name: target
+      expression: "oldObject == null ? object : oldObject"
+  validations:
+    - expression: >-
+        request.resource.resource != 'namespaces' ||
+        variables.target.metadata.name.startsWith('app-')
+      message: "the deployer service account may only create or delete namespaces named app-<slug>"
+    - expression: >-
+        request.resource.resource != 'rolebindings' ||
+        (request.namespace.startsWith('app-') && variables.target.roleRef.name == 'deployer-app')
+      message: "the deployer service account may only bind ClusterRole/deployer-app, and only inside an app-<slug> namespace"
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: deployer-namespace-scope
+spec:
+  policyName: deployer-namespace-scope
+  # Deny, not Warn or Audit. A warning here would leave the escalation open.
+  validationActions: [Deny]

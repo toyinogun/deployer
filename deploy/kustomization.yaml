@@ -4,6 +4,7 @@ namespace: deployer-system
 resources:
   - namespace.yaml
   - rbac.yaml
+  - admission-policy.yaml
   - pvc.yaml
   - configmap.yaml
   - deployment.yaml

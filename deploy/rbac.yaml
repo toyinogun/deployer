@@ -4,20 +4,48 @@ metadata:
   name: deployer
   namespace: deployer-system
 ---
-# The whole set of rights the control plane holds. Anything absent is denied.
-# One row per Kubernetes kind the platform actually composes (spec 0003, AC-3).
-# Deliberately absent: nodes, persistentvolumes, roles, rolebindings,
-# clusterroles, clusterrolebindings, customresourcedefinitions, apiservices, and
-# every escalate, bind, impersonate, or wildcard verb. The control plane cannot
-# widen its own access.
+# The rights the control plane holds EVERYWHERE. Kept deliberately tiny, because
+# a ClusterRoleBinding has no namespace and RBAC has no deny rule: anything
+# granted here is granted in kube-system too (spec 0003, AC-3).
+#
+# App resources are not here. They live in ClusterRole/deployer-app below, which
+# is never bound cluster wide; the control plane binds it into each app-<slug>
+# namespace it creates. That is what keeps `list secrets -n kube-system` a no.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: deployer
 rules:
+  # Namespaces are cluster scoped, so this cannot be narrowed by RBAC. The name
+  # is fenced to app-<slug> by ValidatingAdmissionPolicy instead, see
+  # admission-policy.yaml. Without that fence this row alone can delete kube-system.
   - apiGroups: [""]
     resources: [namespaces]
     verbs: [get, list, watch, create, delete]
+  # Creating the per namespace binding. `bind` on the one named ClusterRole is
+  # what satisfies the API server's escalation check without the control plane
+  # having to hold those rights cluster wide first.
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [rolebindings]
+    verbs: [create, delete]
+  - apiGroups: [rbac.authorization.k8s.io]
+    resources: [clusterroles]
+    resourceNames: [deployer-app]
+    verbs: [bind]
+---
+# Everything the control plane composes inside an app namespace. NOT bound by a
+# ClusterRoleBinding, on purpose. The control plane creates a RoleBinding to this
+# role in each namespace it makes, so its reach is exactly the set of app
+# namespaces that exist, and nothing else.
+#
+# Deliberately absent: nodes, persistentvolumes, roles, clusterroles,
+# clusterrolebindings, customresourcedefinitions, apiservices, and every
+# escalate, impersonate, or wildcard verb.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: deployer-app
+rules:
   - apiGroups: [""]
     resources: [services, secrets, serviceaccounts, configmaps, resourcequotas]
     verbs: [get, list, watch, create, update, patch, delete]
@@ -42,12 +70,11 @@ rules:
     resources: [ingresses, networkpolicies]
     verbs: [get, list, watch, create, update, patch, delete]
   # KNOWN GAP, flagged rather than fixed here: spec 0003 requires a LimitRange in
-  # every app namespace, but its ClusterRole table does not grant `limitranges`,
-  # and AC-3 says this must be exactly one ClusterRole holding exactly that set.
-  # The set above is the spec verbatim. Nothing in this feature creates a
-  # LimitRange from code, so nothing is broken yet; slice 1 is where it bites.
-  # Fix the spec first: /architect cluster foundation: the ClusterRole omits
-  # limitranges, which the LimitRange requirement needs.
+  # every app namespace, but its ClusterRole table does not grant `limitranges`.
+  # The set above is the spec verbatim minus the split. Nothing in this feature
+  # creates a LimitRange from code, so nothing is broken yet; slice 1 is where it
+  # bites. Fix the spec first: /architect cluster foundation: the ClusterRole
+  # omits limitranges, which the LimitRange requirement needs.
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
