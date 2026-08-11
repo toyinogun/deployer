@@ -29,24 +29,38 @@ const (
 
 // entropy is monotonic so two ids drawn in the same millisecond still differ and
 // still sort in the order they were drawn. It is not safe for concurrent use, so
-// the mutex guards it rather than the caller having to.
+// the mutex guards it rather than the caller having to. lastMS is the high water
+// mark of every timestamp handed to it, see New.
 var (
 	mu      sync.Mutex
 	entropy = ulid.Monotonic(rand.Reader, 0)
+	lastMS  uint64
 )
 
 // New returns a fresh id for the given prefix, stamped with t.
 //
-// Ids are always distinct. They also sort, as text, into the order they were
-// created, as long as t never moves backwards: a timestamp earlier than the last
-// one reseeds the entropy, so ordering within that millisecond is lost even
-// though uniqueness is not. Every caller passes a Clock, and the wall clock only
-// goes backwards on a time correction, so this is a property of the id, not a
-// promise the platform relies on for correctness.
+// Ids are always distinct, and they always sort, as text, into the order they
+// were drawn. The platform relies on that: deployment events are read back in
+// id order within an instant, the build queue claims the lowest queued id, and
+// listings page by id as a cursor.
+//
+// Holding that guarantee costs one high water mark. The monotonic entropy only
+// climbs while the timestamp holds steady; an earlier timestamp reseeds it at
+// random, and ordering within the run is then lost. Concurrent callers read the
+// clock in one order and arrive here in another, so a stamp earlier than the
+// last one is normal rather than a fault, and it is pinned to the last one
+// instead of being allowed to move backwards. An id can therefore read a
+// fraction of a millisecond later than the moment it was drawn. Nothing reads
+// the time back out of an id; every row carries its own timestamp column.
 func New(p Prefix, t time.Time) string {
+	ms := ulid.Timestamp(t)
 	mu.Lock()
 	defer mu.Unlock()
-	return string(p) + "_" + ulid.MustNew(ulid.Timestamp(t), entropy).String()
+	if ms < lastMS {
+		ms = lastMS
+	}
+	lastMS = ms
+	return string(p) + "_" + ulid.MustNew(ms, entropy).String()
 }
 
 // Parse splits an id into its prefix and ULID, checking both are well formed.
