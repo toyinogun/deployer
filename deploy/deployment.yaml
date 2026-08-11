@@ -37,7 +37,7 @@ spec:
           # this file as written, so it must always hold a digest a kubelet can
           # pull. Never a `ko://` reference (nothing resolves it in the ArgoCD
           # path) and never a mutable tag (spec 0001 invariant).
-          image: ghcr.io/toyinogun/deployer@sha256:0000000000000000000000000000000000000000000000000000000000000000
+          image: ghcr.io/toyinogun/deployer@sha256:354f963fb6c5a61ae814edb117a9a1545832378d83d727b645a6688f1c146383
           ports:
             - name: http
               containerPort: 8080
