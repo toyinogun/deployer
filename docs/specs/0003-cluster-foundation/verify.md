@@ -15,10 +15,10 @@ These are done by a human, not by code, and they are the part nothing in the rep
    ```
 
 2. A Cloudflare API token scoped to `Zone.DNS: Edit` on the one zone, sealed with `kubeseal` into that namespace and committed to `k3sprox-gitops`.
-3. The tailnet entry path, which is three separate things and all of them live outside this repository:
+3. The tailnet entry path, which is four separate gates and all of them live outside this repository:
    - pfSense advertises `172.16.70.40/32` onto the tailnet, alongside the `172.16.60.0/24` route it already carries.
    - The route is approved in the Tailscale admin console, under the pfSense machine.
-   - The tailnet policy file carries the grant `{"action":"accept","src":["group:prod"],"dst":["172.16.70.40/32:443"]}`. `group:prod` already exists in your policy file and contains your own account.
+   - The tailnet policy file carries `{"action":"accept","src":["group:prod"],"dst":["172.16.70.40/32:443"]}` in its `acls` list. It goes in `acls`, not `grants`: an object with an `action` key is the older ACL form, and the `grants` block takes `app` capabilities instead, so putting this there fails to parse. `group:prod` already exists in your policy file and contains your own account.
    - pfSense's own firewall has a pass rule on the `tailscale0` interface to `172.16.70.40:443`, next to the one already there for the camera VLAN. The tailnet ACL and the pfSense firewall are two separate gates and both must allow it. Skipping this one produces a timeout that looks identical to AC-12 passing.
 
    Then set a wildcard DNS record `*.$DOMAIN` and an apex record `$DOMAIN`, both A records to `172.16.70.40`, both **DNS only** in Cloudflare. A proxied record cannot reach a private address and would defeat the boundary. The apex needs the record because the certificate covers the bare domain too.
@@ -31,10 +31,25 @@ These are done by a human, not by code, and they are the part nothing in the rep
 ```bash
 # AC-10: the wildcard resolves to the ingress address, and the route is live
 dig +short "hello.$DOMAIN"          # expect 172.16.70.40
-tailscale status --json | grep -A3 pfSense    # expect 172.16.70.40/32 among its routes
+# PrimaryRoutes lists approved routes only, so this proves advertised AND approved
+# in one shot. 2>/dev/null drops the client/server version warning, which otherwise
+# lands on stdout and breaks the JSON parse.
+tailscale status --json 2>/dev/null \
+  | jq -r '.Peer[] | select(.HostName|ascii_downcase=="pfsense") | .PrimaryRoutes[]'
+# expect 172.16.70.40/32 in the list
 # from a tailnet device that is NOT on the LAN, or the route is not what you are testing
-curl -sS -o /dev/null -w '%{http_code}\n' -H "Host: nothing.$DOMAIN" http://172.16.70.40/
+curl -sSk -o /dev/null -w '%{http_code}\n' -H "Host: nothing.$DOMAIN" https://172.16.70.40/
 # expect 404 from nginx: the hop works, the hostname just has no Ingress yet
+#
+# 443 and -k are both deliberate. Port 80 is not granted by the tailnet ACL or the
+# pfSense rule, so an http:// probe here times out by design and reads as a broken
+# path. -k because this step tests routing only: run before the wildcard is issued,
+# nginx answers with its own self signed default and validation would fail for a
+# reason that has nothing to do with AC-10.
+#
+# and confirm the closed port really is closed, which is part of the same design
+curl -sS -m 5 -o /dev/null -w '%{http_code}\n' -H "Host: nothing.$DOMAIN" http://172.16.70.40/
+# expect a timeout, exit 28: a typed http:// URL must not redirect, it must fail
 
 # AC-8: the wildcard certificate is issued and Ready by the production issuer
 kubectl -n ingress-nginx get certificate
