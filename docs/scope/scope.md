@@ -95,12 +95,12 @@ The ground the platform stands on inside k3s: how the control plane is deployed 
 **Done when:** the control plane runs in the cluster with a scoped service account, and a hand deployed hello world container is reachable over HTTPS on a generated hostname from your LAN or VPN.
 spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `internal/config`, `cmd/deployer`
 - [x] Design it (spec): `/architect cluster foundation`
-- [ ] Build it: `/develop cluster foundation`
-  - [ ] Tailnet routing, wildcard DNS, and the shared certificate — AC-8, AC-9, AC-10, AC-14
-  - [ ] Hello world reachable over HTTPS, and unreachable off the tailnet — AC-11, AC-12
-  - [ ] App namespace template: labels, pod security, quota, limit range — AC-5, AC-6, AC-7
-  - [ ] The control plane in the cluster: namespace, RBAC, volume, config, probes — AC-1, AC-2, AC-3, AC-4, AC-16
-  - [ ] Platform exposure, ArgoCD delivery, and the certificate alert — AC-13, AC-15
+- [x] Build it: `/develop cluster foundation`
+  - [x] Tailnet routing, wildcard DNS, and the shared certificate — AC-8, AC-9, AC-10, AC-14
+  - [x] Hello world reachable over HTTPS, and unreachable off the tailnet — AC-11, AC-12
+  - [x] App namespace template: labels, pod security, quota, limit range — AC-5, AC-6, AC-7
+  - [x] The control plane in the cluster: namespace, RBAC, volume, config, probes — AC-1, AC-2, AC-3, AC-4, AC-16
+  - [x] Platform exposure and ArgoCD delivery — AC-13, AC-15. The certificate alert is deferred, see the spec's Follow-up: the cluster runs no monitoring stack, so there is nowhere to send one yet
 - [ ] Verify it: `/check verify cluster foundation`
 - [ ] Test it: `/test cluster foundation`
 - [ ] Review it (fresh model): `/check review cluster foundation`

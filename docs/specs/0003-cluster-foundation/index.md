@@ -275,6 +275,7 @@ Tracer Bullet, so the request path is proved end to end before the control plane
 
 ## Follow-up
 
+- [ ] Alert on the wildcard `Certificate` leaving Ready (build plan step 12), deferred during the build on 2026-08-11. The cluster runs no monitoring stack at all, `prometheusrules` is not even a resource type, so there is nowhere for an alert to go and no decision on where it should. Until this lands, a silent renewal failure takes every deployed app down with no warning. The rest of **AC-8**, the certificate being issued and renewing, is unaffected.
 - [ ] Decide `deployer-builds` pod security in slice 1. Rootless BuildKit in particular may not fit `restricted`, and finding that out mid build is worse than deciding it with the build path in front of you.
 - [ ] Slice 1 owes the caller a clear error when an image would run as root, because restricted pod security will refuse it at admission and the raw API server message is not something to hand an agent.
 - [ ] Feature 13 owns app delete, but the namespace delete contract starts here. Decide there whether delete is synchronous, and what happens to a namespace stuck `Terminating` on a finalizer.
