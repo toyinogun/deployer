@@ -8,7 +8,7 @@ The build spec is [index.md](index.md). This file is the reasoning behind it and
 
 Specs 0001 and 0002 decided what the platform is and what it stores. Neither decided how it actually sits in the cluster. Spec 0001 explicitly handed three things here: the namespace policy, the control plane's service account rights, and how one wildcard hostname plus TLS reaches an app container.
 
-The forces are unusually concrete, because the cluster already exists and was inventoried on 2026-08-11. k3s v1.35.5 across four nodes, Cilium enforcing NetworkPolicy, ingress-nginx 1.11.3 on 172.16.70.40 plus a `tailscale` ingress class, cert-manager v1.16.2, Longhorn as the default StorageClass, ArgoCD driving twelve healthy apps from `k3sprox-gitops`, and sealed-secrets. Nothing in this decision should install a component that overlaps one of those.
+The forces are unusually concrete, because the cluster already exists and was inventoried on 2026-08-11. k3s v1.35.5 across four nodes, Cilium enforcing NetworkPolicy, ingress-nginx 1.11.3 on 172.16.70.40 plus a `tailscale` ingress class, cert-manager v1.16.2, upgraded to v1.16.5 during this build for the reason recorded below, Longhorn as the default StorageClass, ArgoCD driving twelve healthy apps from `k3sprox-gitops`, and sealed-secrets. Nothing in this decision should install a component that overlaps one of those.
 
 Two constraints shape everything else. First, the code being deployed was written by an AI and is not trusted, so the confinement has to be enforced by the cluster rather than by the platform remembering to be careful. Second, deployed apps must be reachable only to members of the operator's tailnet, which rules out Let's Encrypt HTTP-01 entirely, because Let's Encrypt cannot reach a host that is not publicly routable.
 
@@ -29,6 +29,26 @@ So traffic reached the proxy and was never forwarded on. The proxy works by rewr
 The exposure was rolled back the same day, leaving the Helm release at revision 3 with the annotations removed and the controller pods never restarted.
 
 The general lesson is worth more than the specific fault: any design where app traffic is forwarded through a Kubernetes pod inherits the CNI's behaviour on that path. Option 4 removes the pod from the path entirely rather than fighting Cilium for it.
+
+### cert-manager must be v1.16.4 or newer, a hard floor
+
+The first wildcard issuance stalled on 2026-08-11 and the cause is not visible from any manifest, so it is recorded here.
+
+The cluster ran cert-manager v1.16.2. The DNS-01 challenge for `*.deploy.toyintest.org` reached `valid`, and then cert-manager could not delete the TXT record it had created:
+
+```
+Error: 7003: Could not route to /client/v4/zones/dns_records/26a1bd6d4458f8026c51f0ff4a27377b
+```
+
+The zone id is missing from that path. Cloudflare stopped returning `zone_id` in the DNS records list response, and cert-manager at that version read the field off that response to build the delete URL, so it built `/zones//dns_records/<id>`, which Cloudflare rejects. Fixed in cert-manager v1.16.4. The cluster was upgraded to v1.16.5 and issuance resumed immediately.
+
+Three things about this are worth keeping:
+
+- **Every input was correct.** The API token verified and listed the zone, the ACL and the pfSense rule both passed traffic, and both A records resolved. Nothing in the repository or the tailnet was at fault, which is why no amount of re-reading the manifests would have found it.
+- **A failed cleanup blocks the whole order, not just its own challenge.** The completed challenge re-queued forever, so the second challenge for the bare domain was never picked up and sat with an empty status for thirteen minutes. An empty status is what starvation looks like; a genuinely failing challenge carries a reason.
+- **This would have struck at renewal, not only at first issuance.** An unfixed cluster issues the certificate once by hand and then fails silently sixty days later. That is precisely the shared failure that takes every deployed app down at once, and it is the argument for the AC-8 certificate readiness alert being a build step rather than a deferred nicety.
+
+So: **cert-manager v1.16.4 is a floor for this design, not a preference.** Any rebuild, any cluster this is ported to, and any pinned version in a chart must satisfy it. The DNS-01 path silently half works below that line, which is worse than it plainly not working.
 
 ## Options considered
 
