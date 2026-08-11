@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployer
+  namespace: deployer-system
+  labels:
+    app: deployer
+spec:
+  replicas: 1
+  # Two writers on one SQLite file is corruption, so the old pod must be gone
+  # before the new one starts (spec 0001 invariant, spec 0003 AC-2).
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: deployer
+  template:
+    metadata:
+      labels:
+        app: deployer
+    spec:
+      serviceAccountName: deployer
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        # Load bearing, not decoration: Longhorn presents the volume root owned,
+        # so without this the non root process cannot create the SQLite file and
+        # the pod never becomes ready.
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: deployer
+          image: ko://github.com/toyinogun/deployer/cmd/deployer
+          ports:
+            - name: http
+              containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: deployer-config
+            # Registry push credentials. Slice 1 owns this Secret; see deploy/README.md
+            # for the placeholder that lets the control plane boot before then.
+            - secretRef:
+                name: deployer-registry
+          env:
+            - name: DEPLOYER_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: DEPLOYER_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # Liveness asks only whether the process is alive. Readiness is what
+          # gates traffic, so a locked or unwritable database takes the pod out of
+          # its Service without restarting it in a loop (AC-4).
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            # The root filesystem is read only, so anything needing scratch space
+            # needs somewhere to put it.
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: deployer-data
+        - name: tmp
+          emptyDir: {}

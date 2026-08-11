@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"time"
@@ -112,6 +113,27 @@ func (s *Store) MigrateDown(ctx context.Context) error {
 	}
 	if _, err := p.Down(ctx); err != nil {
 		return fmt.Errorf("store: rolling back migrations: %w", err)
+	}
+	return nil
+}
+
+// Ready reports whether the database is open and every migration has applied.
+// It is what the readiness probe asks (spec 0003, AC-4): a non nil error means
+// the pod must be taken out of its Service, not restarted.
+func (s *Store) Ready(ctx context.Context) error {
+	if err := s.db.PingContext(ctx); err != nil {
+		return fmt.Errorf("store: the database is unreachable: %w", err)
+	}
+	p, err := s.migrations()
+	if err != nil {
+		return err
+	}
+	pending, err := p.HasPending(ctx)
+	if err != nil {
+		return fmt.Errorf("store: reading the migration state: %w", err)
+	}
+	if pending {
+		return errors.New("store: migrations are still pending")
 	}
 	return nil
 }

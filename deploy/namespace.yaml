@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deployer-system
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+    # The control plane holds itself to the same bar it holds apps to (AC-1).
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

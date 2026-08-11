@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployer-config
+  namespace: deployer-system
+data:
+  # CHANGE ME before the first apply. This is the wildcard domain apps are served
+  # under, and it must match the Cloudflare zone the wildcard certificate and the
+  # wildcard A record are created in (spec 0003, AC-8, AC-10).
+  DEPLOYER_APP_DOMAIN: apps.example.com
+
+  # Both live on the Longhorn volume mounted at /data.
+  DEPLOYER_DB_PATH: /data/deployer.db
+  DEPLOYER_UPLOAD_DIR: /data/uploads
+
+  DEPLOYER_INGRESS_CLASS_NAME: nginx
+  DEPLOYER_APP_QUOTA_CPU: "1"
+  DEPLOYER_APP_QUOTA_MEMORY: 1Gi
+  DEPLOYER_APP_QUOTA_PODS: "5"
+  DEPLOYER_BUILD_NAMESPACE: deployer-builds
+  DEPLOYER_LOG_LEVEL: info

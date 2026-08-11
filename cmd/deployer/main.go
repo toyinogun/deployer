@@ -9,12 +9,18 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/config"
 	"github.com/toyinogun/deployer/internal/store"
 )
+
+// dbRetryInterval is how long the boot waits between attempts to open and
+// migrate the database. Short enough that a volume attaching late costs seconds,
+// long enough that a genuinely broken volume does not spin the log.
+const dbRetryInterval = 5 * time.Second
 
 func main() {
 	if err := run(); err != nil {
@@ -30,38 +36,31 @@ func run() error {
 	}
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.LogLevel})))
 
-	// Migrations run at startup, before anything can serve, so a boot on an empty
-	// volume produces a migrated database rather than a running binary with no
-	// tables (spec 0002).
-	st, err := store.Open(store.Options{Path: cfg.DBPath, BusyTimeout: cfg.DBBusyTimeout})
-	if err != nil {
-		return err
-	}
-	defer func() {
-		if err := st.Close(); err != nil {
-			slog.Error("closing the database failed", "error", err)
-		}
-	}()
-	migrateCtx, cancelMigrate := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelMigrate()
-	if err := st.Migrate(migrateCtx); err != nil {
-		return err
-	}
-	slog.Info("database ready", "path", cfg.DBPath, "pod", cfg.PodName)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	h := &health{}
+	defer h.close()
 
 	mux := http.NewServeMux()
+	// Liveness never touches the database: a locked or unwritable database must
+	// take the pod out of its Service, not restart it in a loop (spec 0003, AC-4).
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if _, err := w.Write([]byte("ok\n")); err != nil {
-			slog.WarnContext(r.Context(), "healthz write failed", "error", err)
+		respond(r.Context(), w, http.StatusOK, "ok\n")
+	})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
+		if err := h.ready(r.Context()); err != nil {
+			slog.WarnContext(r.Context(), "not ready", "error", err)
+			respond(r.Context(), w, http.StatusServiceUnavailable, "not ready\n")
+			return
 		}
+		respond(r.Context(), w, http.StatusOK, "ready\n")
 	})
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
 	// Recreate strategy means Kubernetes waits for this pod to exit before
 	// starting the next one, so a clean shutdown is what keeps the swap quiet.
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -74,9 +73,97 @@ func run() error {
 		}
 	}()
 
-	slog.Info("deployer listening", "addr", cfg.Listen, "app_domain", cfg.AppDomain)
+	// The database opens behind the already bound server, so the probes can answer
+	// while it is still coming up. Migrations still run before anything serves real
+	// traffic, because readiness is what gates the Service (spec 0002, spec 0003).
+	go h.open(ctx, cfg)
+
+	slog.Info("deployer listening", "addr", cfg.Listen, "app_domain", cfg.AppDomain, "namespace", cfg.Namespace)
 	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
 	}
 	return nil
+}
+
+// respond writes a plain text probe response, logging a failed write rather than
+// swallowing it.
+func respond(ctx context.Context, w http.ResponseWriter, status int, body string) {
+	w.WriteHeader(status)
+	if _, err := w.Write([]byte(body)); err != nil {
+		slog.WarnContext(ctx, "probe response write failed", "error", err)
+	}
+}
+
+// health owns the database handle and answers the readiness probe. Opening
+// happens in the background so a volume that is not writable yet leaves the pod
+// not ready instead of crash looping (spec 0003, AC-4).
+type health struct {
+	mu    sync.RWMutex
+	store *store.Store
+	err   error
+}
+
+// open keeps trying to open and migrate the database until it succeeds or the
+// process is shutting down, recording the outcome for the readiness probe.
+func (h *health) open(ctx context.Context, cfg config.Config) {
+	for {
+		st, err := openMigrated(ctx, cfg)
+		h.mu.Lock()
+		h.store, h.err = st, err
+		h.mu.Unlock()
+		if err == nil {
+			slog.Info("database ready", "path", cfg.DBPath, "pod", cfg.PodName)
+			return
+		}
+		slog.Error("the database is not ready, retrying", "error", err, "retry_in", dbRetryInterval)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(dbRetryInterval):
+		}
+	}
+}
+
+// openMigrated opens the database and brings it up to the latest migration.
+func openMigrated(ctx context.Context, cfg config.Config) (*store.Store, error) {
+	st, err := store.Open(store.Options{Path: cfg.DBPath, BusyTimeout: cfg.DBBusyTimeout})
+	if err != nil {
+		return nil, err
+	}
+	migrateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	if err := st.Migrate(migrateCtx); err != nil {
+		if closeErr := st.Close(); closeErr != nil {
+			slog.Error("closing the database after a failed migration", "error", closeErr)
+		}
+		return nil, err
+	}
+	return st, nil
+}
+
+// ready reports whether the control plane can take traffic.
+func (h *health) ready(ctx context.Context) error {
+	h.mu.RLock()
+	st, err := h.store, h.err
+	h.mu.RUnlock()
+	if err != nil {
+		return err
+	}
+	if st == nil {
+		return errors.New("the database is still opening")
+	}
+	return st.Ready(ctx)
+}
+
+// close releases the database handle if one was ever opened.
+func (h *health) close() {
+	h.mu.RLock()
+	st := h.store
+	h.mu.RUnlock()
+	if st == nil {
+		return
+	}
+	if err := st.Close(); err != nil {
+		slog.Error("closing the database failed", "error", err)
+	}
 }

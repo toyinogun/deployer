@@ -1,0 +1,50 @@
+# Copy into k3sprox-gitops/apps/. Two objects, and the AppProject is the half
+# that makes AC-15 true: it is what stops a sync from ever seeing, let alone
+# pruning, a runtime created app-<slug> namespace.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: deployer
+  namespace: argocd
+spec:
+  description: The Deployer control plane, and nothing else in the cluster.
+  sourceRepos:
+    - git@github.com:toyinogun/deployer.git
+  # The only namespace this project may write to. An app-<slug> namespace created
+  # by the control plane at runtime is out of scope by construction, so prune
+  # cannot reach it.
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: deployer-system
+  # The cluster scoped kinds the control plane's own manifests contain. Namespace
+  # is listed by name so the project cannot manage any other namespace object.
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: deployer
+  namespace: argocd
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: deployer
+  source:
+    repoURL: git@github.com:toyinogun/deployer.git
+    targetRevision: main
+    path: deploy
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: deployer-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true

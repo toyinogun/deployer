@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // Config is every value the control plane reads from its environment.
@@ -28,6 +30,13 @@ type Config struct {
 	DBBusyTimeout time.Duration // how long a blocked SQLite writer waits
 	Retention     time.Duration // how long events and terminal failures are kept
 	PodName       string        // this pod's own name, recorded on a deployment claim
+
+	// Added by spec 0003, the cluster foundation.
+	Namespace        string // the control plane's own namespace, from the downward API
+	IngressClassName string // ingress class for the Ingress objects apps are served on
+	AppQuotaCPU      string // per app CPU ceiling, a Kubernetes quantity
+	AppQuotaMemory   string // per app memory ceiling, a Kubernetes quantity
+	AppQuotaPods     int    // per app pod ceiling
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -60,9 +69,45 @@ func Load(getenv func(string) string) (Config, error) {
 		MaxUploadBytes: 100 << 20,
 		DBBusyTimeout:  5000 * time.Millisecond,
 		Retention:      90 * 24 * time.Hour,
+
+		// The control plane's own namespace comes from the downward API, so an
+		// unset value means the pod spec is wrong rather than the operator being
+		// lazy, and it is worth failing the boot over (spec 0003).
+		Namespace:        required("NAMESPACE"),
+		IngressClassName: optional("INGRESS_CLASS_NAME", "nginx"),
+		AppQuotaCPU:      optional("APP_QUOTA_CPU", "1"),
+		AppQuotaMemory:   optional("APP_QUOTA_MEMORY", "1Gi"),
+		AppQuotaPods:     5,
 	}
 
 	var errs []string
+	// The quota ceilings go straight into a ResourceQuota, so they are parsed as
+	// Kubernetes quantities here rather than discovered to be nonsense by the API
+	// server at the first deploy.
+	for _, q := range []struct {
+		key   string
+		value string
+	}{
+		{"DEPLOYER_APP_QUOTA_CPU", c.AppQuotaCPU},
+		{"DEPLOYER_APP_QUOTA_MEMORY", c.AppQuotaMemory},
+	} {
+		parsed, err := resource.ParseQuantity(q.value)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s must be a Kubernetes quantity, got %q", q.key, q.value))
+			continue
+		}
+		if parsed.Sign() <= 0 {
+			errs = append(errs, fmt.Sprintf("%s must be greater than zero, got %q", q.key, q.value))
+		}
+	}
+	if raw := getenv("DEPLOYER_APP_QUOTA_PODS"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			errs = append(errs, fmt.Sprintf("DEPLOYER_APP_QUOTA_PODS must be a positive integer, got %q", raw))
+		} else {
+			c.AppQuotaPods = n
+		}
+	}
 	// The claiming pod names itself through the downward API. A local run has no
 	// downward API, so the hostname stands in and the claim still records who.
 	c.PodName = optional("POD_NAME", "")

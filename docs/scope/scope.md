@@ -44,7 +44,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 1 | Stack & architecture | Foundation | done |
 | 2 | Coding standards & tooling | Foundation | done |
 | 3 | Platform data model | Foundation | in-progress |
-| 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | planned |
+| 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | in-progress |
 | 5 | First deploy end to end | Slice 1 | planned |
 | 6 | Async deployment jobs & status | Slice 2 | planned |
 | 7 | Application logs | Slice 3 | planned |
@@ -90,10 +90,21 @@ spec [0002](../specs/0002-platform-data-model/index.md) · code in `internal/sto
 - [x] Review it (fresh model): `/check review platform data model`
 - [x] Document it: `/document platform data model`
 
-### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · needs a decision
+### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · in-progress
 The ground the platform stands on inside k3s: how the control plane is deployed and what service account rights it holds, the namespace layout for platform versus user apps, the ingress controller, and how one wildcard hostname plus TLS reaches an app container.
 **Done when:** the control plane runs in the cluster with a scoped service account, and a hand deployed hello world container is reachable over HTTPS on a generated hostname from your LAN or VPN.
-- [ ] Design it (spec): `/architect cluster foundation`
+spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `internal/config`, `cmd/deployer`
+- [x] Design it (spec): `/architect cluster foundation`
+- [ ] Build it: `/develop cluster foundation`
+  - [ ] Tailnet routing, wildcard DNS, and the shared certificate — AC-8, AC-9, AC-10, AC-14
+  - [ ] Hello world reachable over HTTPS, and unreachable off the tailnet — AC-11, AC-12
+  - [ ] App namespace template: labels, pod security, quota, limit range — AC-5, AC-6, AC-7
+  - [ ] The control plane in the cluster: namespace, RBAC, volume, config, probes — AC-1, AC-2, AC-3, AC-4, AC-16
+  - [ ] Platform exposure, ArgoCD delivery, and the certificate alert — AC-13, AC-15
+- [ ] Verify it: `/check verify cluster foundation`
+- [ ] Test it: `/test cluster foundation`
+- [ ] Review it (fresh model): `/check review cluster foundation`
+- [ ] Document it: `/document cluster foundation`
 
 ## Slice 1: First deploy end to end
 
@@ -168,6 +179,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Image and dependency scanning**: block a release on a critical finding · needs a decision
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
 - **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned · needs a decision
+- **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 

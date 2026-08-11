@@ -1,0 +1,22 @@
+# Copy into k3sprox-gitops. One certificate covers every app that will ever be
+# deployed, so Let's Encrypt rate limits are never a factor and no app name ever
+# reaches a Certificate Transparency log (spec 0003, AC-8).
+#
+# The private key exists in this one namespace and is never copied, mirrored, or
+# referenced from an app namespace.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: wildcard-apps
+  namespace: ingress-nginx
+spec:
+  secretName: wildcard-apps-tls
+  # Switch to letsencrypt-prod only after this has gone Ready on staging.
+  issuerRef:
+    kind: ClusterIssuer
+    name: letsencrypt-staging
+  # CHANGE ME to your real DEPLOYER_APP_DOMAIN. The bare domain is included so a
+  # request to the apex does not fail TLS; the wildcard covers every app.
+  dnsNames:
+    - "*.apps.example.com"
+    - apps.example.com

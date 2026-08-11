@@ -1,0 +1,137 @@
+# A hand applied app in the exact shape the control plane will compose in slice 1.
+# It exists to prove the request path and the admission boundary before any Go
+# code creates a namespace (spec 0003, build plan steps 5 and 6).
+#
+#   kubectl apply -f deploy/hello-world.yaml
+#   curl -sS -o /dev/null -w '%{http_code}\n' https://hello-a1b2c3.$DOMAIN   # 200
+#   kubectl delete -f deploy/hello-world.yaml
+#
+# Swap `hello-a1b2c3` for whatever slug you use and set the Ingress host to your
+# real DEPLOYER_APP_DOMAIN. The suffix mimics what domain.DeriveSlug produces, so
+# the shape stays honest.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: app-hello-a1b2c3
+  labels:
+    app.kubernetes.io/managed-by: deployer
+    # A real namespace carries the app's row id here. This one is hand applied,
+    # so it carries a marker instead.
+    deployer.internal/app-id: hand-applied
+    deployer.internal/app-slug: hello-a1b2c3
+    # Enforced by the API server, not by platform code. Slice 5 hardens the
+    # manifests the platform writes; this layer holds even if slice 5 has a bug.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: app-quota
+  namespace: app-hello-a1b2c3
+spec:
+  hard:
+    requests.cpu: "1"
+    limits.cpu: "1"
+    requests.memory: 1Gi
+    limits.memory: 1Gi
+    pods: "5"
+    services: "3"
+    secrets: "10"
+---
+# Required, not optional. A ResourceQuota that constrains limits makes the API
+# server reject any pod declaring neither requests nor limits, which is most
+# container images. These defaults are what make such a pod admissible (AC-7).
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: app-defaults
+  namespace: app-hello-a1b2c3
+spec:
+  limits:
+    - type: Container
+      default:
+        cpu: 500m
+        memory: 512Mi
+      defaultRequest:
+        cpu: 100m
+        memory: 128Mi
+      max:
+        cpu: "1"
+        memory: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hello
+  namespace: app-hello-a1b2c3
+  labels:
+    app: hello
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hello
+  template:
+    metadata:
+      labels:
+        app: hello
+    spec:
+      # Restricted pod security does not merely reject a pod that asks for root,
+      # it rejects a pod that says nothing. The platform composes this on every
+      # app pod it creates; this is the contract slice 1 builds against.
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          # A non root image by default, which is exactly the bar an app has to
+          # clear: an image with no USER line fails admission, by design.
+          image: ghcr.io/nginxinc/nginx-unprivileged:1.27-alpine
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # No resources block on purpose: the LimitRange supplies the defaults,
+          # and a pod coming up here proves AC-7.
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hello
+  namespace: app-hello-a1b2c3
+spec:
+  selector:
+    app: hello
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: hello
+  namespace: app-hello-a1b2c3
+spec:
+  ingressClassName: nginx
+  rules:
+    # CHANGE ME to your real DEPLOYER_APP_DOMAIN.
+    - host: hello-a1b2c3.apps.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: hello
+                port:
+                  number: 80
+  # No tls block, on purpose. The controller default certificate covers this
+  # host, so no app namespace ever holds a private key (AC-9).
