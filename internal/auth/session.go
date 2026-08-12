@@ -14,6 +14,15 @@ import (
 // ErrTokenInvalid is.
 var ErrSessionInvalid = errors.New("auth: session invalid")
 
+// ErrEmailUnverified is a live session whose account no longer holds a confirmed
+// address. Separate from ErrSessionInvalid because the caller already proved they
+// hold this session, so naming the reason reveals nothing they could not learn by
+// signing in, and it is the only answer they can act on (AC-15).
+//
+// The bearer route has no equivalent: a machine holding a token learns only that
+// the token does not work (AC-16).
+var ErrEmailUnverified = errors.New("auth: email unverified")
+
 // SessionCookie is the name the session id travels under.
 const SessionCookie = "deployer_session"
 
@@ -45,7 +54,7 @@ func (a *Authenticator) WithSessions(s SessionStore, lifetime time.Duration) *Au
 }
 
 // AuthenticateSession resolves a raw session id to its account, or
-// ErrSessionInvalid.
+// ErrSessionInvalid, or ErrEmailUnverified.
 //
 // It is the session half of the one resolution path: the verified gate and the
 // disabled check are applied here, in the same function, for the same reason
@@ -63,9 +72,13 @@ func (a *Authenticator) AuthenticateSession(ctx context.Context, raw string) (Ac
 		return Account{}, Session{}, fmt.Errorf("auth: resolving the presented session: %w", err)
 	}
 	// A session belongs to a person, and a person who never confirmed their
-	// address holds no usable credential anywhere (AC-16).
-	if !account.usable() {
+	// address holds no usable credential anywhere (AC-16). Refused either way; the
+	// two part company only in what the person is told (AC-15).
+	if account.Disabled {
 		return Account{}, Session{}, ErrSessionInvalid
+	}
+	if !account.usable() {
+		return Account{}, Session{}, ErrEmailUnverified
 	}
 	// The rolling expiry. A failure to push it forward is logged rather than
 	// allowed to refuse a caller who presented a good session.

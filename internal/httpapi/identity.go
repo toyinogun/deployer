@@ -72,10 +72,16 @@ func (i *Identity) session(w http.ResponseWriter, r *http.Request) (auth.Account
 	ctx := r.Context()
 	account, sess, err := i.auth.AuthenticateSession(ctx, auth.SessionID(r))
 	if err != nil {
-		if !errors.Is(err, auth.ErrSessionInvalid) {
+		switch {
+		case errors.Is(err, auth.ErrEmailUnverified):
+			writeCode(ctx, w, http.StatusForbidden, identity.CodeEmailUnverified,
+				"confirm your email address before using this account")
+		case errors.Is(err, auth.ErrSessionInvalid):
+			writeCode(ctx, w, http.StatusUnauthorized, identity.CodeCredentialsInvalid, "sign in first")
+		default:
 			slog.ErrorContext(ctx, "resolving a session failed", "error", err)
+			writeCode(ctx, w, http.StatusUnauthorized, identity.CodeCredentialsInvalid, "sign in first")
 		}
-		writeCode(ctx, w, http.StatusUnauthorized, identity.CodeCredentialsInvalid, "sign in first")
 		return auth.Account{}, auth.Session{}, false
 	}
 	return account, sess, true

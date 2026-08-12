@@ -589,7 +589,15 @@ func TestUnverifiedAccountCannotMintOrAuthenticate(t *testing.T) {
 	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token); err == nil {
 		t.Error("an unverified account's token still authenticated on the machine route")
 	}
-	if got := h.do(t, "GET", "/v1/auth/me", nil, cookie); got.Code != 401 {
+	// The person route refuses too, and says which refusal it is, because the
+	// caller already proved they hold a live session and the useful answer is the
+	// true one (AC-15). Disabled stays indistinguishable; unverified does not.
+	again := h.do(t, "POST", "/v1/tokens", map[string]any{"name": "second"}, cookie)
+	if again.Code != http.StatusForbidden || codeOf(t, again) != "email_unverified" {
+		t.Errorf("minting unverified: got %d %q, want 403 email_unverified",
+			again.Code, codeOf(t, again))
+	}
+	if got := h.do(t, "GET", "/v1/auth/me", nil, cookie); got.Code != http.StatusForbidden {
 		t.Errorf("an unverified account's session still worked: %d", got.Code)
 	}
 
