@@ -178,16 +178,16 @@ Each varies the input and checks the output changes with it, so a value taken fr
 - [x] Upload `expires_at`: post an upload and expect `expires_at` to be exactly one hour after `created_at`, not a fixed clock time → AC-2
 - [ ] Upload `fetch_token_hash` at upload time: post an upload, then try `GET /v1/uploads/{id}` with any token you can construct. Expect 401: the seeded hash unlocks nothing, because its input was discarded unread → AC-2
 - [ ] Fetch token minted at build time: mint, fetch (200), fetch again (409), mint again, fetch (200), then retry the first token (401). Proves a resumed build gets a working token and a leaked one stays dead → AC-8
-- [ ] Expected `sha256` passed to the build: read the composed Job's init container env and expect `DEPLOYER_EXPECTED_SHA256` to equal `uploads.sha256` for that upload, not anything the archive carries → AC-8
+- [x] Expected `sha256` passed to the build: read the composed Job's init container env and expect `DEPLOYER_EXPECTED_SHA256` to equal `uploads.sha256` for that upload, not anything the archive carries → AC-8
 - [x] Build Job name: expect the deployment id in the RFC 1123 form an object name has to take, `build-dep-<lowercased ULID>`, so a row read off disk after a restart finds its own Job → AC-18. The raw id carries an underscore and uppercase letters and the API server refuses both
-- [ ] Build target image: expect `DEPLOYER_REGISTRY_HOST + "/apps/" + slug + ":" + deployment id`, with the slug the platform derived and no part of the app name the caller sent → AC-9
+- [x] Build target image: expect `DEPLOYER_REGISTRY_HOST + "/apps/" + slug + ":" + deployment id`, with the slug the platform derived and no part of the app name the caller sent → AC-9
 - [ ] Builder and init images: change `DEPLOYER_BUILDER_IMAGE` to a mutable tag and expect the boot to fail naming that variable. Same for `DEPLOYER_SELF_IMAGE` → AC-17
-- [ ] Build result digest: push a tag by hand, resolve it with the registry client, and expect the digest the registry reports rather than anything the build container said → AC-9
+- [x] Build result digest: push a tag by hand, resolve it with the registry client, and expect the digest the registry reports rather than anything the build container said → AC-9
 - [ ] Image user: push one image with `USER 1000` and one with no `USER`. Expect the first to read as non root and the second to read as root → AC-10
 
 ## Cluster steps still owed for these milestones
 
 - [ ] Registry (AC-20): `kubectl -n deployer-system get pod -l app=deployer-registry` is `Running`, and from a throwaway pod in the cluster a `docker` or `crane` push and pull of a small image both succeed with the sealed credential. Confirm there is no Ingress for it: `kubectl get ingress -A | grep registry` returns nothing
 - [x] Build namespace (AC-7): `kubectl get ns deployer-builds -o jsonpath='{.metadata.labels}'` shows `pod-security.kubernetes.io/enforce: restricted`
-- [ ] Whether the Buildpacks lifecycle actually runs under `restricted` is not proven until a real build runs there. If it does not fit, that is a finding and a spec update, never a right granted in advance
-- [ ] Insecure registry on every node: `/etc/rancher/k3s/registries.yaml` names the registry on all four nodes, and k3s has been restarted on each. Missing it on one worker makes deploys succeed or fail by where the pod is scheduled
+- [x] Whether the Buildpacks lifecycle actually runs under `restricted` is not proven until a real build runs there. If it does not fit, that is a finding and a spec update, never a right granted in advance
+- [x] Insecure registry on every node: `/etc/rancher/k3s/registries.yaml` names the registry on all four nodes, and k3s has been restarted on each. Missing it on one worker makes deploys succeed or fail by where the pod is scheduled
