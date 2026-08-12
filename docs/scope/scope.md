@@ -48,12 +48,13 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 5 | First deploy end to end | Slice 1 | done |
 | 6 | Async deployment jobs & status | Slice 2 | done |
 | 7 | Application logs | Slice 3 | done |
-| 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
+| 8 | Accounts, API tokens & app ownership | Slice 4 | in-progress |
 | 9 | Workload isolation & network policy | Slice 5 | planned |
 | 10 | Dockerfile build path | Slice 6 | planned |
 | 11 | App environment configuration | Slice 7 | planned |
 | 12 | Rollback & release history | Slice 8 | planned |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
+| 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
 
 ## Foundations
 
@@ -163,10 +164,21 @@ spec [0006](../specs/0006-application-logs/index.md)
 
 ## Slice 4: Accounts, API tokens & app ownership
 
-### 8. Accounts, API tokens & app ownership · needs a decision
-Thickens the auth segment from the single token of slice 1 into something real: multiple accounts, tokens you can mint and revoke, and apps that belong to an owner so one account cannot deploy over or read another's app.
-**Done when:** tokens are stored hashed and can be revoked, every API call resolves to an account, a caller cannot deploy to, read logs from, or delete an app they do not own, and every denial is recorded.
-- [ ] Design it (spec): `/architect accounts, API tokens & app ownership`
+### 8. Accounts, API tokens & app ownership
+Thickens the auth segment from the single token of slice 1 into something real: people register with an email and a password, verify the address, sign in to a browser session, and mint API tokens from there for their agent to carry. Apps belong to an owner so one account cannot deploy over or read another's app. No pages here: every endpoint is JSON and drivable with curl, and the web interface is feature 14.
+**Done when:** a person can register, verify, sign in and mint a token, that token deploys, a second account cannot deploy to or read anything of the first's app, tokens can be revoked, and every denial and privileged action is recorded.
+spec [0007](../specs/0007-accounts-tokens-app-ownership/index.md)
+- [x] Design it (spec): `/architect accounts, API tokens & app ownership`
+- [ ] Build it: `/develop accounts, API tokens & app ownership`
+  - [ ] The `00002` migration and the store layer: the five account columns, the partial email index, `sessions` and `email_tokens` — AC-1, AC-5, AC-7, AC-12
+  - [ ] The thin thread end to end: `internal/identity`, `internal/mail` on Resend, and register, verify, login and mint wired up — AC-1, AC-3, AC-4, AC-5, AC-7, AC-12, AC-25, AC-26
+  - [ ] The gate everywhere and the two account ownership proof — AC-15, AC-16, AC-17, AC-18, AC-21
+  - [ ] Session lifecycle, token list and revoke, forgot and reset — AC-6, AC-9, AC-10, AC-13, AC-14, AC-28, AC-29
+  - [ ] Admin, audit, and the hardening: enumeration, rate limits, redaction — AC-2, AC-8, AC-11, AC-19, AC-20, AC-22, AC-23, AC-24, AC-27
+- [ ] Verify it: `/check verify accounts, API tokens & app ownership`
+- [ ] Test it: `/test accounts, API tokens & app ownership`
+- [ ] Review it (fresh model): `/check review accounts, API tokens & app ownership`
+- [ ] Document it: `/document accounts, API tokens & app ownership`
 
 ## Slice 5: Workload isolation & network policy
 
@@ -204,10 +216,16 @@ Closes the loop. An agent can see what it has deployed and tear an app down clea
 **Done when:** a caller can list their apps with current state and hostname, and delete an app so its workload, route, namespace resources, and hostname are all released, with the delete recorded.
 - [ ] Build it: `/develop app lifecycle`
 
+## Slice 10: Web interface
+
+### 14. Web interface: register, sign in, apps & tokens · needs a decision
+From spec 0007. The pages on top of the identity surface feature 8 builds: register, verify, sign in, mint and revoke tokens, and see your apps, releases and logs without an agent. Feature 8 deliberately builds no pages, so every endpoint they need is already there and drivable with curl.
+**Done when:** a person can register, verify, sign in, mint a token, and see their apps and logs in a browser, on the tailnet, with no curl and no agent.
+- [ ] Design it (spec): `/architect web interface`
+
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
 
-- **Web UI**: view apps, releases, and logs without an agent · needs a decision
 - **App databases**: a provisioned Postgres database and role per app · needs a decision
 - **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
 - **Public exposure**: real public hostnames with certificates, chosen per app · needs a decision
