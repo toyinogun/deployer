@@ -85,8 +85,11 @@ their own:
   indistinguishable, an unverified one is told which refusal it is, on every
   session endpoint rather than just the mint route. `/v1/auth/me` on an
   unverified session therefore answers `403 email_unverified` where it used to
-  answer `401`, which feature 14 will want to know. Proved by the local suite,
-  not yet re run against the cluster: that needs a CI build and a deploy.
+  answer `401`, which feature 14 will want to know. Re run against the cluster on
+  image `sha256:b5b3fe61` and passing, along with the neighbours the gate could
+  have broken: a verified session still reads 200, the unverified account's token
+  is still a flat 401 on upload, and a disabled account still gets
+  `credentials_invalid` on both a live cookie and a fresh sign in.
 - **AC-22 is unfinished.** `token_mint`, `token_revoke` and `login` were read out
   of `audit_log`; the `admin` rows were written after the last database window
   closed and are still unread.
