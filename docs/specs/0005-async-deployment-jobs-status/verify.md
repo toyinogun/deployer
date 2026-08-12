@@ -10,32 +10,32 @@ _Steps derived from spec 0005 acceptance criteria. `/check verify` runs these; `
 - [ ] Read the final healthy payload → carries `release_number` and `image_digest`, and the `url` matches the one `deploy_app` returned → AC-7, AC-19
 - [ ] Read the healthy payload's `timeline` → five entries, `queued` → `building` → `pushing` → `deploying` → `healthy`, in `occurred_at` order, no `detail` field anywhere → AC-8
 - [ ] Open the app's `url` in a browser on the tailnet → the sample app answers → AC-19
-- [ ] Call `deployment_status` with `name` instead of the id → reports the same deployment → AC-6
+- [x] Call `deployment_status` with `name` instead of the id → reports the same deployment → AC-6
 - [ ] Deploy the same app again, then status the first deployment id → `cancelled`, reason `superseded`, `superseded_by` = the second id; the second runs to `healthy` → AC-12, AC-20
 - [ ] Check the first deployment's row: `select failure_reason from deployments where id = '<first>'` → `superseded` → AC-12
-- [ ] Call `deployment_status` with neither argument, and with both → both fail with `deployment_unknown`, byte identical → AC-5
-- [ ] Call `deployment_status` with a made up id → the same `deployment_unknown` wording as a real id belonging to another account → AC-9
-- [ ] Query `audit_log` after a successful status call → no new row; after a refused one → exactly one row, action `status`, denied, reason `deployment_unknown` → AC-10
+- [x] Call `deployment_status` with neither argument, and with both → both fail with `deployment_unknown`, byte identical → AC-5
+- [x] Call `deployment_status` with a made up id → the same `deployment_unknown` wording as a real id belonging to another account → AC-9
+- [x] Query `audit_log` after a successful status call → no new row; after a refused one → exactly one row, action `status`, denied, reason `deployment_unknown` → AC-10
 - [ ] Deploy an app that never becomes ready and wait past `DEPLOYER_DEPLOY_TIMEOUT_SECONDS` → the deployment ends `failed` with reason `timeout`, its build Job is gone from `DEPLOYER_BUILD_NAMESPACE`, and its tarball is gone from `DEPLOYER_UPLOAD_DIR` → AC-14, AC-15, AC-18
-- [ ] Read `deploy_app`'s tool description from the MCP client → states the call returns immediately with a `deployment_id`, names `deployment_status` as how to learn the outcome, gives a rough first build time, and still carries the upload contract, the `PORT` rule, and the non root rule → AC-4
+- [x] Read `deploy_app`'s tool description from the MCP client → states the call returns immediately with a `deployment_id`, names `deployment_status` as how to learn the outcome, gives a rough first build time, and still carries the upload contract, the `PORT` rule, and the non root rule → AC-4
 
 ## Commands
 
-- [ ] `go test -race ./...` → passes → AC-11, AC-13
-- [ ] `grep -rn "PollInterval\|DeployBudget" internal/mcp/` → no matches: the MCP package no longer reads the reconcile interval → AC-3
-- [ ] `git status --short internal/store/migrations` → empty: no migration was added → AC-13
-- [ ] `sqlc generate && git diff --stat internal/store/sqlcgen` → no diff beyond the two new read queries → AC-13
-- [ ] `grep -c "Reason = \"" internal/domain/reason.go` → eleven codes, all `Valid()`, all with a message (the reason table test) → AC-11
+- [x] `go test -race ./...` → passes → AC-11, AC-13
+- [x] `grep -rn "PollInterval\|DeployBudget" internal/mcp/` → no matches: the MCP package no longer reads the reconcile interval → AC-3
+- [x] `git status --short internal/store/migrations` → empty: no migration was added → AC-13
+- [x] `sqlc generate && git diff --stat internal/store/sqlcgen` → no diff beyond the two new read queries → AC-13
+- [x] `grep -c "Reason = \"" internal/domain/reason.go` → eleven codes, all `Valid()`, all with a message (the reason table test) → AC-11
 
 ## Value sourcing, one step per row
 
-- [ ] `url`: deploy an app whose name needs slugging (mixed case, spaces) → `deploy_app` and `deployment_status` return the same `https://<slug>.<domain>`, and it is never read from a stored column
-- [ ] `state` on deploy: stop the reconcile loop (no cluster access), then `deploy_app` → still returns `queued` in under a second, proving the handler reads nothing back → AC-1, AC-3
-- [ ] status by id vs by name: create two apps, ask by each name → each reports its own most recent deployment, never the other's
+- [x] `url`: deploy an app whose name needs slugging (mixed case, spaces) → `deploy_app` and `deployment_status` return the same `https://<slug>.<domain>`, and it is never read from a stored column
+- [x] `state` on deploy: stop the reconcile loop (no cluster access), then `deploy_app` → still returns `queued` in under a second, proving the handler reads nothing back → AC-1, AC-3
+- [x] status by id vs by name: create two apps, ask by each name → each reports its own most recent deployment, never the other's
 - [ ] `reason`/`message`: fail a deploy with a root image → status carries `image_runs_as_root` and its one line, and nothing from the build log
 - [ ] `release_number`/`image_digest`: status the same deployment before and after it turns healthy → absent, then present, matching the `releases` row
-- [ ] `superseded_by`: deploy three times in a row → deployment 1 points at 2, deployment 2 points at 3, ordered by id and not by `created_at`
-- [ ] `timeline`: write an event with a `detail` holding a raw cluster message, then status → the message appears in no field of the payload → AC-8
+- [x] `superseded_by`: deploy three times in a row → deployment 1 points at 2, deployment 2 points at 3, ordered by id and not by `created_at`
+- [x] `timeline`: write an event with a `detail` holding a raw cluster message, then status → the message appears in no field of the payload → AC-8
 - [ ] Watchdog deadline: a deployment that sat `queued` behind a long build past the budget is failed with `timeout` once the drive ahead of it returns → AC-14
 - [ ] Watchdog budget on resume: restart the control plane mid build → the resumed deployment gets what is left of its budget, not a fresh one → AC-14a
 
