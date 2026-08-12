@@ -55,7 +55,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 - Every deployment state transition is a database write before it is an action.
 - Deploy by image digest, never by a mutable tag.
 - Anything running inside the cluster reaches the platform on `DEPLOYER_INTERNAL_URL`. `DEPLOYER_PUBLIC_URL` is only for text handed to a caller, because a build pod resolves names on cluster DNS, which cannot see the public hostname.
-- A build hands work between three different users: the build pod runs as the builder image's declared `CNB_USER_ID`, and the tree it unpacks is carried into the app image, where the run image's user is a different uid again. Read those uids from the pinned images, never assume them, and leave the unpacked tree readable by a user that does not own it.
+- A build hands work between three different users: the build pod runs as the builder image's declared `CNB_USER_ID`, and the tree it unpacks is carried into the app image, where the run image's user is a different uid again. Read those uids from the pinned images, never assume them, and leave the unpacked tree readable by a user that does not own it. The build pod's pair is configuration (`DEPLOYER_BUILD_UID`, `DEPLOYER_BUILD_GID`) rather than a Go constant, and CI's `builder uid` step reads it off the pinned builder and fails on drift; reading it once by hand and committing the literal is how this broke before.
 - Errors wrap with `fmt.Errorf("...: %w", err)`; sentinel errors for the cases callers branch on; never swallow one.
 - Every `DEPLOYER_*` variable is validated in `internal/config` at startup, never at first use.
 - Every exported type and function carries a doc comment starting with its own name.
@@ -67,7 +67,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 
 - Lint and format: `gofmt`, `go vet`, `golangci-lint` ([.golangci.yml](.golangci.yml): the standard linter set plus `errorlint`, which enforces the `%w` wrapping rule above).
 - Pre commit hook: [.githooks/pre-commit](.githooks/pre-commit), running format, vet, lint, and build on staged Go files. Tests are not in the hook.
-- CI: [.github/workflows/ci.yml](.github/workflows/ci.yml), on push to `main` and on every pull request: gofmt check, `go vet`, `golangci-lint`, `go test -race`, then `ko build`.
+- CI: [.github/workflows/ci.yml](.github/workflows/ci.yml), on push to `main` and on every pull request: gofmt check, `go vet`, `golangci-lint`, `go test -race`, the `builder uid` drift check, then `ko build`.
 - The golangci-lint version is pinned in two places, the CI workflow (`v2.12`) and the hook's install hint. They can drift; keep them together when you bump one.
 
 ## Git
