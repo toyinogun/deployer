@@ -235,6 +235,13 @@ func (c *Client) WorkloadReady(ctx context.Context, namespace, name string) (boo
 func (c *Client) PodsForApp(ctx context.Context, namespace, slug string) ([]logs.PodStatus, error) {
 	sel := labels.SelectorFromSet(deploy.Selector(slug)).String()
 	list, err := c.cs.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	// An app's namespace and the RoleBinding reaching into it are created at the
+	// deploy step, so during the build there is nothing here and Kubernetes says
+	// Forbidden rather than empty. Both answers mean the same thing to a log read,
+	// and neither is a fault (spec 0006, AC-7).
+	if apierrors.IsForbidden(err) || apierrors.IsNotFound(err) {
+		return nil, fmt.Errorf("kube: listing pods in %s: %w", namespace, logs.ErrNoNamespace)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("kube: listing pods in %s: %w", namespace, err)
 	}
