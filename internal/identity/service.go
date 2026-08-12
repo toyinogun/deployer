@@ -105,6 +105,11 @@ type Options struct {
 	PublicURL string
 	// HashConcurrency bounds simultaneous password hashes. Zero means the default.
 	HashConcurrency int
+	// Hasher overrides the password hasher. Nil means one at the parameters the
+	// platform runs on, which is what production always wants; a test suite
+	// passes a cheap one so a hundred sign ins do not cost a hundred key
+	// derivations it is not testing.
+	Hasher *Hasher
 }
 
 // Service is the identity use case layer: it orchestrates the store, the hasher
@@ -122,11 +127,15 @@ type Service struct {
 // NewService returns the identity surface. mailer may be nil, which is what makes
 // the endpoints that need it answer mail_unavailable while everything else works.
 func NewService(s Store, m Mailer, c Clock, opts Options) *Service {
+	hasher := opts.Hasher
+	if hasher == nil {
+		hasher = NewHasher(opts.HashConcurrency)
+	}
 	return &Service{
 		store:   s,
 		mailer:  m,
 		clock:   c,
-		hasher:  NewHasher(opts.HashConcurrency),
+		hasher:  hasher,
 		baseURL: opts.PublicURL,
 		limits:  NewLimiter(c),
 	}

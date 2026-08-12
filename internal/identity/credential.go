@@ -88,15 +88,31 @@ func DisplayNameFor(given, email string) string {
 // Hasher turns passwords into stored hashes and back into a yes or no. Concurrent
 // hashes are bounded, because argon2id at these parameters holds 19MiB each and
 // a burst of sign ins would otherwise walk the pod past its memory limit.
-type Hasher struct{ slots chan struct{} }
+type Hasher struct {
+	slots  chan struct{}
+	memory uint32
+	time   uint32
+}
 
-// NewHasher returns a hasher admitting at most concurrency hashes at once. Zero
-// or less means the default of 4.
+// NewHasher returns a hasher at the parameters the platform runs on, admitting
+// at most concurrency hashes at once. Zero or less means the default of 4.
 func NewHasher(concurrency int) *Hasher {
+	return NewHasherWith(concurrency, argonMemory, argonTime)
+}
+
+// NewHasherWith returns a hasher at chosen cost parameters.
+//
+// It exists for two callers. A test suite that signs in dozens of times uses a
+// cheap one, because paying 50ms and 19MiB per sign in to exercise a cookie
+// starves whatever else is running beside it and tests nothing the parameter
+// checks do not already cover. And a future parameter bump can hash new
+// passwords at new settings while old hashes keep verifying at theirs, because
+// every stored hash carries the parameters it was made with.
+func NewHasherWith(concurrency int, memoryKiB, timeCost uint32) *Hasher {
 	if concurrency <= 0 {
 		concurrency = 4
 	}
-	return &Hasher{slots: make(chan struct{}, concurrency)}
+	return &Hasher{slots: make(chan struct{}, concurrency), memory: memoryKiB, time: timeCost}
 }
 
 // Hash encodes a password as an argon2id string carrying its own salt and
@@ -106,9 +122,9 @@ func (h *Hasher) Hash(password string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", fmt.Errorf("identity: drawing a salt: %w", err)
 	}
-	key := h.derive(password, salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	key := h.derive(password, salt, h.time, h.memory, argonThreads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
-		argon2.Version, argonMemory, argonTime, argonThreads,
+		argon2.Version, h.memory, h.time, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt),
 		base64.RawStdEncoding.EncodeToString(key),
 	), nil
@@ -138,7 +154,7 @@ func (h *Hasher) Verify(password, encoded string) bool {
 // burn spends the same work a real verification would, so a missing or unusable
 // stored hash is not a timing oracle.
 func (h *Hasher) burn(password string) {
-	h.derive(password, make([]byte, argonSaltLen), argonTime, argonMemory, argonThreads, argonKeyLen)
+	h.derive(password, make([]byte, argonSaltLen), h.time, h.memory, argonThreads, argonKeyLen)
 }
 
 // derive runs argon2id under the concurrency bound.
