@@ -118,7 +118,9 @@ type Options struct {
 
 	SelfImage    string
 	BuilderImage string
-	PublicURL    string
+	// InternalURL is where the build Job's init container reaches the platform.
+	// It runs on cluster DNS, so it cannot use the public address.
+	InternalURL string
 
 	RegistryHost string
 	RegistryUser string
@@ -277,7 +279,7 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 		SelfImage:       r.opts.SelfImage,
 		BuilderImage:    r.opts.BuilderImage,
 		TargetImage:     target,
-		FetchURL:        r.opts.PublicURL + "/v1/uploads/" + upload.ID,
+		FetchURL:        r.opts.InternalURL + "/v1/uploads/" + upload.ID,
 		FetchToken:      token,
 		ExpectedSHA:     upload.SHA256,
 		MaxFiles:        r.opts.MaxUploadFiles,

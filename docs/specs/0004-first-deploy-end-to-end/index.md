@@ -160,6 +160,7 @@ Who moves each arrow, and what has been committed by the time it moves:
 
 - `DEPLOYER_BOOTSTRAP_TOKEN`: the single API token, from the platform `SealedSecret`. Required in the cluster, optional locally; when unset, no seeding runs and the platform boots with no usable token, which is logged as a warning.
 - `DEPLOYER_PUBLIC_URL`: the platform's own reachable base address, used in the tool description. Required.
+- `DEPLOYER_INTERNAL_URL`: the same platform, as reached from inside the cluster, used for the build Job init container's fetch address. Required, and separate from `DEPLOYER_PUBLIC_URL` because the build pod resolves names on cluster DNS, which knows nothing of the tailnet hostname the public address carries.
 - `DEPLOYER_BUILDER_IMAGE`: digest pinned Paketo builder. Required.
 - `DEPLOYER_SELF_IMAGE`: the control plane's own image reference, reused as the build Job's init container. Required.
 - `DEPLOYER_BUILD_NAMESPACE`: already in spec 0001, now given a real value, `deployer-builds`.

@@ -44,6 +44,7 @@ func TestFirstDeployOverrides(t *testing.T) {
 	c, err := Load(with(map[string]string{
 		"DEPLOYER_BOOTSTRAP_TOKEN":            "dpl_secret",
 		"DEPLOYER_PUBLIC_URL":                 "https://deployer.example.ts.net/",
+		"DEPLOYER_INTERNAL_URL":               "http://deployer.deployer-system.svc/",
 		"DEPLOYER_DEPLOY_TIMEOUT_SECONDS":     "900",
 		"DEPLOYER_BUILD_TIMEOUT_SECONDS":      "300",
 		"DEPLOYER_READY_TIMEOUT_SECONDS":      "45",
@@ -153,7 +154,7 @@ func TestFirstDeployRejectsBadValues(t *testing.T) {
 func TestFirstDeployRequiresItsRequiredVars(t *testing.T) {
 	m := map[string]string{}
 	for k, v := range valid {
-		if k == "DEPLOYER_PUBLIC_URL" || k == "DEPLOYER_BUILDER_IMAGE" || k == "DEPLOYER_SELF_IMAGE" {
+		if k == "DEPLOYER_PUBLIC_URL" || k == "DEPLOYER_INTERNAL_URL" || k == "DEPLOYER_BUILDER_IMAGE" || k == "DEPLOYER_SELF_IMAGE" {
 			continue
 		}
 		m[k] = v
@@ -162,7 +163,7 @@ func TestFirstDeployRequiresItsRequiredVars(t *testing.T) {
 	if err == nil {
 		t.Fatal("want an error, got nil")
 	}
-	for _, want := range []string{"DEPLOYER_PUBLIC_URL", "DEPLOYER_BUILDER_IMAGE", "DEPLOYER_SELF_IMAGE"} {
+	for _, want := range []string{"DEPLOYER_PUBLIC_URL", "DEPLOYER_INTERNAL_URL", "DEPLOYER_BUILDER_IMAGE", "DEPLOYER_SELF_IMAGE"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q does not mention %s", err, want)
 		}

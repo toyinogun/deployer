@@ -17,6 +17,7 @@ var valid = map[string]string{
 	"DEPLOYER_APP_DOMAIN":        "apps.example.ts.net",
 	"DEPLOYER_NAMESPACE":         "deployer-system",
 	"DEPLOYER_PUBLIC_URL":        "https://deployer.example.ts.net",
+	"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",
 	"DEPLOYER_BUILDER_IMAGE":     "paketobuildpacks/builder-jammy-base@sha256:" + strings.Repeat("a", 64),
 	"DEPLOYER_SELF_IMAGE":        "ghcr.io/toyinogun/deployer@sha256:" + strings.Repeat("b", 64),
 }

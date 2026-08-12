@@ -61,15 +61,25 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 
 	c.BootstrapToken = getenv("DEPLOYER_BOOTSTRAP_TOKEN")
 	c.PublicURL = required("PUBLIC_URL")
+	c.InternalURL = required("INTERNAL_URL")
 	c.BuilderImage = required("BUILDER_IMAGE")
 	c.SelfImage = required("SELF_IMAGE")
 
-	if c.PublicURL != "" {
-		u, err := url.Parse(c.PublicURL)
-		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			errs = append(errs, fmt.Sprintf("DEPLOYER_PUBLIC_URL must be an absolute http or https address, got %q", c.PublicURL))
+	for _, addr := range []struct {
+		key   string
+		value *string
+	}{
+		{"DEPLOYER_PUBLIC_URL", &c.PublicURL},
+		{"DEPLOYER_INTERNAL_URL", &c.InternalURL},
+	} {
+		if *addr.value == "" {
+			continue
 		}
-		c.PublicURL = strings.TrimRight(c.PublicURL, "/")
+		u, err := url.Parse(*addr.value)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			errs = append(errs, fmt.Sprintf("%s must be an absolute http or https address, got %q", addr.key, *addr.value))
+		}
+		*addr.value = strings.TrimRight(*addr.value, "/")
 	}
 	// Both images run somewhere the platform cannot re-check later, so a mutable
 	// tag here would quietly break the rule that the platform only ever runs what

@@ -150,7 +150,7 @@ func (w *world) reconciler(reg reconcile.Registry) *reconcile.Reconciler {
 		IngressClassName:      "nginx",
 		SelfImage:             "ghcr.io/x/deployer@" + testDigest,
 		BuilderImage:          "paketobuildpacks/builder@" + testDigest,
-		PublicURL:             "https://deployer.example.org",
+		InternalURL:           "http://deployer.deployer-system.svc",
 		RegistryHost:          "registry.deployer-system:5000",
 		RegistryUser:          "deployer",
 		RegistryPass:          "secret",
@@ -316,6 +316,38 @@ func assertFailed(t *testing.T, w *world, code string) {
 	}
 	if !domain.Reason(*dep.FailureReason).Valid() {
 		t.Errorf("failure reason %q is outside the closed set", *dep.FailureReason)
+	}
+}
+
+// The init container runs on cluster DNS, which cannot resolve the tailnet name
+// the public address carries, so the fetch address has to come from the in
+// cluster one. Taking it from DEPLOYER_PUBLIC_URL made every real build die in
+// its init container with "no such host", while every fake clientset test
+// stayed green, because nothing here resolves a name.
+func TestTheBuildFetchesThroughTheInClusterAddress(t *testing.T) {
+	w := setup(t)
+	w.buildEnds(batchv1.JobComplete)
+	w.appComesUp()
+	ctx := t.Context()
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}).Drive(ctx, toLoop(w.deployment))
+
+	jobs, err := w.clientset.BatchV1().Jobs("deployer-builds").List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("reading the build job: %v", err)
+	}
+	if len(jobs.Items) != 1 {
+		t.Fatalf("build jobs = %d, want 1", len(jobs.Items))
+	}
+	var fetch string
+	for _, env := range jobs.Items[0].Spec.Template.Spec.InitContainers[0].Env {
+		if env.Name == "DEPLOYER_FETCH_URL" {
+			fetch = env.Value
+		}
+	}
+	want := "http://deployer.deployer-system.svc/v1/uploads/" + *w.deployment.UploadID
+	if fetch != want {
+		t.Errorf("DEPLOYER_FETCH_URL = %q, want %q", fetch, want)
 	}
 }
 

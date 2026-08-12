@@ -196,7 +196,7 @@ func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, up
 			IngressClassName:      cfg.IngressClassName,
 			SelfImage:             cfg.SelfImage,
 			BuilderImage:          cfg.BuilderImage,
-			PublicURL:             cfg.PublicURL,
+			InternalURL:           cfg.InternalURL,
 			RegistryHost:          cfg.RegistryHost,
 			RegistryUser:          cfg.RegistryUser,
 			RegistryPass:          cfg.RegistryPass,

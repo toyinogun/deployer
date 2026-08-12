@@ -48,6 +48,10 @@ type Config struct {
 	// PublicURL is the platform's own reachable base address. It goes into the
 	// deploy_app tool description, so an agent can only upload if it is right.
 	PublicURL string
+	// InternalURL is the platform's address as reached from inside the cluster.
+	// The build Job's init container fetches the source through it, and it runs
+	// on cluster DNS, which cannot resolve the tailnet name PublicURL carries.
+	InternalURL string
 	// BuilderImage is the digest pinned Paketo builder the lifecycle runs from.
 	BuilderImage string
 	// SelfImage is the control plane's own image, reused as the build Job's init

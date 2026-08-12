@@ -25,6 +25,12 @@ data:
   # match ingress.yaml's host.
   DEPLOYER_PUBLIC_URL: https://deployer.tail62ceef.ts.net
 
+  # The same control plane, as reached from inside the cluster. The build Job's
+  # init container fetches the uploaded source through this, and it resolves on
+  # cluster DNS, which knows nothing of the tailnet name above. It must match
+  # service.yaml's name and port.
+  DEPLOYER_INTERNAL_URL: http://deployer.deployer-system.svc
+
   # The Paketo builder every build runs the lifecycle from, pinned by digest so a
   # builder bump is a deliberate commit. This is `builder-jammy-base:latest` as
   # it resolved on 2026-08-12; builder tags move, so re-resolve rather than
