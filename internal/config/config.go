@@ -82,6 +82,17 @@ type Config struct {
 	// unpack, so a zip bomb fails the deployment rather than the node.
 	MaxUploadFiles    int
 	MaxExtractedBytes int64
+
+	// Added by spec 0007, accounts and API tokens.
+
+	// ResendAPIKey is the credential the mail sender posts with. Optional: unset
+	// means no sender, and the endpoints that exist only to send mail answer
+	// mail_unavailable while everything else works normally (AC-26). Never logged.
+	ResendAPIKey string
+	// MailFrom is the address every message is sent as. Required whenever
+	// ResendAPIKey is set, and validated together with it here rather than
+	// discovered to be empty by the first registration.
+	MailFrom string
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -195,6 +206,7 @@ func Load(getenv func(string) string) (Config, error) {
 	deployMissing, deployErrs := loadFirstDeploy(getenv, &c)
 	missing = append(missing, deployMissing...)
 	errs = append(errs, deployErrs...)
+	errs = append(errs, loadIdentity(getenv, &c)...)
 
 	if len(missing) > 0 {
 		errs = append(errs, "missing required environment: "+strings.Join(missing, ", "))
