@@ -9,21 +9,37 @@ import (
 	"context"
 )
 
-const consumeEmailToken = `-- name: ConsumeEmailToken :execrows
-UPDATE email_tokens SET consumed_at = ?1 WHERE id = ?2 AND consumed_at IS NULL
+const consumeEmailToken = `-- name: ConsumeEmailToken :one
+UPDATE email_tokens SET consumed_at = ?1
+WHERE token_hash = ?2
+  AND purpose = ?3
+  AND consumed_at IS NULL
+  AND expires_at > ?1
+RETURNING id, account_id, purpose, token_hash, expires_at, consumed_at, created_at
 `
 
 type ConsumeEmailTokenParams struct {
-	Now *string
-	ID  string
+	Now       *string
+	TokenHash string
+	Purpose   string
 }
 
-func (q *Queries) ConsumeEmailToken(ctx context.Context, arg ConsumeEmailTokenParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, consumeEmailToken, arg.Now, arg.ID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+// Spending a link is one statement, matched and consumed together, so a link
+// presented twice at once is spent once without a transaction that reads and
+// then writes.
+func (q *Queries) ConsumeEmailToken(ctx context.Context, arg ConsumeEmailTokenParams) (EmailToken, error) {
+	row := q.db.QueryRowContext(ctx, consumeEmailToken, arg.Now, arg.TokenHash, arg.Purpose)
+	var i EmailToken
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Purpose,
+		&i.TokenHash,
+		&i.ExpiresAt,
+		&i.ConsumedAt,
+		&i.CreatedAt,
+	)
+	return i, err
 }
 
 const consumeLiveEmailTokens = `-- name: ConsumeLiveEmailTokens :execrows
@@ -45,19 +61,6 @@ func (q *Queries) ConsumeLiveEmailTokens(ctx context.Context, arg ConsumeLiveEma
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const countEmailAccounts = `-- name: CountEmailAccounts :one
-SELECT COUNT(*) FROM accounts WHERE email IS NOT NULL
-`
-
-// The first admin rule, asked inside the creating transaction. The bootstrap
-// account holds a null email, so it never counts as the first (AC-4).
-func (q *Queries) CountEmailAccounts(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, countEmailAccounts)
-	var count int64
-	err := row.Scan(&count)
-	return count, err
 }
 
 const createEmailToken = `-- name: CreateEmailToken :one
@@ -100,7 +103,9 @@ func (q *Queries) CreateEmailToken(ctx context.Context, arg CreateEmailTokenPara
 const createIdentityAccount = `-- name: CreateIdentityAccount :one
 
 INSERT INTO accounts (id, name, email, password_hash, display_name, is_admin, created_at, updated_at)
-VALUES (?1, ?1, ?2, ?3, ?4, ?5, ?6, ?6)
+SELECT ?1, ?1, ?2, ?3, ?4,
+       CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE email IS NOT NULL) THEN 0 ELSE 1 END,
+       ?5, ?5
 RETURNING id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name
 `
 
@@ -109,7 +114,6 @@ type CreateIdentityAccountParams struct {
 	Email        *string
 	PasswordHash *string
 	DisplayName  *string
-	IsAdmin      int64
 	Now          string
 }
 
@@ -118,13 +122,17 @@ type CreateIdentityAccountParams struct {
 // Registration writes the account's own id into name, so the NOT NULL UNIQUE
 // constraint that column was designed with is satisfied by construction and never
 // becomes a user visible collision. The human label lives in display_name.
+//
+// The first admin rule is computed inside this one statement rather than by a
+// count and then an insert (AC-4). One statement is atomic on its own, so two
+// concurrent first registrations cannot both come out admin, and no transaction
+// has to read and then upgrade its lock to write.
 func (q *Queries) CreateIdentityAccount(ctx context.Context, arg CreateIdentityAccountParams) (Account, error) {
 	row := q.db.QueryRowContext(ctx, createIdentityAccount,
 		arg.ID,
 		arg.Email,
 		arg.PasswordHash,
 		arg.DisplayName,
-		arg.IsAdmin,
 		arg.Now,
 	)
 	var i Account
@@ -219,37 +227,6 @@ func (q *Queries) GetAccountByEmail(ctx context.Context, email *string) (Account
 		&i.EmailVerifiedAt,
 		&i.IsAdmin,
 		&i.DisplayName,
-	)
-	return i, err
-}
-
-const getLiveEmailToken = `-- name: GetLiveEmailToken :one
-SELECT id, account_id, purpose, token_hash, expires_at, consumed_at, created_at FROM email_tokens
-WHERE token_hash = ?1
-  AND purpose = ?2
-  AND consumed_at IS NULL
-  AND expires_at > ?3
-`
-
-type GetLiveEmailTokenParams struct {
-	TokenHash string
-	Purpose   string
-	Now       string
-}
-
-// Matched on the hash and the purpose together, never the hash alone, so a link
-// minted to verify an address cannot be spent to reset the password on it (AC-5).
-func (q *Queries) GetLiveEmailToken(ctx context.Context, arg GetLiveEmailTokenParams) (EmailToken, error) {
-	row := q.db.QueryRowContext(ctx, getLiveEmailToken, arg.TokenHash, arg.Purpose, arg.Now)
-	var i EmailToken
-	err := row.Scan(
-		&i.ID,
-		&i.AccountID,
-		&i.Purpose,
-		&i.TokenHash,
-		&i.ExpiresAt,
-		&i.ConsumedAt,
-		&i.CreatedAt,
 	)
 	return i, err
 }

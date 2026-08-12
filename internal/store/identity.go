@@ -36,45 +36,29 @@ type NewIdentityAccount struct {
 	DisplayName  string
 }
 
-// CreateIdentityAccount registers a person. The first admin rule is computed
-// inside the same transaction as the insert, so two concurrent first
-// registrations cannot both come out admin (AC-4).
+// CreateIdentityAccount registers a person.
+//
+// One statement, not a transaction: the first admin rule is a CASE inside the
+// insert, so it is decided atomically without the statement first reading and
+// then upgrading its lock to write. Two concurrent first registrations cannot
+// both come out admin (AC-4).
 //
 // A second registration of the same address loses on the partial unique index
 // and comes back as ErrEmailTaken. That is the only way this is detected: a read
 // before the write would leave a race the database has already closed.
 func (s *Store) CreateIdentityAccount(ctx context.Context, n NewIdentityAccount) (Account, error) {
-	now := s.now()
-	id := ids.New(ids.Account, s.clock.Now())
-
-	var acc Account
-	err := s.inTx(ctx, func(q *sqlcgen.Queries) error {
-		existing, err := q.CountEmailAccounts(ctx)
-		if err != nil {
-			return fmt.Errorf("store: counting registered accounts: %w", err)
-		}
-		var isAdmin int64
-		if existing == 0 {
-			isAdmin = 1
-		}
-		acc, err = q.CreateIdentityAccount(ctx, sqlcgen.CreateIdentityAccountParams{
-			ID:           id,
-			Email:        ptr(n.Email),
-			PasswordHash: ptr(n.PasswordHash),
-			DisplayName:  ptr(n.DisplayName),
-			IsAdmin:      isAdmin,
-			Now:          now,
-		})
-		if isUniqueViolation(err) {
-			return ErrEmailTaken
-		}
-		if err != nil {
-			return fmt.Errorf("store: creating an account: %w", err)
-		}
-		return nil
+	acc, err := s.q.CreateIdentityAccount(ctx, sqlcgen.CreateIdentityAccountParams{
+		ID:           ids.New(ids.Account, s.clock.Now()),
+		Email:        ptr(n.Email),
+		PasswordHash: ptr(n.PasswordHash),
+		DisplayName:  ptr(n.DisplayName),
+		Now:          s.now(),
 	})
+	if isUniqueViolation(err) {
+		return Account{}, ErrEmailTaken
+	}
 	if err != nil {
-		return Account{}, err
+		return Account{}, fmt.Errorf("store: creating an account: %w", err)
 	}
 	return acc, nil
 }
@@ -274,33 +258,17 @@ func (s *Store) CreateEmailToken(ctx context.Context, accountID, purpose, tokenH
 // Unknown, already consumed, expired, and minted for the other purpose are all
 // the same ErrLinkInvalid, in the same words (AC-5).
 //
-// The lookup and the consumption share a transaction, so a link presented twice
-// at once is spent once.
+// One statement matches and consumes together, so a link presented twice at once
+// is spent once, and nothing has to hold a transaction open to make that true.
 func (s *Store) ConsumeEmailToken(ctx context.Context, tokenHash, purpose string) (EmailToken, error) {
-	now := s.now()
-	var tok EmailToken
-	err := s.inTx(ctx, func(q *sqlcgen.Queries) error {
-		var err error
-		tok, err = q.GetLiveEmailToken(ctx, sqlcgen.GetLiveEmailTokenParams{
-			TokenHash: tokenHash, Purpose: purpose, Now: now,
-		})
-		if errors.Is(err, sql.ErrNoRows) {
-			return ErrLinkInvalid
-		}
-		if err != nil {
-			return fmt.Errorf("store: reading a link: %w", err)
-		}
-		n, err := q.ConsumeEmailToken(ctx, sqlcgen.ConsumeEmailTokenParams{Now: ptr(now), ID: tok.ID})
-		if err != nil {
-			return fmt.Errorf("store: consuming link %s: %w", tok.ID, err)
-		}
-		if n == 0 {
-			return ErrLinkInvalid
-		}
-		return nil
+	tok, err := s.q.ConsumeEmailToken(ctx, sqlcgen.ConsumeEmailTokenParams{
+		TokenHash: tokenHash, Purpose: purpose, Now: ptr(s.now()),
 	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return EmailToken{}, ErrLinkInvalid
+	}
 	if err != nil {
-		return EmailToken{}, err
+		return EmailToken{}, fmt.Errorf("store: consuming a link: %w", err)
 	}
 	return tok, nil
 }

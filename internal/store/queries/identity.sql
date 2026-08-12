@@ -4,18 +4,20 @@
 -- Registration writes the account's own id into name, so the NOT NULL UNIQUE
 -- constraint that column was designed with is satisfied by construction and never
 -- becomes a user visible collision. The human label lives in display_name.
+--
+-- The first admin rule is computed inside this one statement rather than by a
+-- count and then an insert (AC-4). One statement is atomic on its own, so two
+-- concurrent first registrations cannot both come out admin, and no transaction
+-- has to read and then upgrade its lock to write.
 -- name: CreateIdentityAccount :one
 INSERT INTO accounts (id, name, email, password_hash, display_name, is_admin, created_at, updated_at)
-VALUES (@id, @id, @email, @password_hash, @display_name, @is_admin, @now, @now)
+SELECT @id, @id, @email, @password_hash, @display_name,
+       CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE email IS NOT NULL) THEN 0 ELSE 1 END,
+       @now, @now
 RETURNING *;
 
 -- name: GetAccountByEmail :one
 SELECT * FROM accounts WHERE email = @email;
-
--- The first admin rule, asked inside the creating transaction. The bootstrap
--- account holds a null email, so it never counts as the first (AC-4).
--- name: CountEmailAccounts :one
-SELECT COUNT(*) FROM accounts WHERE email IS NOT NULL;
 
 -- name: ListAccounts :many
 SELECT * FROM accounts ORDER BY created_at DESC;
@@ -65,17 +67,16 @@ INSERT INTO email_tokens (id, account_id, purpose, token_hash, expires_at, creat
 VALUES (@id, @account_id, @purpose, @token_hash, @expires_at, @now)
 RETURNING *;
 
--- Matched on the hash and the purpose together, never the hash alone, so a link
--- minted to verify an address cannot be spent to reset the password on it (AC-5).
--- name: GetLiveEmailToken :one
-SELECT * FROM email_tokens
+-- Spending a link is one statement, matched and consumed together, so a link
+-- presented twice at once is spent once without a transaction that reads and
+-- then writes.
+-- name: ConsumeEmailToken :one
+UPDATE email_tokens SET consumed_at = @now
 WHERE token_hash = @token_hash
   AND purpose = @purpose
   AND consumed_at IS NULL
-  AND expires_at > @now;
-
--- name: ConsumeEmailToken :execrows
-UPDATE email_tokens SET consumed_at = @now WHERE id = @id AND consumed_at IS NULL;
+  AND expires_at > @now
+RETURNING *;
 
 -- Supersedes whatever link the account holds for that purpose, so a resend leaves
 -- exactly one live link rather than two working ones (AC-6).
