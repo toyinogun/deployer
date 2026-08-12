@@ -139,7 +139,7 @@ spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `int
 - [ ] Verify it: `/check verify async deployment jobs & status` — includes the real deploy from an agent session, AC-19
 - [x] Test it: `/test async deployment jobs & status`
 - [x] Review it (fresh model): `/check review async deployment jobs & status`
-- [ ] Document it: `/document async deployment jobs & status`
+- [x] Document it: `/document async deployment jobs & status`
 
 ## Slice 3: Application logs
 
