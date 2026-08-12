@@ -1,7 +1,7 @@
 # 0004. First deploy end to end: the tracer bullet from MCP call to a running app
 
 **Date**: 2026-08-12
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
@@ -193,15 +193,15 @@ Who moves each arrow, and what has been committed by the time it moves:
 
 Tracer Bullet, so the thread is threaded before any segment is thickened. Steps 1 to 7 are the thinnest thing that can carry one real deploy; 8 onward harden it. No migration: spec 0002's schema already covers this feature.
 
-1. Close spec 0002's open step 8 first: define the narrow per domain store interfaces in the consuming packages and have `internal/store` satisfy them, so nothing this feature adds imports the store. Prerequisite, satisfies no AC of its own.
-2. Add the registry to `deploy/`: `distribution` v3, a Longhorn PVC, a ClusterIP Service, and the htpasswd `SealedSecret`, plus the `deployer-builds` namespace with `enforce: restricted`. Prove a push and a pull by hand from inside the cluster. Satisfies **AC-20**, and the namespace half of **AC-7**.
-3. Add every new setting to `internal/config` with validation and table tests, and the bootstrap seeding at startup. Satisfies **AC-1**, **AC-17**.
-4. Build the upload endpoint and its auth middleware: bearer resolution, the size capped streaming write, the SHA-256, the fetch token, and the audit row. Satisfies **AC-2**, **AC-19**.
-5. Add the `fetch-source` subcommand with the hardened extractor and its hostile archive tests, and the `GET /v1/uploads/{id}` redeem path. Satisfies **AC-8**.
-6. Compose and create the build Job: the per Job registry secret owner referenced to it, the init container with its freshly minted fetch token and expected `sha256`, the pinned builder running `lifecycle -creator`, the security context, `backoffLimit: 0`, and the deadlines. Satisfies **AC-7**, **AC-9**.
+1. [x] Close spec 0002's open step 8 first: define the narrow per domain store interfaces in the consuming packages and have `internal/store` satisfy them, so nothing this feature adds imports the store. Prerequisite, satisfies no AC of its own.
+2. [x] Add the registry to `deploy/`: `distribution` v3, a Longhorn PVC, a ClusterIP Service, and the htpasswd `SealedSecret`, plus the `deployer-builds` namespace with `enforce: restricted`. Prove a push and a pull by hand from inside the cluster. Satisfies **AC-20**, and the namespace half of **AC-7**.
+3. [x] Add every new setting to `internal/config` with validation and table tests, and the bootstrap seeding at startup. Satisfies **AC-1**, **AC-17**.
+4. [x] Build the upload endpoint and its auth middleware: bearer resolution, the size capped streaming write, the SHA-256, the fetch token, and the audit row. Satisfies **AC-2**, **AC-19**.
+5. [x] Add the `fetch-source` subcommand with the hardened extractor and its hostile archive tests, and the `GET /v1/uploads/{id}` redeem path. Satisfies **AC-8**.
+6. [x] Compose and create the build Job: the per Job registry secret owner referenced to it, the init container with its freshly minted fetch token and expected `sha256`, the pinned builder running `lifecycle -creator`, the security context, `backoffLimit: 0`, and the deadlines. Satisfies **AC-7**, **AC-9**.
 7. Compose the app side: namespace from the template, pull secret, Deployment, Service, Ingress, all field by field and all create or update, with golden tests. Satisfies **AC-11**, **AC-12**, **AC-13**.
 8. Wire the reconcile loop: the serial claim, the tick, the phase transitions, the readiness wait, `MarkHealthy`, and deleting the tarball on any terminal state. Satisfies **AC-5**, **AC-6**, **AC-14**, **AC-22**.
-9. Add the registry client: resolve the pushed tag to a digest, and read the image config for the non root check, before any workload is composed. Satisfies **AC-9**, **AC-10**.
+9. [x] Add the registry client: resolve the pushed tag to a digest, and read the image config for the non root check, before any workload is composed. Satisfies **AC-9**, **AC-10**.
 10. Add the MCP server and the one `deploy_app` tool, with its description, its wait on committed state, and its success response. Satisfies **AC-3**, **AC-4**, **AC-15**.
 11. Map every internal error to the closed reason code set, at both the response and the `failure_reason` boundary, and confirm no build output crosses either. Satisfies **AC-16**.
 12. Add the startup sweep for non terminal deployments, resuming a live Job and failing a vanished one. Satisfies **AC-18**.

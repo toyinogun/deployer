@@ -111,13 +111,13 @@ spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `int
 ### 5. First deploy end to end · in-progress
 The tracer bullet, and the walking skeleton in one. An agent holding a valid token calls one MCP tool, the source tarball uploads, Buildpacks builds an image, the platform deploys it to k3s with enforced defaults, and the agent gets back a healthy hostname. Real auth, real build, real cluster, deliberately narrow: one token, one sample app, one language, no status polling, no logs, no rollback yet.
 **Done when:** from a fresh Claude Code session you can say "deploy this app" and reach the running app on its hostname, with the deployment recorded against a real account and app record.
-spec [0004](../specs/0004-first-deploy-end-to-end/index.md)
+spec [0004](../specs/0004-first-deploy-end-to-end/index.md) · code in `internal/auth`, `internal/uploads`, `internal/source`, `internal/httpapi`, `internal/build`, `internal/registry`, `deploy`
 - [x] Design it (spec): `/architect first deploy end to end`
 - [ ] Build it: `/develop first deploy end to end`
-  - [ ] Store interfaces, the registry and build namespace, config and bootstrap seeding — AC-1, AC-17, AC-20
-  - [ ] The upload endpoint, the hardened `fetch-source` extractor, and the redeem path — AC-2, AC-8, AC-19
-  - [ ] The build Job and the registry client: digest resolve and the non root image check — AC-7, AC-9, AC-10
-  - [ ] App side composition: namespace, pull secret, Deployment, Service, Ingress — AC-11, AC-12, AC-13
+  - [x] Store interfaces, the registry and build namespace, config and bootstrap seeding — AC-1, AC-17, AC-20
+  - [x] The upload endpoint, the hardened `fetch-source` extractor, and the redeem path — AC-2, AC-8, AC-19
+  - [x] The build Job and the registry client: digest resolve and the non root image check — AC-7, AC-9, AC-10
+  - [ ] App side composition: namespace, pull secret, Deployment, Service, Ingress — AC-11, AC-12, AC-13. Blocked: `ClusterRole/deployer-app` grants no `limitranges`, which AC-11 needs. Run `/architect cluster foundation: the ClusterRole omits limitranges` first
   - [ ] The reconcile loop, the `deploy_app` tool, reason codes, the startup sweep, and the real deploy — AC-3, AC-4, AC-5, AC-6, AC-14, AC-15, AC-16, AC-18, AC-21, AC-22
 - [ ] Verify it: `/check verify first deploy end to end`
 - [ ] Test it: `/test first deploy end to end`
