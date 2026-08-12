@@ -15,7 +15,13 @@ spec:
   storageClassName: longhorn
   resources:
     requests:
-      storage: 50Gi
+      # 20Gi rather than 50Gi because Longhorn replicates this three ways and
+      # this cluster cannot schedule a 50Gi replica beside the volumes it
+      # already carries. The registry has no garbage collection yet (spec 0004
+      # follow-up), so this fills eventually: every deploy pushes an image and
+      # nothing deletes one. Growing it means a new PVC, since Longhorn expands
+      # but never shrinks.
+      storage: 20Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
