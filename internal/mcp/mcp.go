@@ -1,10 +1,11 @@
-// Package mcp is the agent facing tool surface: one tool, deploy_app, served
-// over the streamable HTTP transport beside the upload endpoint.
+// Package mcp is the agent facing tool surface: deploy_app and
+// deployment_status, served over the streamable HTTP transport beside the upload
+// endpoint.
 //
-// The handler observes and never acts. It resolves the upload, resolves or
-// creates the app, writes a queued deployment, and then only ever reads
-// committed state until that deployment is terminal. Everything that happens in
-// between is the reconcile loop's (spec 0004, Key invariants).
+// The handler observes and never acts. deploy_app resolves the upload, resolves
+// or creates the app, writes a queued deployment, and returns without reading
+// anything back; deployment_status is a pure read. Everything in between is the
+// reconcile loop's (spec 0004, Key invariants; spec 0005, AC-3).
 package mcp
 
 import (
@@ -27,6 +28,12 @@ var ErrNoApp = errors.New("mcp: no such app")
 // ErrNoUpload means the upload id resolved to nothing.
 var ErrNoUpload = errors.New("mcp: no such upload")
 
+// ErrNoDeployment means the deployment id or the app's deployment history
+// resolved to nothing. A deployment belonging to another account is refused with
+// the same answer, so status cannot be used to learn which ids exist
+// (spec 0005, AC-9).
+var ErrNoDeployment = errors.New("mcp: no such deployment")
+
 // App is one deployed application, carrying only what a response reads.
 type App struct {
 	ID   string
@@ -42,9 +49,21 @@ type Upload struct {
 	Redeemed  bool
 }
 
-// Outcome is where a deployment has got to, read back off committed state.
-type Outcome struct {
+// Deployment is one deployment as a status read sees it. AccountID is carried so
+// the scope check happens here, before any field is projected.
+type Deployment struct {
+	ID        string
+	AppID     string
+	AccountID string
+	State     domain.State
+	Reason    domain.Reason
+}
+
+// Event is one entry of a deployment's timeline, already projected: the events
+// table's detail column has no field to arrive in (spec 0005, AC-8).
+type Event struct {
 	State  domain.State
+	At     string
 	Reason domain.Reason
 }
 
@@ -58,16 +77,26 @@ type Release struct {
 type Apps interface {
 	// ByName returns the account's app under that name, or ErrNoApp.
 	ByName(ctx context.Context, accountID, name string) (App, error)
+	// Get reads the app a deployment belongs to.
+	Get(ctx context.Context, appID string) (App, error)
 	// Create registers an app, deriving its permanent slug from the name.
 	Create(ctx context.Context, accountID, name string) (App, error)
 }
 
-// Deployments is the slice of persistence this package needs for the wait.
+// Deployments is the slice of persistence this package needs.
 type Deployments interface {
 	// Create writes a queued deployment, superseding anything in flight.
 	Create(ctx context.Context, appID, accountID, uploadID string) (string, error)
-	// Outcome reads a deployment's committed state.
-	Outcome(ctx context.Context, deploymentID string) (Outcome, error)
+	// Get reads one deployment, or ErrNoDeployment.
+	Get(ctx context.Context, deploymentID string) (Deployment, error)
+	// LatestForApp reads an app's most recent deployment by created_at, or
+	// ErrNoDeployment when the app has never been deployed.
+	LatestForApp(ctx context.Context, appID string) (Deployment, error)
+	// NextForApp returns the id of the app's next deployment after this one,
+	// ordered by id, or an empty string when there is none.
+	NextForApp(ctx context.Context, appID, after string) (string, error)
+	// Events returns a deployment's timeline in occurred_at order.
+	Events(ctx context.Context, deploymentID string) ([]Event, error)
 	// Release reads the release a healthy deployment minted.
 	Release(ctx context.Context, deploymentID string) (Release, error)
 }
@@ -79,11 +108,8 @@ type Uploads interface {
 
 // Options is what the tool surface needs from configuration.
 type Options struct {
-	PublicURL    string
-	AppDomain    string
-	DeployBudget time.Duration // DEPLOYER_DEPLOY_TIMEOUT_SECONDS
-	PollInterval time.Duration // DEPLOYER_RECONCILE_INTERVAL_SECONDS, so the
-	// handler can never poll faster than state can change
+	PublicURL string
+	AppDomain string
 }
 
 // Server is the MCP surface.
@@ -107,19 +133,20 @@ type deployInput struct {
 	UploadID string `json:"upload_id" jsonschema:"the id returned by POST /v1/uploads"`
 }
 
-// deployOutput is what a successful deploy reports.
+// deployOutput is what an accepted deploy reports. It carries no release number
+// and no digest, because the deploy has not been built yet (spec 0005, AC-2).
 type deployOutput struct {
-	Name          string `json:"name"`
-	Slug          string `json:"slug"`
-	URL           string `json:"url"`
-	DeploymentID  string `json:"deployment_id"`
-	ReleaseNumber int64  `json:"release_number"`
-	ImageDigest   string `json:"image_digest"`
+	Name         string `json:"name"`
+	Slug         string `json:"slug"`
+	URL          string `json:"url"`
+	DeploymentID string `json:"deployment_id"`
+	State        string `json:"state"`
 }
 
 // toolDescription is part of the contract rather than decoration: it is the only
 // place an agent learns that the source must be uploaded first, where to upload
-// it, and what an app has to do to be deployable (spec 0004, API surface).
+// it, that the call does not wait for the build, and what an app has to do to be
+// deployable (spec 0004, API surface; spec 0005, AC-4).
 func (s *Server) toolDescription() string {
 	return fmt.Sprintf(`Deploy an application to the cluster and return its public URL.
 
@@ -129,8 +156,14 @@ Upload the source first, from the app's root directory:
     -H "Authorization: Bearer $DEPLOYER_TOKEN" \
     --data-binary @- < <(tar czf - .)
 
-Pass the upload_id it returns here. This call runs for minutes on a first
-build, because the source is built with Cloud Native Buildpacks from cold.
+Pass the upload_id it returns here. This call returns straight away with a
+deployment_id and the state "queued"; it does not wait for the build. Call
+deployment_status with that deployment_id to learn how the deploy ended. A
+first build takes a few minutes, because the source is built with Cloud Native
+Buildpacks from cold; a later build of the same app is faster.
+
+The URL in this response is the app's permanent hostname, but it does not serve
+anything until deployment_status reports "healthy".
 
 The app must listen on the port given in the PORT environment variable, and
 its image must run as a non root user. Deploying the same name again replaces
@@ -145,9 +178,9 @@ func (s *Server) Handler() http.Handler {
 	}, nil))
 }
 
-// serverFor builds the one tool server bound to the calling account. A server
-// per request is what keeps the account out of the tool arguments, where a
-// caller could have chosen it.
+// serverFor builds the tool server bound to the calling account. A server per
+// request is what keeps the account out of the tool arguments, where a caller
+// could have chosen it.
 func (s *Server) serverFor(account auth.Account) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "deployer",
@@ -161,10 +194,19 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deployInput) (*mcp.CallToolResult, deployOutput, error) {
 		return s.deploy(ctx, account, in)
 	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "deployment_status",
+		Title:       "Check a deployment",
+		Description: statusDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in statusInput) (*mcp.CallToolResult, statusOutput, error) {
+		return s.status(ctx, account, in)
+	})
 	return srv
 }
 
-// deploy is the tool itself: validate, record, wait, report.
+// deploy is the tool itself: validate, record, report. It does not wait: the
+// deployment is the loop's from the moment the row is written, and the caller
+// reads its outcome back through deployment_status (spec 0005, AC-1).
 func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInput) (*mcp.CallToolResult, deployOutput, error) {
 	if in.Name == "" || in.UploadID == "" {
 		return nil, deployOutput{}, s.deny(ctx, account.ID, "", domain.ReasonUploadInvalid,
@@ -191,27 +233,21 @@ func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInpu
 		TargetType: "app", TargetID: app.ID, Allowed: true,
 	})
 
-	outcome, err := s.wait(ctx, deploymentID)
-	if err != nil {
-		return nil, deployOutput{}, toolError(domain.ReasonTimeout, err)
-	}
-	if outcome.State != domain.StateHealthy {
-		return nil, deployOutput{}, toolError(outcome.Reason,
-			fmt.Errorf("deployment %s ended %s", deploymentID, outcome.State))
-	}
-
-	release, err := s.deployments.Release(ctx, deploymentID)
-	if err != nil {
-		return nil, deployOutput{}, toolError(domain.ReasonInternal, err)
-	}
+	// The row was just written queued and nothing is read back, so the state is
+	// the constant rather than a read (spec 0005, AC-2).
 	return nil, deployOutput{
-		Name:          app.Name,
-		Slug:          app.Slug,
-		URL:           "https://" + app.Slug + "." + s.opts.AppDomain,
-		DeploymentID:  deploymentID,
-		ReleaseNumber: release.Number,
-		ImageDigest:   release.Digest,
+		Name:         app.Name,
+		Slug:         app.Slug,
+		URL:          s.appURL(app.Slug),
+		DeploymentID: deploymentID,
+		State:        string(domain.StateQueued),
 	}, nil
+}
+
+// appURL is the app's permanent address, composed from its slug rather than
+// stored, so it is known before anything is built.
+func (s *Server) appURL(slug string) string {
+	return "https://" + slug + "." + s.opts.AppDomain
 }
 
 // checkUpload refuses an upload that is unknown, spent, expired, or another
@@ -251,47 +287,23 @@ func (s *Server) resolveApp(ctx context.Context, accountID, name string) (App, e
 	return app, nil
 }
 
-// wait polls committed state until the deployment is terminal. It never
-// transitions anything: the loop owns every move, and this only reads.
-func (s *Server) wait(ctx context.Context, deploymentID string) (Outcome, error) {
-	ctx, cancel := context.WithTimeout(ctx, s.opts.DeployBudget)
-	defer cancel()
-
-	ticker := time.NewTicker(s.opts.PollInterval)
-	defer ticker.Stop()
-	for {
-		outcome, err := s.deployments.Outcome(ctx, deploymentID)
-		if err != nil {
-			slog.WarnContext(ctx, "reading a deployment failed, retrying", "deployment", deploymentID, "error", err)
-		} else if outcome.State.Terminal() {
-			return outcome, nil
-		}
-		select {
-		case <-ctx.Done():
-			// The call ran out of budget. The deployment itself is still the
-			// loop's to finish or fail; nothing here abandons it.
-			return Outcome{}, ctx.Err()
-		case <-ticker.C:
-		}
-	}
-}
-
-// deny records a refusal and turns it into the one line a caller sees.
+// deny records a refusal against deploy_app and turns it into the one line a
+// caller sees.
 func (s *Server) deny(ctx context.Context, accountID, appID string, reason domain.Reason, cause error) error {
 	entry := auth.Audit{AccountID: accountID, Action: auth.ActionDeploy, Reason: string(reason)}
 	if appID != "" {
 		entry.TargetType, entry.TargetID = "app", appID
 	}
 	auth.Record(ctx, s.auditor, entry)
-	return toolError(reason, cause)
+	return toolError(auth.ActionDeploy, reason, cause)
 }
 
 // toolError is the only shape a failure leaves this package in: a reason code
 // and its one sanitized line. The cause is logged here and goes no further, so
 // no build output, cluster message, or wrapped error reaches a caller (AC-16).
-func toolError(reason domain.Reason, cause error) error {
+func toolError(action string, reason domain.Reason, cause error) error {
 	if cause != nil {
-		slog.Error("deploy_app failed", "reason", reason, "error", cause)
+		slog.Error("an mcp tool failed", "tool", action, "reason", reason, "error", cause)
 	}
 	return fmt.Errorf("%s: %s", reason, reason.Message())
 }

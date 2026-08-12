@@ -1,12 +1,14 @@
 package domain
 
-// Reason is why a deployment failed. The set is closed on purpose: it is what a
-// caller sees, what `deployments.failure_reason` stores, and the whole of both.
-// Build output, wrapped errors, and cluster messages never cross this boundary
-// (spec 0004, AC-16).
+// Reason is why a deployment failed, or in the one case of ReasonSuperseded, why
+// it was cancelled. The set is closed on purpose: it is what a caller sees, what
+// `deployments.failure_reason` stores, and the whole of both. Build output,
+// wrapped errors, and cluster messages never cross this boundary (spec 0004,
+// AC-16).
 type Reason string
 
-// The nine failures a deploy can end in.
+// The eleven codes a deploy can end on. Nine are failures; ReasonSuperseded
+// describes a cancellation, and ReasonDeploymentUnknown a refused readback.
 const (
 	ReasonUploadInvalid   Reason = "upload_invalid"
 	ReasonUploadExpired   Reason = "upload_expired"
@@ -17,6 +19,12 @@ const (
 	ReasonAppNeverReady   Reason = "app_never_ready"
 	ReasonTimeout         Reason = "timeout"
 	ReasonInternal        Reason = "internal"
+	// ReasonDeploymentUnknown is the one answer a status read gives for an id or
+	// name that does not exist and for one belonging to another account.
+	ReasonDeploymentUnknown Reason = "deployment_unknown"
+	// ReasonSuperseded is why a deployment was cancelled: a later deploy of the
+	// same app replaced it. A cancellation, not a failure.
+	ReasonSuperseded Reason = "superseded"
 )
 
 // messages is the one short sanitized line each code carries. Written for the
@@ -32,9 +40,12 @@ var messages = map[Reason]string{
 	ReasonAppNeverReady:   "the app never accepted a connection on the port given in PORT",
 	ReasonTimeout:         "the deploy ran out of time",
 	ReasonInternal:        "the platform failed to complete the deploy",
+
+	ReasonDeploymentUnknown: "no deployment matches that id or name",
+	ReasonSuperseded:        "a later deploy of the same app replaced this one",
 }
 
-// Valid reports whether r is one of the nine codes.
+// Valid reports whether r is one of the eleven codes.
 func (r Reason) Valid() bool {
 	_, ok := messages[r]
 	return ok

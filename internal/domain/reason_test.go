@@ -7,9 +7,9 @@ import (
 	"github.com/toyinogun/deployer/internal/domain"
 )
 
-// theNine is the whole closed set. Written out rather than derived, so adding a
+// theSet is the whole closed set. Written out rather than derived, so adding a
 // code without deciding what a caller is told fails here.
-var theNine = []domain.Reason{
+var theSet = []domain.Reason{
 	domain.ReasonUploadInvalid,
 	domain.ReasonUploadExpired,
 	domain.ReasonSourceRejected,
@@ -19,12 +19,26 @@ var theNine = []domain.Reason{
 	domain.ReasonAppNeverReady,
 	domain.ReasonTimeout,
 	domain.ReasonInternal,
+	domain.ReasonDeploymentUnknown,
+	domain.ReasonSuperseded,
+}
+
+// The set is closed at eleven codes: nine failures, plus deployment_unknown and
+// superseded (spec 0005, AC-11).
+const codesInTheSet = 11
+
+func TestTheSetIsExactlyElevenCodes(t *testing.T) {
+	// covers: AC-11
+	t.Parallel()
+	if len(theSet) != codesInTheSet {
+		t.Fatalf("the set holds %d codes, want %d", len(theSet), codesInTheSet)
+	}
 }
 
 func TestEveryReasonInTheSetIsValid(t *testing.T) {
 	// covers: AC-16
 	t.Parallel()
-	for _, r := range theNine {
+	for _, r := range theSet {
 		if !r.Valid() {
 			t.Errorf("%q is in the set but reads as invalid", r)
 		}
@@ -36,7 +50,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 	t.Parallel()
 	for _, r := range []domain.Reason{"", "unknown", "BUILD_FAILED", "build failed", "internal "} {
 		if r.Valid() {
-			t.Errorf("%q reads as valid but is not one of the nine codes", r)
+			t.Errorf("%q reads as valid but is not one of the eleven codes", r)
 		}
 	}
 }
@@ -44,7 +58,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 func TestEveryReasonCarriesOneShortSanitizedLine(t *testing.T) {
 	// covers: AC-16
 	t.Parallel()
-	for _, r := range theNine {
+	for _, r := range theSet {
 		msg := r.Message()
 		if msg == "" {
 			t.Errorf("%q carries no message", r)
@@ -69,7 +83,7 @@ func TestNoReasonMessageLeaksWhatHappenedInsideThePlatform(t *testing.T) {
 		"deployer-system", "deployer-builds", "registry.", "client-go",
 		"Error:", "panic", "sqlite", "namespace", "0x",
 	}
-	for _, r := range theNine {
+	for _, r := range theSet {
 		msg := r.Message()
 		for _, leak := range leaks {
 			if strings.Contains(msg, leak) {
@@ -84,7 +98,7 @@ func TestEveryReasonSaysADifferentThing(t *testing.T) {
 	t.Parallel()
 	seen := map[string]domain.Reason{}
 
-	for _, r := range theNine {
+	for _, r := range theSet {
 		if first, ok := seen[r.Message()]; ok {
 			t.Errorf("%q and %q say the same thing, so the code carries no extra information", first, r)
 		}
@@ -119,9 +133,12 @@ func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 		domain.ReasonAppNeverReady:   "app_never_ready",
 		domain.ReasonTimeout:         "timeout",
 		domain.ReasonInternal:        "internal",
+
+		domain.ReasonDeploymentUnknown: "deployment_unknown",
+		domain.ReasonSuperseded:        "superseded",
 	}
-	if len(want) != len(theNine) {
-		t.Fatalf("the pinned map holds %d codes and the set holds %d", len(want), len(theNine))
+	if len(want) != len(theSet) {
+		t.Fatalf("the pinned map holds %d codes and the set holds %d", len(want), len(theSet))
 	}
 	for r, s := range want {
 		if string(r) != s {

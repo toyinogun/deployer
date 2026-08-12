@@ -262,8 +262,10 @@ func TestSupersession(t *testing.T) {
 	if old.State != string(domain.StateCancelled) {
 		t.Errorf("the superseded deployment is %q, want cancelled", old.State)
 	}
-	if old.FailureReason != nil {
-		t.Error("supersession is not a failure and must not report one")
+	// The reason goes on the row as well as its event, so a status read of a
+	// cancelled deployment needs no special case (spec 0005, AC-12).
+	if old.FailureReason == nil || *old.FailureReason != string(domain.ReasonSuperseded) {
+		t.Errorf("the superseded deployment reports %v, want superseded", old.FailureReason)
 	}
 
 	events, err := s.ListDeploymentEvents(ctx, first.ID)

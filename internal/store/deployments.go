@@ -86,11 +86,14 @@ func (s *Store) CreateDeployment(ctx context.Context, in CreateDeploymentInput) 
 		inFlight, err := q.GetInFlightDeploymentForApp(ctx, in.AppID)
 		switch {
 		case err == nil:
+			// The reason goes on the row as well as its event, so a status read of
+			// the cancelled deployment needs no special case (spec 0005, AC-12).
 			if _, err := q.UpdateDeploymentState(ctx, sqlcgen.UpdateDeploymentStateParams{
-				State:      string(domain.StateCancelled),
-				FinishedAt: ptr(now),
-				Now:        now,
-				ID:         inFlight.ID,
+				State:         string(domain.StateCancelled),
+				FailureReason: ptr(string(domain.ReasonSuperseded)),
+				FinishedAt:    ptr(now),
+				Now:           now,
+				ID:            inFlight.ID,
 			}); err != nil {
 				return fmt.Errorf("store: superseding deployment %s: %w", inFlight.ID, err)
 			}
@@ -99,7 +102,7 @@ func (s *Store) CreateDeployment(ctx context.Context, in CreateDeploymentInput) 
 				DeploymentID: inFlight.ID,
 				FromState:    ptr(inFlight.State),
 				ToState:      string(domain.StateCancelled),
-				Reason:       ptr("superseded"),
+				Reason:       ptr(string(domain.ReasonSuperseded)),
 				OccurredAt:   now,
 			}); err != nil {
 				return fmt.Errorf("store: recording supersession of %s: %w", inFlight.ID, err)
@@ -372,6 +375,35 @@ func (s *Store) GetDeployment(ctx context.Context, id string) (Deployment, error
 	}
 	if err != nil {
 		return Deployment{}, fmt.Errorf("store: reading deployment %s: %w", id, err)
+	}
+	return dep, nil
+}
+
+// GetLatestDeploymentForApp reads an app's most recent deployment, which is what
+// a status read by app name reports. ErrNotFound means the app has never been
+// deployed.
+func (s *Store) GetLatestDeploymentForApp(ctx context.Context, appID string) (Deployment, error) {
+	dep, err := s.q.GetLatestDeploymentForApp(ctx, appID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Deployment{}, ErrNotFound
+	}
+	if err != nil {
+		return Deployment{}, fmt.Errorf("store: reading the latest deployment for app %s: %w", appID, err)
+	}
+	return dep, nil
+}
+
+// GetNextDeploymentForApp reads the deployment that came after this one for the
+// same app, which is what superseded_by is derived from. Ordering is by id, a
+// monotonic ULID, never by created_at (spec 0005, AC-13). ErrNotFound means
+// there is no later deployment yet.
+func (s *Store) GetNextDeploymentForApp(ctx context.Context, appID, after string) (Deployment, error) {
+	dep, err := s.q.GetNextDeploymentForApp(ctx, sqlcgen.GetNextDeploymentForAppParams{AppID: appID, After: after})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Deployment{}, ErrNotFound
+	}
+	if err != nil {
+		return Deployment{}, fmt.Errorf("store: reading the deployment after %s: %w", after, err)
 	}
 	return dep, nil
 }

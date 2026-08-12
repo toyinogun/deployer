@@ -18,6 +18,10 @@ const (
 	ActionDeploy = "deploy"
 	// ActionFetchSource is one build fetching the source it will unpack.
 	ActionFetchSource = "fetch_source"
+	// ActionStatus is one deployment_status call. Only a denied one is recorded:
+	// a polling read audited every time fills a table with no signal in it
+	// (spec 0005, AC-10).
+	ActionStatus = "status"
 )
 
 // Audit is one authorization outcome. AccountID is empty when the presented

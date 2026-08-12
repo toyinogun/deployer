@@ -165,10 +165,8 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
 		forTool{svc: uploadSvc}, mcp.Options{
-			PublicURL:    cfg.PublicURL,
-			AppDomain:    cfg.AppDomain,
-			DeployBudget: cfg.DeployTimeout,
-			PollInterval: cfg.ReconcileInterval,
+			PublicURL: cfg.PublicURL,
+			AppDomain: cfg.AppDomain,
 		})
 	mux.Handle("/mcp", tools.Handler())
 

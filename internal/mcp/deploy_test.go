@@ -25,6 +25,15 @@ func (s *stubApps) ByName(_ context.Context, _, name string) (App, error) {
 	return App{}, ErrNoApp
 }
 
+func (s *stubApps) Get(_ context.Context, appID string) (App, error) {
+	for _, app := range s.existing {
+		if app.ID == appID {
+			return app, nil
+		}
+	}
+	return App{}, ErrNoApp
+}
+
 func (s *stubApps) Create(_ context.Context, _, name string) (App, error) {
 	s.created = append(s.created, name)
 	app := App{ID: "app_2", Slug: "new-b2c3d4", Name: name}
@@ -35,11 +44,14 @@ func (s *stubApps) Create(_ context.Context, _, name string) (App, error) {
 	return app, nil
 }
 
-// stubDeployments answers with one fixed outcome, so a test can say how the
-// deploy ended without running a loop.
+// stubDeployments answers with fixed rows, so a test can say where a deployment
+// got to without running a loop.
 type stubDeployments struct {
 	created  int
-	outcome  Outcome
+	rows     map[string]Deployment
+	latest   Deployment
+	next     string
+	events   []Event
 	release  Release
 	lastApp  string
 	lastFile string
@@ -51,7 +63,26 @@ func (s *stubDeployments) Create(_ context.Context, appID, _, uploadID string) (
 	return "dep_1", nil
 }
 
-func (s *stubDeployments) Outcome(context.Context, string) (Outcome, error) { return s.outcome, nil }
+func (s *stubDeployments) Get(_ context.Context, id string) (Deployment, error) {
+	dep, ok := s.rows[id]
+	if !ok {
+		return Deployment{}, ErrNoDeployment
+	}
+	return dep, nil
+}
+
+func (s *stubDeployments) LatestForApp(context.Context, string) (Deployment, error) {
+	if s.latest.ID == "" {
+		return Deployment{}, ErrNoDeployment
+	}
+	return s.latest, nil
+}
+
+func (s *stubDeployments) NextForApp(context.Context, string, string) (string, error) {
+	return s.next, nil
+}
+
+func (s *stubDeployments) Events(context.Context, string) ([]Event, error)  { return s.events, nil }
 func (s *stubDeployments) Release(context.Context, string) (Release, error) { return s.release, nil }
 
 // stubUploads holds the one upload a test offers.
@@ -81,10 +112,8 @@ func server(apps Apps, deployments Deployments, up Upload) (*Server, *silentAudi
 		deployments: deployments,
 		uploads:     stubUploads{up: up},
 		opts: Options{
-			PublicURL:    "https://deployer.example.org",
-			AppDomain:    "deploy.example.org",
-			DeployBudget: time.Second,
-			PollInterval: time.Millisecond,
+			PublicURL: "https://deployer.example.org",
+			AppDomain: "deploy.example.org",
 		},
 	}, auditor
 }
@@ -101,10 +130,7 @@ func liveUpload(accountID string) Upload {
 func TestASuccessfulDeployReportsWhatWasWritten(t *testing.T) {
 	account := auth.Account{ID: "acc_1", Name: "bootstrap"}
 	apps := &stubApps{existing: map[string]App{"hello": {ID: "app_1", Slug: "hello-a1b2c3", Name: "hello"}}}
-	deployments := &stubDeployments{
-		outcome: Outcome{State: domain.StateHealthy},
-		release: Release{Number: 2, Digest: "sha256:abc"},
-	}
+	deployments := &stubDeployments{}
 	s, _ := server(apps, deployments, liveUpload(account.ID))
 
 	_, out, err := s.deploy(t.Context(), account, deployInput{Name: "hello", UploadID: "upl_1"})
@@ -120,8 +146,9 @@ func TestASuccessfulDeployReportsWhatWasWritten(t *testing.T) {
 	if out.URL != "https://hello-a1b2c3.deploy.example.org" {
 		t.Errorf("url = %q", out.URL)
 	}
-	if out.ReleaseNumber != 2 || out.ImageDigest != "sha256:abc" {
-		t.Errorf("release = %d/%s, want 2/sha256:abc", out.ReleaseNumber, out.ImageDigest)
+	// The row was just written queued, and nothing is read back (AC-2).
+	if out.State != string(domain.StateQueued) {
+		t.Errorf("state = %q, want queued", out.State)
 	}
 	if out.DeploymentID != "dep_1" || out.Slug != "hello-a1b2c3" || out.Name != "hello" {
 		t.Errorf("output = %+v", out)
@@ -131,8 +158,7 @@ func TestASuccessfulDeployReportsWhatWasWritten(t *testing.T) {
 func TestAFirstDeployCreatesTheApp(t *testing.T) {
 	account := auth.Account{ID: "acc_1"}
 	apps := &stubApps{}
-	deployments := &stubDeployments{outcome: Outcome{State: domain.StateHealthy}}
-	s, _ := server(apps, deployments, liveUpload(account.ID))
+	s, _ := server(apps, &stubDeployments{}, liveUpload(account.ID))
 
 	if _, _, err := s.deploy(t.Context(), account, deployInput{Name: "new", UploadID: "upl_1"}); err != nil {
 		t.Fatalf("deploy: %v", err)
@@ -183,25 +209,6 @@ func TestAnExpiredUploadSaysSo(t *testing.T) {
 	}
 }
 
-// A failed deployment reports its stored code and its one line, and nothing the
-// platform saw underneath (AC-16).
-func TestAFailedDeployReportsTheCodeAndNothingElse(t *testing.T) {
-	account := auth.Account{ID: "acc_1"}
-	deployments := &stubDeployments{
-		outcome: Outcome{State: domain.StateFailed, Reason: domain.ReasonImageRunsAsRoot},
-	}
-	s, _ := server(&stubApps{}, deployments, liveUpload(account.ID))
-
-	_, _, err := s.deploy(t.Context(), account, deployInput{Name: "hello", UploadID: "upl_1"})
-	if err == nil {
-		t.Fatal("want a failure")
-	}
-	want := string(domain.ReasonImageRunsAsRoot) + ": " + domain.ReasonImageRunsAsRoot.Message()
-	if err.Error() != want {
-		t.Errorf("error = %q, want %q", err.Error(), want)
-	}
-}
-
 // The tool description is part of the contract: an agent that cannot read the
 // upload step out of it cannot deploy at all.
 func TestTheToolDescriptionCarriesTheUploadContract(t *testing.T) {
@@ -215,6 +222,8 @@ func TestTheToolDescriptionCarriesTheUploadContract(t *testing.T) {
 		"PORT",
 		"non root",
 		"minutes",
+		"deployment_status",
+		"queued",
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("the description does not mention %q", want)

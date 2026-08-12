@@ -87,3 +87,19 @@ SELECT * FROM releases
 WHERE app_id = @app_id AND (@cursor = '' OR id < @cursor)
 ORDER BY id DESC
 LIMIT @page_limit;
+
+-- The app's most recent deployment, which is what a status read by name reports.
+-- name: GetLatestDeploymentForApp :one
+SELECT * FROM deployments
+WHERE app_id = @app_id
+ORDER BY created_at DESC, id DESC
+LIMIT 1;
+
+-- The deployment that came after this one for the same app, which is what
+-- superseded_by is derived from. Ordered by id, a monotonic ULID, never by
+-- created_at, because two rows can share one timestamp (spec 0005, AC-13).
+-- name: GetNextDeploymentForApp :one
+SELECT * FROM deployments
+WHERE app_id = @app_id AND id > @after
+ORDER BY id
+LIMIT 1;

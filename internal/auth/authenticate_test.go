@@ -247,6 +247,7 @@ func TestAuditActionsAreTheNamesTheLogIsQueriedBy(t *testing.T) {
 		"upload":       auth.ActionUpload,
 		"deploy":       auth.ActionDeploy,
 		"fetch_source": auth.ActionFetchSource,
+		"status":       auth.ActionStatus,
 	} {
 		if got != name {
 			t.Errorf("action = %q, want %q", got, name)

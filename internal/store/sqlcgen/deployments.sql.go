@@ -164,6 +164,79 @@ func (q *Queries) GetInFlightDeploymentForApp(ctx context.Context, appID string)
 	return i, err
 }
 
+const getLatestDeploymentForApp = `-- name: GetLatestDeploymentForApp :one
+SELECT id, app_id, account_id, upload_id, source_release_id, state, build_path, build_job_name, image_repo, image_digest, failure_reason, claimed_at, claimed_by, started_at, finished_at, created_at, updated_at FROM deployments
+WHERE app_id = ?1
+ORDER BY created_at DESC, id DESC
+LIMIT 1
+`
+
+// The app's most recent deployment, which is what a status read by name reports.
+func (q *Queries) GetLatestDeploymentForApp(ctx context.Context, appID string) (Deployment, error) {
+	row := q.db.QueryRowContext(ctx, getLatestDeploymentForApp, appID)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.AppID,
+		&i.AccountID,
+		&i.UploadID,
+		&i.SourceReleaseID,
+		&i.State,
+		&i.BuildPath,
+		&i.BuildJobName,
+		&i.ImageRepo,
+		&i.ImageDigest,
+		&i.FailureReason,
+		&i.ClaimedAt,
+		&i.ClaimedBy,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
+const getNextDeploymentForApp = `-- name: GetNextDeploymentForApp :one
+SELECT id, app_id, account_id, upload_id, source_release_id, state, build_path, build_job_name, image_repo, image_digest, failure_reason, claimed_at, claimed_by, started_at, finished_at, created_at, updated_at FROM deployments
+WHERE app_id = ?1 AND id > ?2
+ORDER BY id
+LIMIT 1
+`
+
+type GetNextDeploymentForAppParams struct {
+	AppID string
+	After string
+}
+
+// The deployment that came after this one for the same app, which is what
+// superseded_by is derived from. Ordered by id, a monotonic ULID, never by
+// created_at, because two rows can share one timestamp (spec 0005, AC-13).
+func (q *Queries) GetNextDeploymentForApp(ctx context.Context, arg GetNextDeploymentForAppParams) (Deployment, error) {
+	row := q.db.QueryRowContext(ctx, getNextDeploymentForApp, arg.AppID, arg.After)
+	var i Deployment
+	err := row.Scan(
+		&i.ID,
+		&i.AppID,
+		&i.AccountID,
+		&i.UploadID,
+		&i.SourceReleaseID,
+		&i.State,
+		&i.BuildPath,
+		&i.BuildJobName,
+		&i.ImageRepo,
+		&i.ImageDigest,
+		&i.FailureReason,
+		&i.ClaimedAt,
+		&i.ClaimedBy,
+		&i.StartedAt,
+		&i.FinishedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getRelease = `-- name: GetRelease :one
 SELECT id, app_id, deployment_id, release_number, image_digest, config_snapshot, created_at FROM releases WHERE id = ?
 `

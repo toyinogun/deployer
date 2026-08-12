@@ -47,6 +47,16 @@ func (a MCPApps) ByName(ctx context.Context, accountID, name string) (mcp.App, e
 	return appRow(app), nil
 }
 
+// Get reads the app a deployment belongs to, which is where a status payload's
+// name, slug, and url come from.
+func (a MCPApps) Get(ctx context.Context, appID string) (mcp.App, error) {
+	app, err := a.s.GetApp(ctx, appID)
+	if err != nil {
+		return mcp.App{}, err
+	}
+	return appRow(app), nil
+}
+
 // Create registers an app, deriving its permanent slug from the name.
 func (a MCPApps) Create(ctx context.Context, accountID, name string) (mcp.App, error) {
 	app, err := a.s.CreateApp(ctx, accountID, name)
@@ -71,17 +81,74 @@ func (a MCPDeployments) Create(ctx context.Context, appID, accountID, uploadID s
 	return dep.ID, nil
 }
 
-// Outcome reads a deployment's committed state, which is all the waiting handler
-// is ever allowed to look at.
-func (a MCPDeployments) Outcome(ctx context.Context, deploymentID string) (mcp.Outcome, error) {
-	dep, err := a.s.GetDeployment(ctx, deploymentID)
-	if err != nil {
-		return mcp.Outcome{}, err
+// mcpDeploymentRow maps a stored deployment onto what a status read projects.
+func mcpDeploymentRow(d Deployment) mcp.Deployment {
+	return mcp.Deployment{
+		ID:        d.ID,
+		AppID:     d.AppID,
+		AccountID: d.AccountID,
+		State:     domain.State(d.State),
+		Reason:    domain.Reason(deref(d.FailureReason)),
 	}
-	return mcp.Outcome{
-		State:  domain.State(dep.State),
-		Reason: domain.Reason(deref(dep.FailureReason)),
-	}, nil
+}
+
+// Get reads one deployment, mapping an unknown id onto the tool surface's own
+// sentinel so the handler answers unknown and forbidden identically.
+func (a MCPDeployments) Get(ctx context.Context, deploymentID string) (mcp.Deployment, error) {
+	dep, err := a.s.GetDeployment(ctx, deploymentID)
+	if errors.Is(err, ErrNotFound) {
+		return mcp.Deployment{}, mcp.ErrNoDeployment
+	}
+	if err != nil {
+		return mcp.Deployment{}, err
+	}
+	return mcpDeploymentRow(dep), nil
+}
+
+// LatestForApp reads an app's most recent deployment, which is what a status
+// read by name reports. An app that has never been deployed reads as unknown.
+func (a MCPDeployments) LatestForApp(ctx context.Context, appID string) (mcp.Deployment, error) {
+	dep, err := a.s.GetLatestDeploymentForApp(ctx, appID)
+	if errors.Is(err, ErrNotFound) {
+		return mcp.Deployment{}, mcp.ErrNoDeployment
+	}
+	if err != nil {
+		return mcp.Deployment{}, err
+	}
+	return mcpDeploymentRow(dep), nil
+}
+
+// NextForApp returns the id of the app's next deployment after this one, which
+// is what superseded_by is derived from. No later deployment yet is an empty
+// string rather than an error: the next poll resolves it.
+func (a MCPDeployments) NextForApp(ctx context.Context, appID, after string) (string, error) {
+	dep, err := a.s.GetNextDeploymentForApp(ctx, appID, after)
+	if errors.Is(err, ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return dep.ID, nil
+}
+
+// Events returns a deployment's timeline, projected here rather than in the
+// caller: detail and from_state are dropped at this boundary, so no write site
+// can leak through them (spec 0005, AC-8).
+func (a MCPDeployments) Events(ctx context.Context, deploymentID string) ([]mcp.Event, error) {
+	rows, err := a.s.ListDeploymentEvents(ctx, deploymentID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.Event, 0, len(rows))
+	for _, e := range rows {
+		out = append(out, mcp.Event{
+			State:  domain.State(e.ToState),
+			At:     e.OccurredAt,
+			Reason: domain.Reason(deref(e.Reason)),
+		})
+	}
+	return out, nil
 }
 
 // Release reads the release a healthy deployment minted, so the response carries
