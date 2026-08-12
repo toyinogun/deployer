@@ -46,7 +46,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 3 | Platform data model | Foundation | done |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
 | 5 | First deploy end to end | Slice 1 | done |
-| 6 | Async deployment jobs & status | Slice 2 | in-progress |
+| 6 | Async deployment jobs & status | Slice 2 | done |
 | 7 | Application logs | Slice 3 | in-progress |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
 | 9 | Workload isolation & network policy | Slice 5 | planned |
@@ -158,7 +158,7 @@ spec [0006](../specs/0006-application-logs/index.md)
   code in `internal/logs/`, `internal/kube/kube.go`, `internal/mcp/logs.go`
 - [x] Verify it: `/check verify application logs`
 - [x] Test it: `/test application logs`
-- [ ] Review it (fresh model): `/check review application logs`
+- [x] Review it (fresh model): `/check review application logs`
 - [ ] Document it: `/document application logs`
 
 ## Slice 4: Accounts, API tokens & app ownership
