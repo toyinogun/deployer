@@ -93,6 +93,35 @@ func TestJobIsOneAttemptWithADeadline(t *testing.T) {
 }
 
 // covers AC-7: the pod satisfies `restricted` pod security, container by
+// The lifecycle switches to the CNB_USER_ID its own image declares before it
+// does any work, and under `restricted` it holds no capability to switch with,
+// so the pod has to start as that user already. The Paketo jammy builders
+// declare 1001:1000. Starting the pod at 1000:1000 instead let every unit test
+// pass and made every real build die with "failed to exec as user 1001:1000:
+// operation not permitted", because nothing here execs anything.
+func TestJobRunsAsTheBuilderImagesOwnUser(t *testing.T) {
+	t.Parallel()
+	spec := build.Job(input()).Spec.Template.Spec
+
+	pod := spec.SecurityContext
+	if pod.RunAsUser == nil || *pod.RunAsUser != 1001 {
+		t.Errorf("RunAsUser = %v, want 1001, the builder's cnb user", pod.RunAsUser)
+	}
+	if pod.RunAsGroup == nil || *pod.RunAsGroup != 1000 {
+		t.Errorf("RunAsGroup = %v, want 1000, the builder's cnb group", pod.RunAsGroup)
+	}
+	// The two containers share the source tree through an emptyDir, so the group
+	// that owns it has to be the group both of them run in.
+	if pod.FSGroup == nil || *pod.FSGroup != 1000 {
+		t.Errorf("FSGroup = %v, want 1000, so both containers can reach the workspace", pod.FSGroup)
+	}
+	for _, c := range append(append([]corev1.Container{}, spec.InitContainers...), spec.Containers...) {
+		if c.SecurityContext.RunAsUser == nil || *c.SecurityContext.RunAsUser != 1001 {
+			t.Errorf("%s RunAsUser = %v, want 1001", c.Name, c.SecurityContext.RunAsUser)
+		}
+	}
+}
+
 // container. This is the box around code the platform did not author.
 func TestJobPodIsRestricted(t *testing.T) {
 	t.Parallel()

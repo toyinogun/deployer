@@ -30,9 +30,14 @@ const (
 	// lifecyclePath is where every Paketo builder puts the lifecycle binaries.
 	lifecyclePath = "/cnb/lifecycle/creator"
 
-	// buildUID is the `cnb` user every Paketo builder runs as. The init container
-	// is pinned to it too, so the tree one writes is a tree the other can read.
-	buildUID = int64(1000)
+	// buildUID and buildGID are the `cnb` user the Paketo builder images declare,
+	// read from the pinned builder's own image config rather than assumed. The
+	// lifecycle switches to CNB_USER_ID before it does any work, and under
+	// `restricted` it holds no capability to switch with, so the pod has to start
+	// as that user already. The init container is pinned to the same pair, so the
+	// tree one writes is a tree the other can read.
+	buildUID = int64(1001)
+	buildGID = int64(1000)
 
 	// ttlAfterFinished is how long a finished Job lingers before Kubernetes
 	// reaps it, taking its per Job credential secret with it. Long enough to
@@ -128,8 +133,8 @@ func podSecurity() *corev1.PodSecurityContext {
 	return &corev1.PodSecurityContext{
 		RunAsNonRoot:   ptr(true),
 		RunAsUser:      ptr(buildUID),
-		RunAsGroup:     ptr(buildUID),
-		FSGroup:        ptr(buildUID),
+		RunAsGroup:     ptr(buildGID),
+		FSGroup:        ptr(buildGID),
 		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }
