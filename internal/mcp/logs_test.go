@@ -358,6 +358,37 @@ func TestLogsEmptyCaseIsASuccess(t *testing.T) {
 	}
 }
 
+func TestLogsWhileTheNamespaceIsNotThereYetIsTheEmptyCase(t *testing.T) {
+	// covers: AC-7, AC-10. The namespace and the RoleBinding into it are created
+	// at the deploy step, so a read during the build is refused by Kubernetes.
+	// That is the app not having started a container, not a fault. Verified live
+	// on 2026-08-12: the tool answered `internal` for the whole build window.
+	t.Parallel()
+	pods := &stubPods{
+		listErr: fmt.Errorf("kube: listing pods in app-hello: %w", logs.ErrNoNamespace),
+		logErr:  errors.New("the log API must not be called"),
+	}
+	deployments := &stubDeployments{latest: Deployment{ID: "dep_1", AppID: "app_1", State: domain.StateBuilding}}
+	s, auditor := logsServer(pods, deployments)
+
+	_, out, err := s.getLogs(t.Context(), auth.Account{ID: "acc_1"}, logsInput{Name: "hello"})
+	if err != nil {
+		t.Fatalf("a namespace that is not there yet reported a failure: %v", err)
+	}
+	if pods.logCalled != 0 {
+		t.Error("the log API was called with no namespace to read")
+	}
+	if len(out.Entries) != 0 {
+		t.Errorf("entries = %+v, want none", out.Entries)
+	}
+	if out.State != string(domain.StateBuilding) || out.Note != noteNotStarted {
+		t.Errorf("state=%q note=%q, want %q and %q", out.State, out.Note, domain.StateBuilding, noteNotStarted)
+	}
+	if len(auditor.rows) != 0 {
+		t.Errorf("a build window read audited %+v", auditor.rows)
+	}
+}
+
 func TestLogsAnswersUnknownAndAnotherAccountIdentically(t *testing.T) {
 	// covers: AC-8, AC-9
 	t.Parallel()

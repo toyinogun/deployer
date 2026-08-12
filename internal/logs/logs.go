@@ -9,6 +9,7 @@
 package logs
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 )
@@ -46,6 +47,15 @@ type Entry struct {
 	At      string `json:"at"`
 	Message string `json:"message"`
 }
+
+// ErrNoNamespace reports that an app's namespace holds nothing the platform can
+// see yet. An app's namespace and the RoleBinding that reaches into it are both
+// created at the deploy step, which runs only once the build has finished, so a
+// log read during the build is refused by Kubernetes rather than answered with
+// an empty list. Refused and absent are the same answer here, because Kubernetes
+// declines to say whether a namespace you hold no binding in exists at all, and
+// both mean the app's container has not started (spec 0006, AC-7).
+var ErrNoNamespace = errors.New("logs: the app's namespace is not readable yet")
 
 // PodStatus is everything the tool needs to decide whether there is anything to
 // fetch, before it calls the log API at all. It lives here rather than in

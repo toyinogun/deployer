@@ -2,13 +2,18 @@ package kube
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/deploy"
+	"github.com/toyinogun/deployer/internal/logs"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 // pod builds one app pod the way deploy labels them, so the selector under test
@@ -130,5 +135,34 @@ func TestPodLogReads(t *testing.T) {
 	}
 	if _, err := c.PodLog(context.Background(), deploy.NamespaceName("demo"), "new", 100, true); err != nil {
 		t.Fatalf("PodLog of the previous container: %v", err)
+	}
+}
+
+// The namespace an app's pods live in is created at the deploy step, which runs
+// after the build finishes. A log read during the build therefore lists pods in
+// a namespace the control plane holds no RoleBinding in, and Kubernetes answers
+// Forbidden whether or not the namespace exists. That is the app's container not
+// having started, not a fault (spec 0006, AC-7).
+func TestPodsForAppWhileTheNamespaceIsNotThereYet(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		err  error
+	}{
+		{"forbidden", apierrors.NewForbidden(corev1.Resource("pods"), "", errors.New("no binding yet"))},
+		{"not found", apierrors.NewNotFound(corev1.Resource("namespaces"), "app-demo")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cs := fake.NewSimpleClientset()
+			cs.PrependReactor("list", "pods", func(k8stesting.Action) (bool, runtime.Object, error) {
+				return true, nil, tc.err
+			})
+			got, err := NewFor(cs).PodsForApp(context.Background(), deploy.NamespaceName("demo"), "demo")
+			if !errors.Is(err, logs.ErrNoNamespace) {
+				t.Fatalf("got error %v, want one wrapping logs.ErrNoNamespace", err)
+			}
+			if got != nil {
+				t.Fatalf("got %d pods, want none", len(got))
+			}
+		})
 	}
 }

@@ -120,6 +120,13 @@ func (s *Server) readLogs(ctx context.Context, app App, requested int) (logsOutp
 	}
 	namespace := deploy.NamespaceName(app.Slug)
 	pods, err := s.pods.PodsForApp(ctx, namespace, app.Slug)
+	// A namespace the platform cannot read yet is the app not having started,
+	// which is the empty case rather than a fault: it is what every read during a
+	// build sees, because the namespace is created at the deploy step (AC-7).
+	if errors.Is(err, logs.ErrNoNamespace) {
+		out.State, out.Note = s.emptyCase(ctx, app, true)
+		return out, nil
+	}
 	if err != nil {
 		return logsOutput{}, fmt.Errorf("listing the pods of app %s: %w", app.ID, err)
 	}
