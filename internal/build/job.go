@@ -256,3 +256,17 @@ func buildResources() corev1.ResourceRequirements {
 
 // ptr returns a pointer to v, for the many optional fields in a pod spec.
 func ptr[T any](v T) *T { return &v }
+
+// JobState is where a build Job has got to. It lives here rather than beside the
+// Kubernetes client so the reconcile loop can act on a build outcome without
+// importing client-go (spec 0001, package layout).
+type JobState int
+
+// The four answers the loop acts on. Gone is its own state rather than an error,
+// because a vanished Job is a decision (fail the deployment) and not a fault.
+const (
+	JobRunning JobState = iota
+	JobSucceeded
+	JobFailed
+	JobGone
+)
