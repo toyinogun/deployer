@@ -40,7 +40,7 @@ export JAR=/tmp/deployer-cookies.txt
 - [x] `curl -sS -b $ADMIN_JAR $BASE/v1/admin/accounts` → every account, newest first, with email, name, verified, admin and disabled. `POST .../{id}/disable` and `/enable` → `204` each → AC-19
 - [x] The same list from an ordinary account's session → `403 admin_required`. The same list with `Authorization: Bearer <API token>` and no cookie → `401` → AC-20
 - [x] From the admin's own session and token, read another account's app status and logs → refused, the same as any other account → AC-21
-- [ ] After a mint, a revoke, an admin disable and a failed sign in, `SELECT DISTINCT action FROM audit_log` contains `token_mint`, `token_revoke`, `admin` and `login` → AC-22
+- [x] After a mint, a revoke, an admin disable and a failed sign in, `SELECT DISTINCT action FROM audit_log` contains `token_mint`, `token_revoke`, `admin` and `login` → AC-22
 
 ### Rate limiting and failure
 - [x] Six wrong passwords in a row for one address → the sixth is `429 rate_limited`; wait 30 seconds and sign in correctly; a fresh wrong password is `401` again, not `429` → AC-23
@@ -90,9 +90,12 @@ their own:
   have broken: a verified session still reads 200, the unverified account's token
   is still a flat 401 on upload, and a disabled account still gets
   `credentials_invalid` on both a live cookie and a fresh sign in.
-- **AC-22 is unfinished.** `token_mint`, `token_revoke` and `login` were read out
-  of `audit_log`; the `admin` rows were written after the last database window
-  closed and are still unread.
+- **AC-22 passed on a second database window.** All four action kinds are in
+  `audit_log`: `admin` (7 allowed, 1 denied), `token_mint` (7 and 2),
+  `token_revoke` (1 and 2) and `login` (13 and 22). The admin rows name the
+  acting account and, where there is one, the target account or token; the denied
+  one is the `admin_required` refusal from AC-20, recorded against the account
+  that tried.
 - **AC-24, the "different client" half**, reads 429 through the ingress, because
   nginx appends the real client address and `clientAddress` correctly takes the
   last hop, so a spoofed prefix changes nothing. That is right, not a bug: the
