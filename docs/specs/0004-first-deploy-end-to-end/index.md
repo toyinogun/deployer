@@ -1,7 +1,7 @@
 # 0004. First deploy end to end: the tracer bullet from MCP call to a running app
 
 **Date**: 2026-08-12
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
