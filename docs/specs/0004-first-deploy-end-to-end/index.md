@@ -199,13 +199,13 @@ Tracer Bullet, so the thread is threaded before any segment is thickened. Steps 
 4. [x] Build the upload endpoint and its auth middleware: bearer resolution, the size capped streaming write, the SHA-256, the fetch token, and the audit row. Satisfies **AC-2**, **AC-19**.
 5. [x] Add the `fetch-source` subcommand with the hardened extractor and its hostile archive tests, and the `GET /v1/uploads/{id}` redeem path. Satisfies **AC-8**.
 6. [x] Compose and create the build Job: the per Job registry secret owner referenced to it, the init container with its freshly minted fetch token and expected `sha256`, the pinned builder running `lifecycle -creator`, the security context, `backoffLimit: 0`, and the deadlines. Satisfies **AC-7**, **AC-9**.
-7. Compose the app side: namespace from the template, pull secret, Deployment, Service, Ingress, all field by field and all create or update, with golden tests. Satisfies **AC-11**, **AC-12**, **AC-13**.
-8. Wire the reconcile loop: the serial claim, the tick, the phase transitions, the readiness wait, `MarkHealthy`, and deleting the tarball on any terminal state. Satisfies **AC-5**, **AC-6**, **AC-14**, **AC-22**.
+7. [x] Compose the app side: namespace from the template, pull secret, Deployment, Service, Ingress, all field by field and all create or update, with golden tests. Satisfies **AC-11**, **AC-12**, **AC-13**.
+8. [x] Wire the reconcile loop: the serial claim, the tick, the phase transitions, the readiness wait, `MarkHealthy`, and deleting the tarball on any terminal state. Satisfies **AC-5**, **AC-6**, **AC-14**, **AC-22**.
 9. [x] Add the registry client: resolve the pushed tag to a digest, and read the image config for the non root check, before any workload is composed. Satisfies **AC-9**, **AC-10**.
-10. Add the MCP server and the one `deploy_app` tool, with its description, its wait on committed state, and its success response. Satisfies **AC-3**, **AC-4**, **AC-15**.
-11. Map every internal error to the closed reason code set, at both the response and the `failure_reason` boundary, and confirm no build output crosses either. Satisfies **AC-16**.
-12. Add the startup sweep for non terminal deployments, resuming a live Job and failing a vanished one. Satisfies **AC-18**.
-13. Add `testdata/sample-go` and run the real deploy from an agent session, twice, confirming the stable hostname and release 2. Satisfies **AC-21**.
+10. [x] Add the MCP server and the one `deploy_app` tool, with its description, its wait on committed state, and its success response. Satisfies **AC-3**, **AC-4**, **AC-15**.
+11. [x] Map every internal error to the closed reason code set, at both the response and the `failure_reason` boundary, and confirm no build output crosses either. Satisfies **AC-16**.
+12. [x] Add the startup sweep for non terminal deployments, resuming a live Job and failing a vanished one. Satisfies **AC-18**.
+13. Add `testdata/sample-go` (landed) and run the real deploy from an agent session, twice, confirming the stable hostname and release 2. Satisfies **AC-21**.
 
 ## Consequences
 

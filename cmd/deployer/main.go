@@ -16,6 +16,10 @@ import (
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/config"
 	"github.com/toyinogun/deployer/internal/httpapi"
+	"github.com/toyinogun/deployer/internal/kube"
+	"github.com/toyinogun/deployer/internal/mcp"
+	"github.com/toyinogun/deployer/internal/reconcile"
+	"github.com/toyinogun/deployer/internal/registry"
 	"github.com/toyinogun/deployer/internal/store"
 	"github.com/toyinogun/deployer/internal/uploads"
 )
@@ -71,17 +75,20 @@ func run() error {
 		respond(r.Context(), w, http.StatusOK, "ready\n")
 	})
 
-	// Everything under /v1 needs the database, which opens behind the already
-	// bound server, so it is reached through the health struct rather than wired
-	// in directly. Before the store is up these answer 503, the same as readiness.
-	mux.Handle("/v1/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Everything under /v1 and the MCP endpoint need the database, which opens
+	// behind the already bound server, so they are reached through the health
+	// struct rather than wired in directly. Before the store is up they answer
+	// 503, the same as readiness.
+	realWork := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api := h.api()
 		if api == nil {
 			respond(r.Context(), w, http.StatusServiceUnavailable, "not ready\n")
 			return
 		}
 		api.ServeHTTP(w, r)
-	}))
+	})
+	mux.Handle("/v1/", realWork)
+	mux.Handle("/mcp", realWork)
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -142,18 +149,73 @@ func (h *health) api() http.Handler {
 	return h.routes
 }
 
-// buildAPI wires the HTTP surface over an open store.
-func buildAPI(st *store.Store, cfg config.Config) *http.ServeMux {
+// buildAPI wires the HTTP surface over an open store, and starts the reconcile
+// loop behind it. Both are built here because both need the same open store and
+// the same upload service.
+//
+// The loop is what makes a deploy happen: the tool surface only writes a queued
+// row and waits on committed state (spec 0004, Key invariants).
+func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.ServeMux {
 	as := store.ForAuth(st)
-	api := httpapi.New(
-		auth.NewAuthenticator(as, as),
-		as,
-		uploads.NewService(store.ForUploads(st), cfg.UploadDir, cfg.MaxUploadBytes, nil),
-		cfg.MaxUploadBytes,
-	)
+	authenticator := auth.NewAuthenticator(as, as)
+	uploadSvc := uploads.NewService(store.ForUploads(st), cfg.UploadDir, cfg.MaxUploadBytes, nil)
+
 	mux := http.NewServeMux()
-	api.Register(mux)
+	httpapi.New(authenticator, as, uploadSvc, cfg.MaxUploadBytes).Register(mux)
+
+	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
+		forTool{svc: uploadSvc}, mcp.Options{
+			PublicURL:    cfg.PublicURL,
+			AppDomain:    cfg.AppDomain,
+			DeployBudget: cfg.DeployTimeout,
+			PollInterval: cfg.ReconcileInterval,
+		})
+	mux.Handle("/mcp", tools.Handler())
+
+	startReconciler(ctx, st, cfg, uploadSvc)
 	return mux
+}
+
+// startReconciler starts the deployment loop, unless there is no cluster to
+// drive. A local run without the in cluster credential serves the API and skips
+// the loop, which is honest: an upload still works, a deploy stays queued.
+func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, uploadSvc *uploads.Service) {
+	cluster, err := kube.New()
+	if err != nil {
+		slog.Warn("no Kubernetes access, so no deployment will be driven", "error", err)
+		return
+	}
+	rs := store.ForReconcile(st)
+	loop := reconcile.New(rs, rs, uploadSource{svc: uploadSvc},
+		registry.New(cfg.RegistryHost, cfg.RegistryUser, cfg.RegistryPass),
+		cluster, reconcile.Options{
+			PodName:               cfg.PodName,
+			ControlPlaneNamespace: cfg.Namespace,
+			BuildNamespace:        cfg.BuildNamespace,
+			AppDomain:             cfg.AppDomain,
+			IngressClassName:      cfg.IngressClassName,
+			SelfImage:             cfg.SelfImage,
+			BuilderImage:          cfg.BuilderImage,
+			PublicURL:             cfg.PublicURL,
+			RegistryHost:          cfg.RegistryHost,
+			RegistryUser:          cfg.RegistryUser,
+			RegistryPass:          cfg.RegistryPass,
+			DeployTimeout:         cfg.DeployTimeout,
+			BuildTimeout:          cfg.BuildTimeout,
+			ReadyTimeout:          cfg.ReadyTimeout,
+			ReconcileInterval:     cfg.ReconcileInterval,
+			MaxUploadFiles:        cfg.MaxUploadFiles,
+			MaxExtractedBytes:     cfg.MaxExtractedBytes,
+			CPU:                   cfg.AppCPU,
+			Memory:                cfg.AppMemory,
+			LimitCPU:              cfg.AppLimitCPU,
+			LimitMemory:           cfg.AppLimitMemory,
+			QuotaCPU:              cfg.AppQuotaCPU,
+			QuotaMemory:           cfg.AppQuotaMemory,
+			QuotaPods:             cfg.AppQuotaPods,
+		})
+	go loop.Run(ctx)
+	slog.Info("reconcile loop started", "interval", cfg.ReconcileInterval, "build_namespace", cfg.BuildNamespace)
 }
 
 // open keeps trying to open and migrate the database until it succeeds or the
@@ -164,7 +226,7 @@ func (h *health) open(ctx context.Context, cfg config.Config) {
 		h.mu.Lock()
 		h.store, h.err = st, err
 		if err == nil {
-			h.routes = buildAPI(st, cfg)
+			h.routes = buildAPI(ctx, st, cfg)
 		}
 		h.mu.Unlock()
 		if err == nil {
