@@ -45,7 +45,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 2 | Coding standards & tooling | Foundation | done |
 | 3 | Platform data model | Foundation | done |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
-| 5 | First deploy end to end | Slice 1 | planned |
+| 5 | First deploy end to end | Slice 1 | in-progress |
 | 6 | Async deployment jobs & status | Slice 2 | planned |
 | 7 | Application logs | Slice 3 | planned |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
@@ -108,10 +108,21 @@ spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `int
 
 ## Slice 1: First deploy end to end
 
-### 5. First deploy end to end · needs a decision
+### 5. First deploy end to end · in-progress
 The tracer bullet, and the walking skeleton in one. An agent holding a valid token calls one MCP tool, the source tarball uploads, Buildpacks builds an image, the platform deploys it to k3s with enforced defaults, and the agent gets back a healthy hostname. Real auth, real build, real cluster, deliberately narrow: one token, one sample app, one language, no status polling, no logs, no rollback yet.
 **Done when:** from a fresh Claude Code session you can say "deploy this app" and reach the running app on its hostname, with the deployment recorded against a real account and app record.
-- [ ] Design it (spec): `/architect first deploy end to end`
+spec [0004](../specs/0004-first-deploy-end-to-end/index.md)
+- [x] Design it (spec): `/architect first deploy end to end`
+- [ ] Build it: `/develop first deploy end to end`
+  - [ ] Store interfaces, the registry and build namespace, config and bootstrap seeding — AC-1, AC-17, AC-20
+  - [ ] The upload endpoint, the hardened `fetch-source` extractor, and the redeem path — AC-2, AC-8, AC-19
+  - [ ] The build Job and the registry client: digest resolve and the non root image check — AC-7, AC-9, AC-10
+  - [ ] App side composition: namespace, pull secret, Deployment, Service, Ingress — AC-11, AC-12, AC-13
+  - [ ] The reconcile loop, the `deploy_app` tool, reason codes, the startup sweep, and the real deploy — AC-3, AC-4, AC-5, AC-6, AC-14, AC-15, AC-16, AC-18, AC-21, AC-22
+- [ ] Verify it: `/check verify first deploy end to end`
+- [ ] Test it: `/test first deploy end to end`
+- [ ] Review it (fresh model): `/check review first deploy end to end`
+- [ ] Document it: `/document first deploy end to end`
 
 ## Slice 2: Async deployment jobs & status
 
@@ -180,6 +191,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
 - **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned · needs a decision
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
+- **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
+- **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 
