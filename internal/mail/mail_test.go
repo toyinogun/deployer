@@ -103,8 +103,10 @@ func TestSendPostsTheMessageResendExpects(t *testing.T) {
 }
 
 // TestSendReportsAProviderRefusalWithoutItsBody is the AC-27 half this package
-// owns: a Resend error can echo the request back, and the request carries a
-// person's address, so the error is the status and nothing else.
+// owns: a Resend error can echo the request back, and the request body carries
+// the raw link token, so the error is the status and nothing else. The
+// recipient address and the API key are asserted alongside it as hygiene, not
+// because AC-27 names them.
 //
 // covers: AC-27
 func TestSendReportsAProviderRefusalWithoutItsBody(t *testing.T) {
