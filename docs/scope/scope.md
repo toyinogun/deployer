@@ -46,7 +46,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 3 | Platform data model | Foundation | done |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
 | 5 | First deploy end to end | Slice 1 | done |
-| 6 | Async deployment jobs & status | Slice 2 | planned |
+| 6 | Async deployment jobs & status | Slice 2 | in-progress |
 | 7 | Application logs | Slice 3 | planned |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
 | 9 | Workload isolation & network policy | Slice 5 | planned |
@@ -126,10 +126,20 @@ spec [0004](../specs/0004-first-deploy-end-to-end/index.md) · code in `internal
 
 ## Slice 2: Async deployment jobs & status
 
-### 6. Async deployment jobs & status · needs a decision
+### 6. Async deployment jobs & status · in-progress
 Thickens the deploy segment. The deploy call returns a job identifier immediately instead of holding the connection open through a build, the deployment walks a real state machine, and the agent can ask how it is going and get a useful answer when it fails.
 **Done when:** a deploy returns a job id within a second, every state transition is recorded, a `deployment_status` MCP call reports the current state, and a failed build reports a sanitized reason rather than a timeout.
-- [ ] Design it (spec): `/architect async deployment jobs & status`
+spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `internal/mcp`, `internal/reconcile`, `internal/store`, `internal/domain`, `internal/auth`, `internal/kube`
+- [x] Design it (spec): `/architect async deployment jobs & status`
+- [x] Build it: `/develop async deployment jobs & status`
+  - [x] The two new reason codes and the status reads over deployments and events — AC-8, AC-11, AC-13
+  - [x] The `deployment_status` tool: arguments, account scope, payload per state, description — AC-5, AC-6, AC-7, AC-9, AC-10
+  - [x] The non blocking `deploy_app` and supersession reporting — AC-1, AC-2, AC-3, AC-4, AC-12, AC-20
+  - [x] The deploy budget inside the reconcile loop, with the Job delete — AC-14, AC-14a, AC-15, AC-16, AC-17, AC-18
+- [ ] Verify it: `/check verify async deployment jobs & status` — includes the real deploy from an agent session, AC-19
+- [ ] Test it: `/test async deployment jobs & status`
+- [ ] Review it (fresh model): `/check review async deployment jobs & status`
+- [ ] Document it: `/document async deployment jobs & status`
 
 ## Slice 3: Application logs
 
@@ -193,6 +203,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
 - **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision
+- **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 
