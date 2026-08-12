@@ -14,6 +14,11 @@ type Minted struct {
 
 // MintToken creates an API token for a verified account. An unverified account is
 // refused, because a token is exactly the thing verification gates (AC-15).
+//
+// Over HTTP the session gate in internal/auth refuses that caller first, with the
+// same code, so this branch is the invariant held here rather than the answer a
+// caller sees. It stays because a second caller of this service should not have to
+// know the gate ran.
 func (s *Service) MintToken(ctx context.Context, account Account, name string, days int) (Minted, error) {
 	if account.Email != "" && !account.Verified {
 		return Minted{}, Fail(CodeEmailUnverified, "confirm your email address before minting a token")
