@@ -1,7 +1,7 @@
 # 0005. Async deployment jobs and status: the deploy call stops waiting
 
 **Date**: 2026-08-12
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

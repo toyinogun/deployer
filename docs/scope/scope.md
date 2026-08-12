@@ -126,7 +126,7 @@ spec [0004](../specs/0004-first-deploy-end-to-end/index.md) · code in `internal
 
 ## Slice 2: Async deployment jobs & status
 
-### 6. Async deployment jobs & status · in-progress
+### 6. Async deployment jobs & status · done
 Thickens the deploy segment. The deploy call returns a job identifier immediately instead of holding the connection open through a build, the deployment walks a real state machine, and the agent can ask how it is going and get a useful answer when it fails.
 **Done when:** a deploy returns a job id within a second, every state transition is recorded, a `deployment_status` MCP call reports the current state, and a failed build reports a sanitized reason rather than a timeout.
 spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `internal/mcp`, `internal/reconcile`, `internal/store`, `internal/domain`, `internal/auth`, `internal/kube`
@@ -136,7 +136,7 @@ spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `int
   - [x] The `deployment_status` tool: arguments, account scope, payload per state, description — AC-5, AC-6, AC-7, AC-9, AC-10
   - [x] The non blocking `deploy_app` and supersession reporting — AC-1, AC-2, AC-3, AC-4, AC-12, AC-20
   - [x] The deploy budget inside the reconcile loop, with the Job delete — AC-14, AC-14a, AC-15, AC-16, AC-17, AC-18
-- [ ] Verify it: `/check verify async deployment jobs & status` — includes the real deploy from an agent session, AC-19
+- [x] Verify it: `/check verify async deployment jobs & status` — all 20 acceptance criteria proved against the real cluster, including the real deploy from an agent session (AC-19) and the budget on resume (AC-14a). The one step still open is the root image failure projection, deferred to slice 6 for the same reason as spec 0004's AC-10
 - [x] Test it: `/test async deployment jobs & status`
 - [x] Review it (fresh model): `/check review async deployment jobs & status`
 - [x] Document it: `/document async deployment jobs & status`
