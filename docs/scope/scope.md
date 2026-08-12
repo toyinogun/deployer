@@ -169,12 +169,13 @@ Thickens the auth segment from the single token of slice 1 into something real: 
 **Done when:** a person can register, verify, sign in and mint a token, that token deploys, a second account cannot deploy to or read anything of the first's app, tokens can be revoked, and every denial and privileged action is recorded.
 spec [0007](../specs/0007-accounts-tokens-app-ownership/index.md)
 - [x] Design it (spec): `/architect accounts, API tokens & app ownership`
-- [ ] Build it: `/develop accounts, API tokens & app ownership`
-  - [ ] The `00002` migration and the store layer: the five account columns, the partial email index, `sessions` and `email_tokens` — AC-1, AC-5, AC-7, AC-12
-  - [ ] The thin thread end to end: `internal/identity`, `internal/mail` on Resend, and register, verify, login and mint wired up — AC-1, AC-3, AC-4, AC-5, AC-7, AC-12, AC-25, AC-26
-  - [ ] The gate everywhere and the two account ownership proof — AC-15, AC-16, AC-17, AC-18, AC-21
-  - [ ] Session lifecycle, token list and revoke, forgot and reset — AC-6, AC-9, AC-10, AC-13, AC-14, AC-28, AC-29
-  - [ ] Admin, audit, and the hardening: enumeration, rate limits, redaction — AC-2, AC-8, AC-11, AC-19, AC-20, AC-22, AC-23, AC-24, AC-27
+- [x] Build it: `/develop accounts, API tokens & app ownership`
+  - [x] The `00002` migration and the store layer: the five account columns, the partial email index, `sessions` and `email_tokens` — AC-1, AC-5, AC-7, AC-12
+  - [x] The thin thread end to end: `internal/identity`, `internal/mail` on Resend, and register, verify, login and mint wired up — AC-1, AC-3, AC-4, AC-5, AC-7, AC-12, AC-25, AC-26
+  - [x] The gate everywhere and the two account ownership proof — AC-15, AC-16, AC-17, AC-18, AC-21
+  - [x] Session lifecycle, token list and revoke, forgot and reset — AC-6, AC-9, AC-10, AC-13, AC-14, AC-28, AC-29
+  - [x] Admin, audit, and the hardening: enumeration, rate limits, redaction — AC-2, AC-8, AC-11, AC-19, AC-20, AC-22, AC-23, AC-24, AC-27
+  code in `internal/identity/`, `internal/mail/`, `internal/httpapi/{identity,authroutes,tokenroutes}.go`, `internal/store/{identity,identityadapter}.go`, `internal/auth/session.go`, `internal/store/migrations/00002_identity.sql`
 - [ ] Verify it: `/check verify accounts, API tokens & app ownership`
 - [ ] Test it: `/test accounts, API tokens & app ownership`
 - [ ] Review it (fresh model): `/check review accounts, API tokens & app ownership`

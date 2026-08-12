@@ -56,6 +56,14 @@ data:
   DEPLOYER_APP_LIMIT_CPU: 500m
   DEPLOYER_APP_LIMIT_MEMORY: 512Mi
 
+  # Added by spec 0007. The address every message is sent as. It is not a secret,
+  # so it lives here while the API key beside it lives in the sealed
+  # deployer-mail Secret. Setting one without the other fails the boot naming
+  # which is missing, rather than failing at the first registration. The domain
+  # needs SPF, DKIM and DMARC records in the toyintest.org zone and has to be
+  # verified in Resend before anything it sends will be delivered.
+  DEPLOYER_MAIL_FROM: noreply@deploy.toyintest.org
+
   # DEPLOYER_SELF_IMAGE is deliberately not here: it lives in deployment.yaml
   # beside the image it must match, so CI can rewrite both from one value.
   # The timeouts, the reconcile interval, and the extraction caps all take their

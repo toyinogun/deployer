@@ -1,7 +1,7 @@
 # 0007. Accounts, API tokens and app ownership: people register, machines carry tokens
 
 **Date**: 2026-08-12
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
