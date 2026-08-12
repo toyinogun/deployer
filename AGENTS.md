@@ -54,10 +54,13 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 - Every workload manifest is composed field by field in Go. No string templating, and no user supplied value is ever merged into a pod spec.
 - Every deployment state transition is a database write before it is an action.
 - Deploy by image digest, never by a mutable tag.
+- Anything running inside the cluster reaches the platform on `DEPLOYER_INTERNAL_URL`. `DEPLOYER_PUBLIC_URL` is only for text handed to a caller, because a build pod resolves names on cluster DNS, which cannot see the public hostname.
+- A build hands work between three different users: the build pod runs as the builder image's declared `CNB_USER_ID`, and the tree it unpacks is carried into the app image, where the run image's user is a different uid again. Read those uids from the pinned images, never assume them, and leave the unpacked tree readable by a user that does not own it.
 - Errors wrap with `fmt.Errorf("...: %w", err)`; sentinel errors for the cases callers branch on; never swallow one.
 - Every `DEPLOYER_*` variable is validated in `internal/config` at startup, never at first use.
 - Every exported type and function carries a doc comment starting with its own name.
 - Tests: pure logic is written test first. Kubernetes and HTTP wiring is tested after, with the `client-go` fake clientset and a real SQLite file in a temp dir. No mocking of the store.
+- The fake clientset resolves no names, execs nothing, and the test process owns every file it writes, so a DNS address, a user switch, or a file mode taken from the wrong source passes the whole suite. Those belong to `/check verify` against the real cluster, and each one that bites is worth a unit test pinning the value afterwards.
 - Commits follow conventional format (`feat:`, `fix:`, `chore:`).
 
 ## Tooling
