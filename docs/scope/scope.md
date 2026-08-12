@@ -177,7 +177,7 @@ spec [0007](../specs/0007-accounts-tokens-app-ownership/index.md)
   - [x] Admin, audit, and the hardening: enumeration, rate limits, redaction — AC-2, AC-8, AC-11, AC-19, AC-20, AC-22, AC-23, AC-24, AC-27
   code in `internal/identity/`, `internal/mail/`, `internal/httpapi/{identity,authroutes,tokenroutes}.go`, `internal/store/{identity,identityadapter}.go`, `internal/auth/session.go`, `internal/store/migrations/00002_identity.sql`
 - [x] Verify it: `/check verify accounts, API tokens & app ownership` — all 29 acceptance criteria proved against the real cluster, including two real accounts each owning an app called `checkout` on different hostnames. AC-15 failed on the first pass (an unverified session was told `credentials_invalid` rather than `email_unverified`), was fixed in the same session, and passes on the deployed image
-- [ ] Test it: `/test accounts, API tokens & app ownership`
+- [x] Test it: `/test accounts, API tokens & app ownership` — the suite already carried the HTTP and store halves; this pass added the two gaps it left: `internal/mail` had no tests at all (AC-25, AC-26, AC-27) and the lockout backoff was only proved as far as its first window (AC-23, AC-24). Cross package coverage of `identity`, `auth` and `mail` is 86.8%
 - [ ] Review it (fresh model): `/check review accounts, API tokens & app ownership`
 - [ ] Document it: `/document accounts, API tokens & app ownership`
 
