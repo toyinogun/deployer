@@ -168,6 +168,11 @@ func (s *Store) Transition(ctx context.Context, deploymentID string, to domain.S
 			return fmt.Errorf("store: reading deployment %s: %w", deploymentID, err)
 		}
 		from := domain.State(dep.State)
+		if from.Terminal() {
+			// Something else ended this row first, which is a race the loop has to
+			// tell apart from a move that was never in the machine.
+			return fmt.Errorf("store: %s to %s: %w", from, to, ErrTerminal)
+		}
 		if !domain.CanTransition(from, to) {
 			return fmt.Errorf("store: %s to %s: %w", from, to, ErrIllegalTransition)
 		}
@@ -278,6 +283,9 @@ func (s *Store) MarkHealthy(ctx context.Context, deploymentID string) (Deploymen
 			return fmt.Errorf("store: reading deployment %s: %w", deploymentID, err)
 		}
 		from := domain.State(current.State)
+		if from.Terminal() {
+			return fmt.Errorf("store: %s to healthy: %w", from, ErrTerminal)
+		}
 		if !domain.CanTransition(from, domain.StateHealthy) {
 			return fmt.Errorf("store: %s to healthy: %w", from, ErrIllegalTransition)
 		}

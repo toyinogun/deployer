@@ -32,6 +32,12 @@ import (
 // ticks rather than a failure.
 var ErrNoWork = errors.New("reconcile: nothing queued")
 
+// ErrNotInFlight means the deployment reached a terminal state while this drive
+// was running, which is what a redeploy of the same app does to the row under
+// it. The drive stops at the next write and reports nothing: the row is already
+// ended, correctly, by whoever ended it.
+var ErrNotInFlight = errors.New("reconcile: the deployment is no longer in flight")
+
 // Deployment is the row this package drives, carrying only the fields it reads.
 //
 // CreatedAt is what the deploy budget is measured from, and BuildJobName is what
@@ -296,7 +302,15 @@ func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
 	defer cancel()
 
 	upload, uploadErr := r.uploads.Get(runCtx, dep.UploadID)
-	if fail := r.run(runCtx, &dep, upload, uploadErr); fail != nil {
+	switch fail := r.run(runCtx, &dep, upload, uploadErr); {
+	case fail == nil:
+	case errors.Is(fail.err, ErrNotInFlight):
+		// A redeploy of the same app cancelled this row mid drive. It is already
+		// terminal with the right reason, so this drive writes nothing: failing it
+		// would be reporting a fault where the platform behaved exactly as specced.
+		slog.InfoContext(ctx, "the deployment was ended while it was being driven, so the drive stopped",
+			"deployment", dep.ID, "phase", dep.State)
+	default:
 		if fail.reason == domain.ReasonTimeout {
 			// The budget is what ran out, so the build goes with it (AC-15).
 			r.deleteBuildJob(ctx, dep)
@@ -591,8 +605,16 @@ func (r *Reconciler) fail(ctx context.Context, deploymentID string, f *failure) 
 	// row still has to be written or it stays in flight forever.
 	writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := r.deployments.Transition(writeCtx, deploymentID, domain.StateFailed,
-		string(f.reason), f.reason.Message()); err != nil {
+	err := r.deployments.Transition(writeCtx, deploymentID, domain.StateFailed,
+		string(f.reason), f.reason.Message())
+	switch {
+	case err == nil:
+	case errors.Is(err, ErrNotInFlight):
+		// The row was ended by something else between the failure and this write.
+		// It is terminal with a reason already, so there is nothing to record.
+		slog.InfoContext(ctx, "the deployment was already ended, so the failure was not recorded",
+			"deployment", deploymentID, "reason", f.reason)
+	default:
 		slog.ErrorContext(ctx, "recording a deployment failure failed", "deployment", deploymentID, "error", err)
 	}
 }

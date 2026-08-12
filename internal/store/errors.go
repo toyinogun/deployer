@@ -1,6 +1,9 @@
 package store
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // The errors callers branch on. Anything else is wrapped with fmt.Errorf and
 // treated as a fault rather than a decision.
@@ -32,6 +35,14 @@ var (
 
 	// ErrIllegalTransition means the requested move is not in the state machine.
 	ErrIllegalTransition = errors.New("store: illegal state transition")
+
+	// ErrTerminal means the move was refused because the deployment had already
+	// reached a terminal state, which is what a supersession does to a row while
+	// the loop is still driving it. It is a kind of ErrIllegalTransition, so a
+	// caller that only cares that the move was refused still matches, and one
+	// that has to tell "something else ended this row" from "this move is not in
+	// the machine" can branch on it.
+	ErrTerminal = fmt.Errorf("store: the deployment is already terminal: %w", ErrIllegalTransition)
 
 	// ErrNoDigest means a deployment reached the point of becoming a release
 	// without an image to record.

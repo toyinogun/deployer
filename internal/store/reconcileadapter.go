@@ -81,9 +81,14 @@ func (a ReconcileStore) ListNonTerminal(ctx context.Context) ([]reconcile.Deploy
 	return out, nil
 }
 
-// Transition moves a deployment.
+// Transition moves a deployment, mapping a row that something else already
+// ended onto the loop's own sentinel so a supersession reads as a race to stop
+// on rather than as a fault.
 func (a ReconcileStore) Transition(ctx context.Context, id string, to domain.State, reason, detail string) error {
 	_, err := a.s.Transition(ctx, id, to, reason, detail)
+	if errors.Is(err, ErrTerminal) {
+		return fmt.Errorf("%w: %w", reconcile.ErrNotInFlight, err)
+	}
 	return err
 }
 
@@ -100,6 +105,9 @@ func (a ReconcileStore) RecordBuild(ctx context.Context, id, jobName, imageRepo,
 // MarkHealthy runs the one transaction that mints a release.
 func (a ReconcileStore) MarkHealthy(ctx context.Context, id string) (reconcile.Release, error) {
 	_, rel, err := a.s.MarkHealthy(ctx, id)
+	if errors.Is(err, ErrTerminal) {
+		return reconcile.Release{}, fmt.Errorf("%w: %w", reconcile.ErrNotInFlight, err)
+	}
 	if err != nil {
 		return reconcile.Release{}, err
 	}
