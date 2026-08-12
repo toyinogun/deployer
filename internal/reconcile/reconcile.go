@@ -33,13 +33,18 @@ import (
 var ErrNoWork = errors.New("reconcile: nothing queued")
 
 // Deployment is the row this package drives, carrying only the fields it reads.
+//
+// CreatedAt is what the deploy budget is measured from, and BuildJobName is what
+// the watchdog deletes when it gives up on one (spec 0005, AC-14, AC-15).
 type Deployment struct {
-	ID          string
-	AppID       string
-	UploadID    string
-	State       domain.State
-	ImageRepo   string
-	ImageDigest string
+	ID           string
+	AppID        string
+	UploadID     string
+	State        domain.State
+	ImageRepo    string
+	ImageDigest  string
+	CreatedAt    time.Time
+	BuildJobName string
 }
 
 // App is the app a deployment belongs to.
@@ -106,6 +111,7 @@ type Cluster interface {
 	EnsureNamespace(ctx context.Context, ns *corev1.Namespace, rb *rbacv1.RoleBinding, quota *corev1.ResourceQuota, limits *corev1.LimitRange) error
 	ApplyWorkload(ctx context.Context, d *appsv1.Deployment, s *corev1.Service, i *networkingv1.Ingress) error
 	WorkloadReady(ctx context.Context, namespace, name string) (bool, error)
+	DeleteJob(ctx context.Context, namespace, name string) error
 }
 
 // Options is everything the loop needs from configuration.
@@ -182,8 +188,11 @@ func (r *Reconciler) Run(ctx context.Context) {
 	}
 }
 
-// tick claims one deployment and drives it to a terminal state.
+// tick fails whatever has run past the deploy budget, then claims one deployment
+// and drives it to a terminal state.
 func (r *Reconciler) tick(ctx context.Context) {
+	r.expireOverdue(ctx)
+
 	dep, err := r.deployments.ClaimNext(ctx, r.opts.PodName)
 	if errors.Is(err, ErrNoWork) {
 		return
@@ -214,21 +223,97 @@ func (r *Reconciler) Sweep(ctx context.Context) {
 	}
 }
 
+// expireOverdue fails every non terminal deployment that has run past the deploy
+// budget. It runs at the top of a tick, before anything is claimed, so it is one
+// store query and no cluster call unless something is actually overdue.
+//
+// Between drives rather than during one: what bounds how long an overdue row
+// waits here is the budget check inside the drive ahead of it (spec 0005, AC-14).
+func (r *Reconciler) expireOverdue(ctx context.Context) {
+	deps, err := r.deployments.ListNonTerminal(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "reading in flight deployments for the deploy budget failed", "error", err)
+		return
+	}
+	for _, dep := range deps {
+		if ctx.Err() != nil {
+			return
+		}
+		if r.remainingBudget(dep) > 0 {
+			continue
+		}
+		r.expire(ctx, dep)
+	}
+}
+
+// remainingBudget is what is left of the deploy budget for this row, measured
+// from when it was created rather than when it was claimed, so queue time counts
+// against it and a resumed deployment never gets a fresh window (AC-14a).
+func (r *Reconciler) remainingBudget(dep Deployment) time.Duration {
+	if dep.CreatedAt.IsZero() {
+		return r.opts.DeployTimeout
+	}
+	return r.opts.DeployTimeout - time.Since(dep.CreatedAt)
+}
+
+// expire is the watchdog's whole action: stop the build if there is one, write
+// the failure, and drop the tarball, because this row is terminal now and no
+// caller is counting the seconds any more (AC-15, AC-18).
+func (r *Reconciler) expire(ctx context.Context, dep Deployment) {
+	r.deleteBuildJob(ctx, dep)
+	r.fail(ctx, dep.ID, &failure{domain.ReasonTimeout,
+		fmt.Errorf("deployment %s ran past the %s deploy budget", dep.ID, r.opts.DeployTimeout)})
+	if upload, err := r.uploads.Get(ctx, dep.UploadID); err == nil {
+		r.uploads.Remove(ctx, upload.Path)
+	}
+}
+
+// deleteBuildJob removes the build behind a deployment the watchdog is giving up
+// on. A row with no Job name never had one, so there is nothing to delete.
+func (r *Reconciler) deleteBuildJob(ctx context.Context, dep Deployment) {
+	if dep.BuildJobName == "" {
+		return
+	}
+	if err := r.cluster.DeleteJob(ctx, r.opts.BuildNamespace, dep.BuildJobName); err != nil {
+		// Logged and carried on: a Job that would not delete must not leave the
+		// row in flight forever, which is the one thing the watchdog is for.
+		slog.ErrorContext(ctx, "deleting the build job of an overdue deployment failed",
+			"deployment", dep.ID, "job", dep.BuildJobName, "error", err)
+	}
+}
+
 // Drive takes one deployment as far as it goes, and records the outcome whatever
 // it is. Every exit from here is terminal, so nothing this touches stays queued.
 func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
-	// The whole deploy budget, which is also what the blocking handler is waiting
-	// on. A phase that overruns its own budget fails as itself; overrunning this
-	// one is a timeout (AC-17).
-	runCtx, cancel := context.WithTimeout(ctx, r.opts.DeployTimeout)
+	// What is left of the deploy budget, not a fresh one: a deployment that has
+	// already spent it is failed without being driven at all (AC-14a).
+	budget := r.remainingBudget(dep)
+	if budget <= 0 {
+		r.expire(ctx, dep)
+		return
+	}
+	runCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
 	upload, uploadErr := r.uploads.Get(runCtx, dep.UploadID)
 	if fail := r.run(runCtx, &dep, upload, uploadErr); fail != nil {
+		if fail.reason == domain.ReasonTimeout {
+			// The budget is what ran out, so the build goes with it (AC-15).
+			r.deleteBuildJob(ctx, dep)
+		}
 		r.fail(ctx, dep.ID, fail)
 	}
 	// Terminal either way, so the tarball has served its purpose (AC-22).
 	r.uploads.Remove(ctx, upload.Path)
+}
+
+// overBudget is the phase boundary check: a drive never starts another phase
+// once the deploy budget is spent (AC-14).
+func overBudget(ctx context.Context) *failure {
+	if ctx.Err() != nil {
+		return &failure{domain.ReasonTimeout, ctx.Err()}
+	}
+	return nil
 }
 
 // run walks the phases, resuming at whichever one the row's state says is next.
@@ -243,19 +328,31 @@ func (r *Reconciler) run(ctx context.Context, dep *Deployment, upload Upload, up
 	}
 
 	if dep.State == domain.StateQueued {
+		if fail := overBudget(ctx); fail != nil {
+			return fail
+		}
 		if fail := r.startBuild(ctx, dep, app, upload); fail != nil {
 			return fail
 		}
 	}
 	if dep.State == domain.StateBuilding {
+		if fail := overBudget(ctx); fail != nil {
+			return fail
+		}
 		if fail := r.awaitBuild(ctx, dep); fail != nil {
 			return fail
 		}
 	}
 	if dep.State == domain.StatePushing {
+		if fail := overBudget(ctx); fail != nil {
+			return fail
+		}
 		if fail := r.resolveImage(ctx, dep, app); fail != nil {
 			return fail
 		}
+	}
+	if fail := overBudget(ctx); fail != nil {
+		return fail
 	}
 	return r.deployApp(ctx, dep, app)
 }
@@ -309,7 +406,8 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 	}
 
 	dep.ImageRepo = build.ImageRepo(r.opts.RegistryHost, app.Slug)
-	if err := r.deployments.RecordBuild(ctx, dep.ID, build.JobName(dep.ID), dep.ImageRepo, ""); err != nil {
+	dep.BuildJobName = build.JobName(dep.ID)
+	if err := r.deployments.RecordBuild(ctx, dep.ID, dep.BuildJobName, dep.ImageRepo, ""); err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("recording the build job: %w", err)}
 	}
 	return nil

@@ -65,10 +65,13 @@ type Config struct {
 	BuildUID int64
 	BuildGID int64
 
-	DeployTimeout     time.Duration // whole budget for one deploy_app call
+	// DeployTimeout is one deployment's whole budget, measured from created_at to
+	// a terminal state and enforced by the reconcile loop. It does not bound an
+	// MCP call: deploy_app returns straight away (spec 0005, AC-17).
+	DeployTimeout     time.Duration
 	BuildTimeout      time.Duration // the build Job's activeDeadlineSeconds
 	ReadyTimeout      time.Duration // how long to wait for an available replica
-	ReconcileInterval time.Duration // the loop tick, reused as the handler's poll interval
+	ReconcileInterval time.Duration // the loop tick
 
 	AppCPU         string // an app container's CPU request
 	AppMemory      string // an app container's memory request

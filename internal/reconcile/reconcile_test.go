@@ -429,10 +429,20 @@ func toLoop(d store.Deployment) reconcile.Deployment {
 	if d.UploadID != nil {
 		upload = *d.UploadID
 	}
+	created, err := time.Parse(time.RFC3339Nano, d.CreatedAt)
+	if err != nil {
+		panic("a stored created_at that will not parse: " + d.CreatedAt)
+	}
+	var jobName string
+	if d.BuildJobName != nil {
+		jobName = *d.BuildJobName
+	}
 	return reconcile.Deployment{
-		ID:       d.ID,
-		AppID:    d.AppID,
-		UploadID: upload,
-		State:    domain.State(d.State),
+		ID:           d.ID,
+		AppID:        d.AppID,
+		UploadID:     upload,
+		State:        domain.State(d.State),
+		CreatedAt:    created,
+		BuildJobName: jobName,
 	}
 }

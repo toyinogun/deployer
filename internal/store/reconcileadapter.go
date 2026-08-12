@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/toyinogun/deployer/internal/domain"
 	"github.com/toyinogun/deployer/internal/reconcile"
@@ -28,13 +30,28 @@ var (
 // deploymentRow maps a stored deployment onto the fields the loop reads.
 func deploymentRow(d Deployment) reconcile.Deployment {
 	return reconcile.Deployment{
-		ID:          d.ID,
-		AppID:       d.AppID,
-		UploadID:    deref(d.UploadID),
-		State:       domain.State(d.State),
-		ImageRepo:   deref(d.ImageRepo),
-		ImageDigest: deref(d.ImageDigest),
+		ID:           d.ID,
+		AppID:        d.AppID,
+		UploadID:     deref(d.UploadID),
+		State:        domain.State(d.State),
+		ImageRepo:    deref(d.ImageRepo),
+		ImageDigest:  deref(d.ImageDigest),
+		CreatedAt:    stamped(d.CreatedAt),
+		BuildJobName: deref(d.BuildJobName),
 	}
+}
+
+// stamped reads a stored timestamp back. Every column is written through
+// ids.Stamp, so anything unreadable here is a platform bug rather than data: it
+// reads as the zero time, which the loop treats as a full deploy budget rather
+// than as an already overdue deployment.
+func stamped(s string) time.Time {
+	t, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		slog.Error("a stored timestamp is unreadable", "value", s, "error", err)
+		return time.Time{}
+	}
+	return t
 }
 
 // ClaimNext hands the loop the oldest queued deployment, mapping an empty queue

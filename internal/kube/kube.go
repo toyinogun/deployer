@@ -103,6 +103,22 @@ func (c *Client) CreateJob(ctx context.Context, job *batchv1.Job) (metav1.OwnerR
 	}, nil
 }
 
+// DeleteJob removes a build Job and, through background propagation, the pod it
+// made. It is the one delete in this package: a deployment the watchdog gives up
+// on must not leave a build running against a row nothing will read
+// (spec 0005, AC-15).
+//
+// A Job that is already gone is success, because the only thing asked for was
+// that it not be running.
+func (c *Client) DeleteJob(ctx context.Context, namespace, name string) error {
+	policy := metav1.DeletePropagationBackground
+	err := c.cs.BatchV1().Jobs(namespace).Delete(ctx, name, metav1.DeleteOptions{PropagationPolicy: &policy})
+	if err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("kube: deleting job %s/%s: %w", namespace, name, err)
+	}
+	return nil
+}
+
 // JobState reports where a build Job has got to.
 func (c *Client) JobState(ctx context.Context, namespace, name string) (build.JobState, error) {
 	job, err := c.cs.BatchV1().Jobs(namespace).Get(ctx, name, metav1.GetOptions{})
