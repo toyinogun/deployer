@@ -125,6 +125,47 @@ func TestExtractUnpacksAPlainArchive(t *testing.T) {
 	}
 }
 
+// The unpacked tree is carried into the app image mode for mode by the exporter,
+// and the app runs there as the run image's cnb user, a different uid from the
+// build user that unpacked it. So every directory has to stay traversable and
+// every file readable by somebody who is not the owner. A 0700 and 0600 floor
+// here built a perfectly good image that died on launch with "change to app
+// directory: permission denied", and no test noticed, because the test process
+// owns everything it writes.
+func TestExtractLeavesTheTreeReadableByAnotherUser(t *testing.T) {
+	t.Parallel()
+	dest := t.TempDir()
+
+	err := source.Extract(bytes.NewReader(archive(t,
+		entry{name: "cmd", typeflag: tar.TypeDir, mode: 0o700},
+		entry{name: "cmd/main.go", body: "package main\n", mode: 0o600},
+		entry{name: "nested/deep/app.py", body: "print(1)\n", mode: 0o600},
+	)), dest, generous())
+	if err != nil {
+		t.Fatalf("extract: %v", err)
+	}
+
+	for _, dir := range []string{"cmd", "nested", "nested/deep"} {
+		info, err := os.Stat(filepath.Join(dest, filepath.FromSlash(dir)))
+		if err != nil {
+			t.Fatalf("stat %s: %v", dir, err)
+		}
+		// Group and other execute, so a different uid can chdir into it.
+		if info.Mode().Perm()&0o055 != 0o055 {
+			t.Errorf("%s mode = %v, want group and other traversable", dir, info.Mode().Perm())
+		}
+	}
+	for _, file := range []string{"cmd/main.go", "nested/deep/app.py"} {
+		info, err := os.Stat(filepath.Join(dest, filepath.FromSlash(file)))
+		if err != nil {
+			t.Fatalf("stat %s: %v", file, err)
+		}
+		if info.Mode().Perm()&0o044 != 0o044 {
+			t.Errorf("%s mode = %v, want group and other readable", file, info.Mode().Perm())
+		}
+	}
+}
+
 // Every hostile archive in the spec's failure scenarios, each rejected, each
 // leaving the extraction root empty (AC-8, AC-16).
 func TestExtractRejectsHostileArchives(t *testing.T) {

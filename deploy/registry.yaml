@@ -124,6 +124,12 @@ metadata:
   namespace: deployer-system
 spec:
   type: ClusterIP
+  # Pinned, and load bearing. Every node's /etc/rancher/k3s/registries.yaml
+  # mirrors deployer-registry.deployer-system.svc:5000 to this address, because
+  # containerd pulls images through the host's resolver, which knows nothing of
+  # cluster DNS and cannot resolve the Service name. A reallocated address here
+  # breaks every image pull on every node until the four files are edited again.
+  clusterIP: 10.43.166.224
   selector:
     app: deployer-registry
   ports:

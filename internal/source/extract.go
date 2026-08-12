@@ -35,6 +35,20 @@ type Limits struct {
 // source tarball has any business carrying the others.
 const permMask = 0o777
 
+// dirPerm is the floor every unpacked directory gets, on top of whatever the
+// archive asked for. It has to be traversable by a user that is not the one
+// unpacking it: the build runs as the builder image's cnb user, the exporter
+// carries these directories into the app image mode for mode, and the app then
+// runs as the *run* image's cnb user, a different uid in the same group. A 0700
+// floor left the app image unable to enter its own working directory, which
+// surfaced as "failed to launch: change to app directory: permission denied".
+const dirPerm = 0o755
+
+// filePerm is the same floor for files, for the same reason. A compiled app
+// only needs the directory, but an interpreted one *is* these files, and the
+// run image's user has to be able to read them.
+const filePerm = 0o644
+
 // Extract unpacks a gzipped tar stream into dest, which must already exist.
 //
 // Every entry is checked before anything is written, and the first refusal stops
@@ -78,11 +92,11 @@ func Extract(r io.Reader, dest string, lim Limits) error {
 
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(header.Mode)&permMask|0o700); err != nil {
+			if err := os.MkdirAll(target, os.FileMode(header.Mode)&permMask|dirPerm); err != nil {
 				return fmt.Errorf("source: creating a directory: %w", err)
 			}
 		case tar.TypeReg:
-			written, err := writeFile(target, tr, os.FileMode(header.Mode)&permMask|0o600, remaining)
+			written, err := writeFile(target, tr, os.FileMode(header.Mode)&permMask|filePerm, remaining)
 			if err != nil {
 				return err
 			}
@@ -127,7 +141,7 @@ func writeFile(target string, r io.Reader, mode os.FileMode, remaining int64) (i
 	if remaining <= 0 {
 		return 0, fmt.Errorf("source: archive expands past the size limit: %w", ErrRejected)
 	}
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(target), dirPerm); err != nil {
 		return 0, fmt.Errorf("source: creating a parent directory: %w", err)
 	}
 	// O_EXCL: an archive naming the same path twice is refused rather than
