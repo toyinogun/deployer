@@ -126,6 +126,18 @@ func (w *world) buildEnds(condition batchv1.JobConditionType) {
 	})
 }
 
+// buildNeverEnds makes every build Job read back with no condition at all, which
+// is a Job still running. Nothing here schedules anything, so the only way that
+// build ends is a deadline.
+func (w *world) buildNeverEnds() {
+	w.clientset.PrependReactor("get", "jobs", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		name := action.(k8stesting.GetAction).GetName()
+		return true, &batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: action.GetNamespace()},
+		}, nil
+	})
+}
+
 // appComesUp makes every app Deployment read back with an available replica.
 func (w *world) appComesUp() {
 	w.clientset.PrependReactor("get", "deployments", func(action k8stesting.Action) (bool, runtime.Object, error) {
@@ -139,10 +151,12 @@ func (w *world) appComesUp() {
 	})
 }
 
-// reconciler wires the loop over this world's real store and fake cluster.
-func (w *world) reconciler(reg reconcile.Registry) *reconcile.Reconciler {
+// reconciler wires the loop over this world's real store and fake cluster. The
+// tweaks run over the options before the loop is built, so a test that cares
+// about one budget states only that one.
+func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Options)) *reconcile.Reconciler {
 	rs := store.ForReconcile(w.store)
-	return reconcile.New(rs, rs, uploadsFor{w.uploads}, reg, kube.NewFor(w.clientset), reconcile.Options{
+	opts := reconcile.Options{
 		PodName:               "deployer-0",
 		ControlPlaneNamespace: "deployer-system",
 		BuildNamespace:        "deployer-builds",
@@ -150,6 +164,8 @@ func (w *world) reconciler(reg reconcile.Registry) *reconcile.Reconciler {
 		IngressClassName:      "nginx",
 		SelfImage:             "ghcr.io/x/deployer@" + testDigest,
 		BuilderImage:          "paketobuildpacks/builder@" + testDigest,
+		BuildUID:              1001,
+		BuildGID:              1000,
 		InternalURL:           "http://deployer.deployer-system.svc",
 		RegistryHost:          "registry.deployer-system:5000",
 		RegistryUser:          "deployer",
@@ -167,7 +183,11 @@ func (w *world) reconciler(reg reconcile.Registry) *reconcile.Reconciler {
 		QuotaCPU:              "1",
 		QuotaMemory:           "1Gi",
 		QuotaPods:             5,
-	})
+	}
+	for _, tweak := range tweaks {
+		tweak(&opts)
+	}
+	return reconcile.New(rs, rs, uploadsFor{w.uploads}, reg, kube.NewFor(w.clientset), opts)
 }
 
 // uploadsFor adapts the upload service the way the composition root does.
@@ -298,6 +318,57 @@ func TestTheSweepFailsADeploymentWhoseJobVanished(t *testing.T) {
 	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}).Sweep(ctx)
 
 	assertFailed(t, w, string(domain.ReasonBuildFailed))
+}
+
+// The three tests below are AC-17: each of the three budgets fails a deployment
+// with its own reason, so an operator reading a failed row can tell which one
+// ran out. `/check verify` proved this against the real cluster once; these keep
+// it true, because the whole attribution lives in one small `select` and a
+// change to its branch order is invisible to every other test here.
+
+// The build's own deadline passing, while the whole deploy still had budget.
+func TestABuildThatOutlastsItsOwnBudgetFailsAsABuild(t *testing.T) {
+	w := setup(t)
+	w.buildNeverEnds()
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}, func(o *reconcile.Options) {
+		o.BuildTimeout = 50 * time.Millisecond
+		o.DeployTimeout = 30 * time.Second
+	}).Drive(t.Context(), toLoop(w.deployment))
+
+	assertFailed(t, w, string(domain.ReasonBuildFailed))
+}
+
+// The Deployment never reporting an available replica, while the whole deploy
+// still had budget. Named as itself so it is not confused with a failed build.
+func TestAnAppThatNeverComesUpFailsAsNeverReady(t *testing.T) {
+	w := setup(t)
+	w.buildEnds(batchv1.JobComplete)
+	// No appComesUp: the composed Deployment reads back with no ready replica,
+	// which is what an app that crashes on boot looks like from here.
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}, func(o *reconcile.Options) {
+		o.ReadyTimeout = 50 * time.Millisecond
+		o.DeployTimeout = 30 * time.Second
+	}).Drive(t.Context(), toLoop(w.deployment))
+
+	assertFailed(t, w, string(domain.ReasonAppNeverReady))
+}
+
+// The whole deploy budget running out first, which outranks the phase's own
+// reason: the build had not overrun anything, the call did.
+func TestTheDeployBudgetRunningOutIsATimeoutNotAPhaseFailure(t *testing.T) {
+	w := setup(t)
+	w.buildNeverEnds()
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}, func(o *reconcile.Options) {
+		// Generous enough that the queued to building writes cannot be what
+		// expires, short enough that the test does not sit here.
+		o.DeployTimeout = time.Second
+		o.BuildTimeout = 30 * time.Second
+	}).Drive(t.Context(), toLoop(w.deployment))
+
+	assertFailed(t, w, string(domain.ReasonTimeout))
 }
 
 // assertFailed checks the row ended failed with that code, and that nothing but
