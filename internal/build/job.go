@@ -8,6 +8,7 @@ package build
 import (
 	"fmt"
 	"path"
+	"strings"
 
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -64,10 +65,19 @@ type Input struct {
 // JobName is the Job a deployment's build runs as. Derived from the deployment
 // id alone, so the startup sweep can find a live build for a row it read off
 // disk without having recorded anything extra.
-func JobName(deploymentID string) string { return "build-" + deploymentID }
+func JobName(deploymentID string) string { return "build-" + objectNameFor(deploymentID) }
 
 // SecretName is the per Job registry credential for a deployment's build.
-func SecretName(deploymentID string) string { return "build-" + deploymentID }
+func SecretName(deploymentID string) string { return "build-" + objectNameFor(deploymentID) }
+
+// objectNameFor turns a platform id into the RFC 1123 form a Kubernetes object
+// name has to take. An id is a prefix, an underscore, and an uppercase Crockford
+// base32 ULID, and the API server refuses both the underscore and the uppercase.
+// Lowercasing is lossless here because a ULID never contains a lowercase letter,
+// so two different ids can never collapse onto one name.
+func objectNameFor(id string) string {
+	return strings.ToLower(strings.ReplaceAll(id, "_", "-"))
+}
 
 // Job composes the build Job.
 //

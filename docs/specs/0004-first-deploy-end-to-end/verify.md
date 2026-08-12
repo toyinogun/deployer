@@ -179,7 +179,7 @@ Each varies the input and checks the output changes with it, so a value taken fr
 - [ ] Upload `fetch_token_hash` at upload time: post an upload, then try `GET /v1/uploads/{id}` with any token you can construct. Expect 401: the seeded hash unlocks nothing, because its input was discarded unread → AC-2
 - [ ] Fetch token minted at build time: mint, fetch (200), fetch again (409), mint again, fetch (200), then retry the first token (401). Proves a resumed build gets a working token and a leaked one stays dead → AC-8
 - [ ] Expected `sha256` passed to the build: read the composed Job's init container env and expect `DEPLOYER_EXPECTED_SHA256` to equal `uploads.sha256` for that upload, not anything the archive carries → AC-8
-- [ ] Build Job name: expect `build-<deployment id>`, so a row read off disk after a restart finds its own Job → AC-18
+- [ ] Build Job name: expect the deployment id in the RFC 1123 form an object name has to take, `build-dep-<lowercased ULID>`, so a row read off disk after a restart finds its own Job → AC-18. The raw id carries an underscore and uppercase letters and the API server refuses both
 - [ ] Build target image: expect `DEPLOYER_REGISTRY_HOST + "/apps/" + slug + ":" + deployment id`, with the slug the platform derived and no part of the app name the caller sent → AC-9
 - [ ] Builder and init images: change `DEPLOYER_BUILDER_IMAGE` to a mutable tag and expect the boot to fail naming that variable. Same for `DEPLOYER_SELF_IMAGE` → AC-17
 - [ ] Build result digest: push a tag by hand, resolve it with the registry client, and expect the digest the registry reports rather than anything the build container said → AC-9

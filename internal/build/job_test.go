@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/toyinogun/deployer/internal/build"
 )
@@ -46,12 +47,32 @@ func env(c corev1.Container) map[string]string {
 	return m
 }
 
+// The fake clientset does not validate object names, so nothing else here would
+// notice a name the real API server refuses. A deployment id carries both an
+// underscore and uppercase letters, and neither is legal in an object name, so
+// the names derived from it are checked against the same rule the API server
+// applies. Covers AC-9 and AC-18: without a Job, a build never starts and the
+// startup sweep has nothing to find.
+func TestDerivedNamesAreValidObjectNames(t *testing.T) {
+	t.Parallel()
+
+	names := map[string]string{
+		"JobName":    build.JobName(deploymentID),
+		"SecretName": build.SecretName(deploymentID),
+	}
+	for what, name := range names {
+		if errs := validation.IsDNS1123Subdomain(name); len(errs) > 0 {
+			t.Errorf("%s(%q) = %q, which the API server refuses: %s", what, deploymentID, name, strings.Join(errs, "; "))
+		}
+	}
+}
+
 // covers AC-7: one Job is one attempt, with its own deadline and its own reaping.
 func TestJobIsOneAttemptWithADeadline(t *testing.T) {
 	t.Parallel()
 	job := build.Job(input())
 
-	if job.Name != "build-"+deploymentID {
+	if job.Name != build.JobName(deploymentID) {
 		t.Errorf("name = %q, want it derived from the deployment id", job.Name)
 	}
 	if job.Namespace != "deployer-builds" {
