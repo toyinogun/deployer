@@ -101,7 +101,7 @@ spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `int
   - [x] App namespace template: labels, pod security, quota, limit range — AC-5, AC-6, AC-7
   - [x] The control plane in the cluster: namespace, RBAC, volume, config, probes — AC-1, AC-2, AC-3, AC-4, AC-16
   - [x] Platform exposure and ArgoCD delivery — AC-13, AC-15. The certificate alert is deferred, see the spec's Follow-up: the cluster runs no monitoring stack, so there is nowhere to send one yet
-- [ ] Verify it: `/check verify cluster foundation`
+- [x] Verify it: `/check verify cluster foundation`
 - [ ] Test it: `/test cluster foundation`
 - [ ] Review it (fresh model): `/check review cluster foundation`
 - [ ] Document it: `/document cluster foundation`

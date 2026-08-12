@@ -109,22 +109,45 @@ kubectl -n "app-hello-<suffix>" get events --field-selector reason=FailedCreate
 
 ## Service account rights
 
+**`kubectl auth can-i --as=...` does not work here, and it fails in the direction that hides a problem.** The Tailscale operator proxy replaces every client identity with its own, which is in `system:masters`, so every probe returns `yes`, including one for a service account that does not exist. It reads as a clean pass on the first group and a blocking failure on the second, when in fact it measured nothing. Check the bogus account first if you ever doubt it:
+
 ```bash
-SA=system:serviceaccount:deployer-system:deployer
-
-# AC-3: the rights it must have
-kubectl auth can-i create namespaces           --as="$SA"    # yes
-kubectl auth can-i create deployments          --as="$SA" -n app-hello-x   # yes
-kubectl auth can-i get pods/log                --as="$SA" -n app-hello-x   # yes
-
-# AC-3: the rights it must NOT have
-kubectl auth can-i get nodes                   --as="$SA"    # no
-kubectl auth can-i create clusterrolebindings  --as="$SA"    # no
-kubectl auth can-i list secrets                --as="$SA" -n kube-system   # no
-kubectl auth can-i create customresourcedefinitions --as="$SA"  # no
+kubectl auth can-i get nodes --as=system:serviceaccount:deployer-system:nonexistent
+# prints yes, which is how you know the whole method is unusable on this path
 ```
 
-Every line in the first group must print `yes` and every line in the second must print `no`. A `yes` in the second group is a blocking failure, not a note.
+Ask the API server from inside the cluster instead, as the real account, using its mounted token:
+
+```bash
+kubectl -n deployer-system run ac3 --rm -i --restart=Never \
+  --image=curlimages/curl:8.11.1 \
+  --overrides='{"spec":{"serviceAccountName":"deployer","securityContext":{"runAsNonRoot":true,"runAsUser":100,"seccompProfile":{"type":"RuntimeDefault"}},"containers":[{"name":"ac3","image":"curlimages/curl:8.11.1","stdin":true,"tty":false,"command":["sh"],"securityContext":{"allowPrivilegeEscalation":false,"capabilities":{"drop":["ALL"]}}}]}}' <<'SH'
+A=https://kubernetes.default.svc
+T=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+C=/var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+q() { curl -s -o /tmp/o -w "%{http_code}\n" --cacert $C -H "Authorization: Bearer $T" -H 'Content-Type: application/json' "$@"; }
+
+# must be refused
+q $A/api/v1/namespaces/kube-system/secrets                      # 403
+q $A/apis/apps/v1/namespaces/kube-system/deployments            # 403
+q $A/api/v1/nodes                                               # 403
+q $A/apis/apiextensions.k8s.io/v1/customresourcedefinitions     # 403
+q -XPOST -d '{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"kube-evil"}}' \
+     $A/api/v1/namespaces                                       # 422, admission policy
+q -XDELETE $A/api/v1/namespaces/argocd                          # 422, admission policy
+
+# must be allowed
+q -XPOST -d '{"apiVersion":"v1","kind":"Namespace","metadata":{"name":"app-ac3-test"}}' \
+     $A/api/v1/namespaces                                       # 201
+q -XDELETE $A/api/v1/namespaces/app-ac3-test                    # 200
+SH
+```
+
+A `403` or `422` in the first group and a `2xx` in the second is the pass. Anything the other way round is a blocking failure, not a note.
+
+Two of these test the ValidatingAdmissionPolicy rather than RBAC, and that is the point. RBAC cannot fence `namespaces` or `rolebindings` by name, so the policy in `deploy/admission-policy.yaml` is the only thing standing between the control plane and deleting `kube-system`. Its denial message names the rule, so read the body of a `422`, not just the code.
+
+**The control plane holds no rights in an app namespace until it binds them.** `ClusterRole/deployer-app` is bound nowhere by default; the platform creates a RoleBinding to it in each namespace it makes. So `create deployments -n app-<slug>` is correctly a **no** in a namespace that has no such binding, and that is not a failure. Create the binding first, then re-ask.
 
 ## Control plane
 
@@ -149,9 +172,15 @@ kubectl -n deployer-system get pod -l app=deployer \
   -o jsonpath='{.items[0].status.conditions[?(@.type=="Ready")].status}'   # expect True
 
 # AC-13: the platform answers on its own tailnet name, not on the app wildcard
-curl -sS "https://deployer.<tailnet>.ts.net/healthz"    # expect 200
-curl -sS -o /dev/null -w '%{http_code}\n' "https://deployer.$DOMAIN/healthz"
+curl -sS -o /dev/null -w '%{http_code}\n' "https://deployer.<tailnet>.ts.net/readyz"  # expect 200
+curl -sS -o /dev/null -w '%{http_code}\n' "https://deployer.$DOMAIN/readyz"
 # expect 404 from nginx: the platform is not on the app wildcard
+#
+# Use /readyz, not /healthz. ingress-nginx's default server answers /healthz with
+# 200 for ANY host, so the second line returns 200 whatever is or is not deployed
+# and the check can never fail. Confirm it yourself once:
+#   curl -sSk -o /dev/null -w '%{http_code}\n' "https://nothing.$DOMAIN/healthz"   # 200
+#   curl -sSk -o /dev/null -w '%{http_code}\n' "https://nothing.$DOMAIN/"          # 404
 
 # AC-13: and nothing routes the platform onto the app facing controller at all
 kubectl get ingress -A -o json \

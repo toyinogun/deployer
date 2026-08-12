@@ -1,7 +1,7 @@
 # 0003. Cluster foundation: namespaces, RBAC, tailnet ingress, wildcard DNS and TLS
 
 **Date**: 2026-08-11
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
