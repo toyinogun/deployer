@@ -20,6 +20,8 @@ var valid = map[string]string{
 	"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",
 	"DEPLOYER_BUILDER_IMAGE":     "paketobuildpacks/builder-jammy-base@sha256:" + strings.Repeat("a", 64),
 	"DEPLOYER_SELF_IMAGE":        "ghcr.io/toyinogun/deployer@sha256:" + strings.Repeat("b", 64),
+	"DEPLOYER_BUILD_UID":         "1001",
+	"DEPLOYER_BUILD_GID":         "1000",
 }
 
 // withValid returns the valid environment plus the overrides given, so a test

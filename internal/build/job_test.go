@@ -27,6 +27,8 @@ func input() build.Input {
 		AppSlug:         "my-app-a1b2c3",
 		SelfImage:       "ghcr.io/toyinogun/deployer@sha256:" + strings.Repeat("b", 64),
 		BuilderImage:    "paketobuildpacks/builder-jammy-base@sha256:" + strings.Repeat("a", 64),
+		BuildUID:        1001,
+		BuildGID:        1000,
 		TargetImage:     build.TargetImage(registryHost, "my-app-a1b2c3", deploymentID),
 		FetchURL:        "https://deployer.example.ts.net/v1/uploads/upl_123",
 		FetchToken:      "a-single-use-token",
@@ -92,36 +94,43 @@ func TestJobIsOneAttemptWithADeadline(t *testing.T) {
 	}
 }
 
-// covers AC-7: the pod satisfies `restricted` pod security, container by
 // The lifecycle switches to the CNB_USER_ID its own image declares before it
 // does any work, and under `restricted` it holds no capability to switch with,
-// so the pod has to start as that user already. The Paketo jammy builders
-// declare 1001:1000. Starting the pod at 1000:1000 instead let every unit test
-// pass and made every real build die with "failed to exec as user 1001:1000:
-// operation not permitted", because nothing here execs anything.
-func TestJobRunsAsTheBuilderImagesOwnUser(t *testing.T) {
+// so the pod has to start as that user already. Starting it at 1000:1000
+// instead let every unit test pass and made every real build die with "failed to
+// exec as user 1001:1000: operation not permitted", because nothing here execs
+// anything.
+//
+// So this asserts the uid is carried from the Input rather than decided here: it
+// feeds a pair that is deliberately not the Paketo one, and a constant baked
+// back into job.go fails it. Whether the configured pair matches the pinned
+// builder is not knowable from Go at all, and is CI's `builder uid` step.
+func TestJobRunsAsTheUserItWasGiven(t *testing.T) {
 	t.Parallel()
-	spec := build.Job(input()).Spec.Template.Spec
+	in := input()
+	in.BuildUID, in.BuildGID = 2002, 2000
+	spec := build.Job(in).Spec.Template.Spec
 
 	pod := spec.SecurityContext
-	if pod.RunAsUser == nil || *pod.RunAsUser != 1001 {
-		t.Errorf("RunAsUser = %v, want 1001, the builder's cnb user", pod.RunAsUser)
+	if pod.RunAsUser == nil || *pod.RunAsUser != in.BuildUID {
+		t.Errorf("RunAsUser = %v, want %d, the builder's own cnb user", pod.RunAsUser, in.BuildUID)
 	}
-	if pod.RunAsGroup == nil || *pod.RunAsGroup != 1000 {
-		t.Errorf("RunAsGroup = %v, want 1000, the builder's cnb group", pod.RunAsGroup)
+	if pod.RunAsGroup == nil || *pod.RunAsGroup != in.BuildGID {
+		t.Errorf("RunAsGroup = %v, want %d, the builder's own cnb group", pod.RunAsGroup, in.BuildGID)
 	}
 	// The two containers share the source tree through an emptyDir, so the group
 	// that owns it has to be the group both of them run in.
-	if pod.FSGroup == nil || *pod.FSGroup != 1000 {
-		t.Errorf("FSGroup = %v, want 1000, so both containers can reach the workspace", pod.FSGroup)
+	if pod.FSGroup == nil || *pod.FSGroup != in.BuildGID {
+		t.Errorf("FSGroup = %v, want %d, so both containers can reach the workspace", pod.FSGroup, in.BuildGID)
 	}
 	for _, c := range append(append([]corev1.Container{}, spec.InitContainers...), spec.Containers...) {
-		if c.SecurityContext.RunAsUser == nil || *c.SecurityContext.RunAsUser != 1001 {
-			t.Errorf("%s RunAsUser = %v, want 1001", c.Name, c.SecurityContext.RunAsUser)
+		if c.SecurityContext.RunAsUser == nil || *c.SecurityContext.RunAsUser != in.BuildUID {
+			t.Errorf("%s RunAsUser = %v, want %d", c.Name, c.SecurityContext.RunAsUser, in.BuildUID)
 		}
 	}
 }
 
+// covers AC-7: the pod satisfies `restricted` pod security, container by
 // container. This is the box around code the platform did not author.
 func TestJobPodIsRestricted(t *testing.T) {
 	t.Parallel()

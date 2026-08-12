@@ -58,6 +58,12 @@ type Config struct {
 	// container. The downward API cannot supply it, so the manifest sets it
 	// beside the same digest CI pins.
 	SelfImage string
+	// BuildUID and BuildGID are the CNB_USER_ID and CNB_GROUP_ID BuilderImage
+	// declares. The build pod has to start as that user, because the lifecycle
+	// under `restricted` holds no capability to switch to it. They are set beside
+	// the builder digest and repinned with it.
+	BuildUID int64
+	BuildGID int64
 
 	DeployTimeout     time.Duration // whole budget for one deploy_app call
 	BuildTimeout      time.Duration // the build Job's activeDeadlineSeconds

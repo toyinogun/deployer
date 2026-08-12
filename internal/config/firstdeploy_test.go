@@ -137,6 +137,23 @@ func TestFirstDeployRejectsBadValues(t *testing.T) {
 			map[string]string{"DEPLOYER_MAX_EXTRACTED_BYTES": "0"},
 			"DEPLOYER_MAX_EXTRACTED_BYTES",
 		},
+		{
+			"a build uid that is not a number",
+			map[string]string{"DEPLOYER_BUILD_UID": "cnb"},
+			"DEPLOYER_BUILD_UID",
+		},
+		// Not a parse failure but its own answer: a build pod that starts as root
+		// is refused by `restricted` anyway, so say which variable asked for it.
+		{
+			"a build uid of root",
+			map[string]string{"DEPLOYER_BUILD_UID": "0"},
+			"never runs as root",
+		},
+		{
+			"a negative build gid",
+			map[string]string{"DEPLOYER_BUILD_GID": "-1"},
+			"DEPLOYER_BUILD_GID",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -151,21 +168,32 @@ func TestFirstDeployRejectsBadValues(t *testing.T) {
 	}
 }
 
+// The build uid and gid are required rather than defaulted on purpose: a default
+// is an assumption about an image the platform did not build, and assuming it is
+// exactly what broke every real build once already.
 func TestFirstDeployRequiresItsRequiredVars(t *testing.T) {
+	want := []string{
+		"DEPLOYER_PUBLIC_URL", "DEPLOYER_INTERNAL_URL",
+		"DEPLOYER_BUILDER_IMAGE", "DEPLOYER_SELF_IMAGE",
+		"DEPLOYER_BUILD_UID", "DEPLOYER_BUILD_GID",
+	}
+	dropped := map[string]bool{}
+	for _, k := range want {
+		dropped[k] = true
+	}
 	m := map[string]string{}
 	for k, v := range valid {
-		if k == "DEPLOYER_PUBLIC_URL" || k == "DEPLOYER_INTERNAL_URL" || k == "DEPLOYER_BUILDER_IMAGE" || k == "DEPLOYER_SELF_IMAGE" {
-			continue
+		if !dropped[k] {
+			m[k] = v
 		}
-		m[k] = v
 	}
 	_, err := Load(env(m))
 	if err == nil {
 		t.Fatal("want an error, got nil")
 	}
-	for _, want := range []string{"DEPLOYER_PUBLIC_URL", "DEPLOYER_INTERNAL_URL", "DEPLOYER_BUILDER_IMAGE", "DEPLOYER_SELF_IMAGE"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error %q does not mention %s", err, want)
+	for _, w := range want {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("error %q does not mention %s", err, w)
 		}
 	}
 }

@@ -118,6 +118,10 @@ type Options struct {
 
 	SelfImage    string
 	BuilderImage string
+	// BuildUID and BuildGID are the user BuilderImage declares, which the build
+	// pod has to start as.
+	BuildUID int64
+	BuildGID int64
 	// InternalURL is where the build Job's init container reaches the platform.
 	// It runs on cluster DNS, so it cannot use the public address.
 	InternalURL string
@@ -278,6 +282,8 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 		AppSlug:         app.Slug,
 		SelfImage:       r.opts.SelfImage,
 		BuilderImage:    r.opts.BuilderImage,
+		BuildUID:        r.opts.BuildUID,
+		BuildGID:        r.opts.BuildGID,
 		TargetImage:     target,
 		FetchURL:        r.opts.InternalURL + "/v1/uploads/" + upload.ID,
 		FetchToken:      token,

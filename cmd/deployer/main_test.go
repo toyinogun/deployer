@@ -236,6 +236,8 @@ func startServer(t *testing.T, dbPath string) string {
 	t.Setenv("DEPLOYER_INTERNAL_URL", "http://deployer.deployer-system.svc")
 	t.Setenv("DEPLOYER_BUILDER_IMAGE", "paketobuildpacks/builder-jammy-base@sha256:"+strings.Repeat("a", 64))
 	t.Setenv("DEPLOYER_SELF_IMAGE", "ghcr.io/toyinogun/deployer@sha256:"+strings.Repeat("b", 64))
+	t.Setenv("DEPLOYER_BUILD_UID", "1001")
+	t.Setenv("DEPLOYER_BUILD_GID", "1000")
 
 	done := make(chan error, 1)
 	go func() { done <- run() }()

@@ -52,6 +52,25 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 		}
 		return time.Duration(n) * time.Second
 	}
+	// id reads a uid or gid: required, because an absent one is an assumed one,
+	// and that is the whole failure this variable exists to prevent. Zero is
+	// refused separately from a parse failure, since a build pod that starts as
+	// root is refused by `restricted` anyway and is worth naming as itself.
+	id := func(key string) int64 {
+		raw := getenv("DEPLOYER_" + key)
+		if raw == "" {
+			missing = append(missing, "DEPLOYER_"+key)
+			return 0
+		}
+		n, err := strconv.ParseInt(raw, 10, 64)
+		switch {
+		case err != nil || n < 0:
+			errs = append(errs, fmt.Sprintf("DEPLOYER_%s must be a whole number, got %q", key, raw))
+		case n == 0:
+			errs = append(errs, fmt.Sprintf("DEPLOYER_%s must not be 0: a build pod never runs as root", key))
+		}
+		return n
+	}
 	optional := func(key, fallback string) string {
 		if v := getenv("DEPLOYER_" + key); v != "" {
 			return v
@@ -64,6 +83,11 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 	c.InternalURL = required("INTERNAL_URL")
 	c.BuilderImage = required("BUILDER_IMAGE")
 	c.SelfImage = required("SELF_IMAGE")
+	// The builder's own declared CNB_USER_ID and CNB_GROUP_ID. They belong to
+	// BuilderImage, so they are repinned with it and CI checks the pair against
+	// the pinned image's config rather than trusting what is set here.
+	c.BuildUID = id("BUILD_UID")
+	c.BuildGID = id("BUILD_GID")
 
 	for _, addr := range []struct {
 		key   string

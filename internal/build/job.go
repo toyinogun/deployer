@@ -30,15 +30,6 @@ const (
 	// lifecyclePath is where every Paketo builder puts the lifecycle binaries.
 	lifecyclePath = "/cnb/lifecycle/creator"
 
-	// buildUID and buildGID are the `cnb` user the Paketo builder images declare,
-	// read from the pinned builder's own image config rather than assumed. The
-	// lifecycle switches to CNB_USER_ID before it does any work, and under
-	// `restricted` it holds no capability to switch with, so the pod has to start
-	// as that user already. The init container is pinned to the same pair, so the
-	// tree one writes is a tree the other can read.
-	buildUID = int64(1001)
-	buildGID = int64(1000)
-
 	// ttlAfterFinished is how long a finished Job lingers before Kubernetes
 	// reaps it, taking its per Job credential secret with it. Long enough to
 	// read the pod's logs after a failure, short enough not to accumulate.
@@ -56,6 +47,17 @@ type Input struct {
 	SelfImage    string // the control plane's own image, run as the init container
 	BuilderImage string // the digest pinned Paketo builder
 	TargetImage  string // where the lifecycle pushes, registry host plus repo plus tag
+
+	// BuildUID and BuildGID are the CNB_USER_ID and CNB_GROUP_ID that
+	// BuilderImage's own config declares, read off that pinned image rather than
+	// assumed here. The lifecycle switches to CNB_USER_ID before it does any
+	// work, and under `restricted` it holds no capability to switch with, so the
+	// pod has to start as that user already. They come in as configuration
+	// (DEPLOYER_BUILD_UID, DEPLOYER_BUILD_GID) because the builder digest is
+	// configuration, and the two have to be repinned together: CI reads both off
+	// the pinned image and fails when they drift.
+	BuildUID int64
+	BuildGID int64
 
 	FetchURL      string // the control plane's single use fetch endpoint for this upload
 	FetchToken    string // the raw single use token, never persisted or logged
@@ -117,7 +119,7 @@ func Job(in Input) *batchv1.Job {
 					// The builder holds no Kubernetes rights at all. It has the
 					// one registry credential it needs to push and nothing else.
 					AutomountServiceAccountToken: ptr(false),
-					SecurityContext:              podSecurity(),
+					SecurityContext:              podSecurity(in),
 					InitContainers:               []corev1.Container{fetchContainer(in)},
 					Containers:                   []corev1.Container{builderContainer(in)},
 					Volumes:                      volumes(in),
@@ -128,13 +130,15 @@ func Job(in Input) *batchv1.Job {
 }
 
 // podSecurity is the pod level context `restricted` requires, plus the fsGroup
-// that lets an unprivileged user write to the emptyDir volumes.
-func podSecurity() *corev1.PodSecurityContext {
+// that lets an unprivileged user write to the emptyDir volumes. The init
+// container is pinned to the same pair as the builder, so the tree one writes is
+// a tree the other can read.
+func podSecurity(in Input) *corev1.PodSecurityContext {
 	return &corev1.PodSecurityContext{
 		RunAsNonRoot:   ptr(true),
-		RunAsUser:      ptr(buildUID),
-		RunAsGroup:     ptr(buildGID),
-		FSGroup:        ptr(buildGID),
+		RunAsUser:      ptr(in.BuildUID),
+		RunAsGroup:     ptr(in.BuildGID),
+		FSGroup:        ptr(in.BuildGID),
 		SeccompProfile: &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
 }
@@ -142,12 +146,12 @@ func podSecurity() *corev1.PodSecurityContext {
 // containerSecurity is the container level context `restricted` requires.
 // readOnlyRoot is separate because the lifecycle writes to its own filesystem
 // and the fetcher does not.
-func containerSecurity(readOnlyRoot bool) *corev1.SecurityContext {
+func containerSecurity(in Input, readOnlyRoot bool) *corev1.SecurityContext {
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: ptr(false),
 		ReadOnlyRootFilesystem:   ptr(readOnlyRoot),
 		RunAsNonRoot:             ptr(true),
-		RunAsUser:                ptr(buildUID),
+		RunAsUser:                ptr(in.BuildUID),
 		Capabilities:             &corev1.Capabilities{Drop: []corev1.Capability{"ALL"}},
 		SeccompProfile:           &corev1.SeccompProfile{Type: corev1.SeccompProfileTypeRuntimeDefault},
 	}
@@ -175,7 +179,7 @@ func fetchContainer(in Input) corev1.Container {
 			{Name: "DEPLOYER_MAX_UPLOAD_FILES", Value: fmt.Sprint(in.MaxFiles)},
 			{Name: "DEPLOYER_MAX_EXTRACTED_BYTES", Value: fmt.Sprint(in.MaxExtracted)},
 		},
-		SecurityContext: containerSecurity(true),
+		SecurityContext: containerSecurity(in, true),
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "workspace", MountPath: workspaceDir},
 		},
@@ -209,7 +213,7 @@ func builderContainer(in Input) corev1.Container {
 			// cluster and with no Ingress. See the Security model in spec 0004.
 			{Name: "CNB_INSECURE_REGISTRIES", Value: registryHost(in.TargetImage)},
 		},
-		SecurityContext: containerSecurity(false),
+		SecurityContext: containerSecurity(in, false),
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "workspace", MountPath: workspaceDir},
 			{Name: "layers", MountPath: layersDir},

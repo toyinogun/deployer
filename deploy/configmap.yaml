@@ -38,6 +38,18 @@ data:
   #   crane digest paketobuildpacks/builder-jammy-base:latest
   DEPLOYER_BUILDER_IMAGE: paketobuildpacks/builder-jammy-base@sha256:edcb35967ec49840274aeb38d309ec6939eadac44fb02e5aa50519f89cac890e
 
+  # The `cnb` user that same pinned builder declares, which the build pod has to
+  # start as: the lifecycle switches to CNB_USER_ID before it does any work, and
+  # under `restricted` it holds no capability to switch with. These belong to the
+  # digest above and are repinned with it. Nothing reads them off the image at
+  # run time (that would put a Docker Hub call on the pod's startup path), so CI
+  # does it instead: the `builder uid` step reads CNB_USER_ID and CNB_GROUP_ID
+  # off this exact digest and fails the build when they no longer match. To
+  # re-read them by hand:
+  #   crane config paketobuildpacks/builder-jammy-base@sha256:edcb... | jq '.config.Env'
+  DEPLOYER_BUILD_UID: "1001"
+  DEPLOYER_BUILD_GID: "1000"
+
   # The app container's own ceilings, inside the LimitRange maxima spec 0003 sets.
   DEPLOYER_APP_DEFAULT_CPU: 100m
   DEPLOYER_APP_DEFAULT_MEMORY: 128Mi

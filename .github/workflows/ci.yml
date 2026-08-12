@@ -38,6 +38,56 @@ jobs:
       - name: go test
         run: go test -race ./...
 
+      # The build pod must start as the user the pinned builder declares: the
+      # lifecycle switches to CNB_USER_ID before it does any work, and under
+      # `restricted` it holds no capability to switch with. Nothing reads that
+      # off the image at run time, because that would put a Docker Hub call on
+      # the control plane's startup path, so the uid lives in the configmap
+      # beside the digest it belongs to and this step is what keeps the two
+      # honest. Without it, repinning the builder alone passes every unit test
+      # (the fake clientset execs nothing) and kills every real build with
+      # "failed to exec as user ...: operation not permitted".
+      - name: builder uid
+        run: |
+          set -euo pipefail
+          value() { grep -E "^  $1:" deploy/configmap.yaml | sed -E 's/^[^:]+: *"?([^"]*)"?$/\1/'; }
+          image=$(value DEPLOYER_BUILDER_IMAGE)
+          repo=${image%@*}
+          digest=${image#*@}
+          echo "reading $repo@$digest"
+
+          token=$(curl -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" | jq -r .token)
+          accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
+          fetch() { curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $accept" "https://registry-1.docker.io/v2/${repo}/manifests/$1"; }
+
+          manifest=$(fetch "$digest")
+          # A multi platform index names no config of its own, so follow it to the
+          # linux/amd64 manifest, which is what the cluster runs.
+          if [ "$(jq -r 'has("manifests")' <<<"$manifest")" = true ]; then
+            child=$(jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest' <<<"$manifest" | head -1)
+            [ -n "$child" ] || { echo "no linux/amd64 manifest in the index" >&2; exit 1; }
+            manifest=$(fetch "$child")
+          fi
+
+          config=$(jq -r .config.digest <<<"$manifest")
+          env_json=$(curl -fsSL -H "Authorization: Bearer $token" "https://registry-1.docker.io/v2/${repo}/blobs/${config}" | jq -c '.config.Env')
+          from_image() { jq -r --arg k "$1" '.[] | select(startswith($k + "=")) | sub("^[^=]+="; "")' <<<"$env_json"; }
+
+          status=0
+          for pair in "CNB_USER_ID DEPLOYER_BUILD_UID" "CNB_GROUP_ID DEPLOYER_BUILD_GID"; do
+            set -- $pair
+            want=$(value "$2")
+            got=$(from_image "$1")
+            [ -n "$got" ] || { echo "the builder image declares no $1" >&2; status=1; continue; }
+            if [ "$want" != "$got" ]; then
+              echo "$2 is $want but the pinned builder declares $1=$got" >&2
+              status=1
+            else
+              echo "$2=$want matches the image's $1"
+            fi
+          done
+          exit $status
+
       # ko builds the image straight from the module, no Dockerfile. On a pull
       # request this only proves it builds; the publish job below pushes.
       - uses: ko-build/setup-ko@v0.9
