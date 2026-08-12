@@ -10,12 +10,19 @@ spec:
   description: The Deployer control plane, and nothing else in the cluster.
   sourceRepos:
     - https://github.com/toyinogun/deployer.git
-  # The only namespace this project may write to. An app-<slug> namespace created
-  # by the control plane at runtime is out of scope by construction, so prune
-  # cannot reach it.
+  # The only two namespaces this project may write to, both of them platform
+  # namespaces this repository owns. An app-<slug> namespace created by the
+  # control plane at runtime is still out of scope by construction, which is
+  # what stops a sync with prune from ever reaching a deployed app (AC-15).
+  #
+  # deployer-builds is here because its RoleBinding ships in deploy/. The
+  # namespace itself is cluster scoped and would have been permitted anyway; the
+  # binding inside it is what needs the destination.
   destinations:
     - server: https://kubernetes.default.svc
       namespace: deployer-system
+    - server: https://kubernetes.default.svc
+      namespace: deployer-builds
   # The cluster scoped kinds the control plane's own manifests contain. Namespace
   # is listed by name so the project cannot manage any other namespace object.
   clusterResourceWhitelist:
