@@ -11,6 +11,12 @@ resources:
   - builds-namespace.yaml
   - rbac.yaml
   - admission-policy.yaml
+  # Sealed to this cluster's key, so they are safe to commit and useless
+  # anywhere else. The two registry halves are one password in two shapes and
+  # are regenerated together; see README.md step 1.
+  - registry-htpasswd-sealedsecret.yaml
+  - registry-credential-sealedsecret.yaml
+  - bootstrap-sealedsecret.yaml
   - registry.yaml
   - pvc.yaml
   - configmap.yaml
