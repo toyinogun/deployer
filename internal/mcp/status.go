@@ -70,8 +70,15 @@ func (s *Server) status(ctx context.Context, account auth.Account, in statusInpu
 	}
 
 	dep, err := s.resolveDeployment(ctx, account, in)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNoDeployment), errors.Is(err, ErrNoApp):
+		// The only outcomes that are an access decision, and so the only ones
+		// audited as a refusal (AC-9, AC-10).
 		return nil, statusOutput{}, s.denyStatus(ctx, account.ID, err)
+	case err != nil:
+		// A fault is not a refusal: reporting it as unknown would tell a polling
+		// agent its id is wrong and write a denial that never happened.
+		return nil, statusOutput{}, toolError(auth.ActionStatus, domain.ReasonInternal, err)
 	}
 	app, err := s.apps.Get(ctx, dep.AppID)
 	if err != nil {

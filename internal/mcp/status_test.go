@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -66,6 +67,50 @@ func TestStatusAnswersUnknownAndAnotherAccountIdentically(t *testing.T) {
 			}
 			if len(auditor.rows) != 1 {
 				t.Errorf("audit = %+v, want exactly one denial", auditor.rows)
+			}
+		})
+	}
+}
+
+func TestStatusReportsAStoreFaultAsInternalRatherThanUnknown(t *testing.T) {
+	// covers: AC-9, AC-10. A fault is not a refusal: telling a polling agent its
+	// id is wrong would stop it polling a deployment that is still running, and
+	// the denial would land in audit_log as an access decision that never happened.
+	t.Parallel()
+	account := auth.Account{ID: "acc_1"}
+	fault := errors.New("the database is busy")
+	internal := string(domain.ReasonInternal) + ": " + domain.ReasonInternal.Message()
+
+	for name, tc := range map[string]struct {
+		in    statusInput
+		apps  *stubApps
+		reads *stubDeployments
+	}{
+		"reading the deployment by id": {
+			in:    statusInput{DeploymentID: "dep_1"},
+			apps:  &stubApps{existing: map[string]App{"hello": {ID: "app_1", Name: "hello"}}},
+			reads: &stubDeployments{readErr: fault},
+		},
+		"reading the app by name": {
+			in:    statusInput{Name: "hello"},
+			apps:  &stubApps{readErr: fault},
+			reads: &stubDeployments{},
+		},
+		"reading the app's latest deployment": {
+			in:    statusInput{Name: "hello"},
+			apps:  &stubApps{existing: map[string]App{"hello": {ID: "app_1", Name: "hello"}}},
+			reads: &stubDeployments{readErr: fault},
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, auditor := server(tc.apps, tc.reads, Upload{})
+
+			_, _, err := s.status(t.Context(), account, tc.in)
+			if err == nil || err.Error() != internal {
+				t.Fatalf("error = %v, want %q", err, internal)
+			}
+			if len(auditor.rows) != 0 {
+				t.Errorf("audit = %+v, want no row: a fault is not an access decision", auditor.rows)
 			}
 		})
 	}

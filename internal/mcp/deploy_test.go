@@ -16,9 +16,15 @@ import (
 type stubApps struct {
 	existing map[string]App
 	created  []string
+	// readErr stands in for a store fault rather than a missing row, which is a
+	// different answer for a caller.
+	readErr error
 }
 
 func (s *stubApps) ByName(_ context.Context, _, name string) (App, error) {
+	if s.readErr != nil {
+		return App{}, s.readErr
+	}
 	if app, ok := s.existing[name]; ok {
 		return app, nil
 	}
@@ -55,6 +61,8 @@ type stubDeployments struct {
 	release  Release
 	lastApp  string
 	lastFile string
+	// readErr stands in for a store fault rather than a missing row.
+	readErr error
 }
 
 func (s *stubDeployments) Create(_ context.Context, appID, _, uploadID string) (string, error) {
@@ -64,6 +72,9 @@ func (s *stubDeployments) Create(_ context.Context, appID, _, uploadID string) (
 }
 
 func (s *stubDeployments) Get(_ context.Context, id string) (Deployment, error) {
+	if s.readErr != nil {
+		return Deployment{}, s.readErr
+	}
 	dep, ok := s.rows[id]
 	if !ok {
 		return Deployment{}, ErrNoDeployment
@@ -72,6 +83,9 @@ func (s *stubDeployments) Get(_ context.Context, id string) (Deployment, error) 
 }
 
 func (s *stubDeployments) LatestForApp(context.Context, string) (Deployment, error) {
+	if s.readErr != nil {
+		return Deployment{}, s.readErr
+	}
 	if s.latest.ID == "" {
 		return Deployment{}, ErrNoDeployment
 	}
