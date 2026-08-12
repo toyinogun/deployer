@@ -10,8 +10,12 @@ package kube
 import (
 	"context"
 	"fmt"
+	"io"
+	"sort"
 
 	"github.com/toyinogun/deployer/internal/build"
+	"github.com/toyinogun/deployer/internal/deploy"
+	"github.com/toyinogun/deployer/internal/logs"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -19,6 +23,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 )
@@ -220,6 +225,88 @@ func (c *Client) WorkloadReady(ctx context.Context, namespace, name string) (boo
 	return d.Status.UpdatedReplicas > 0 && d.Status.AvailableReplicas > 0 &&
 		d.Status.ObservedGeneration >= d.Generation, nil
 }
+
+// PodsForApp lists an app's own pods, newest first, with just enough status for
+// a log read to decide whether there is anything to fetch.
+//
+// The namespace and the selector are both derived from the app's slug by the
+// caller, so no caller supplied value ever reaches the API as a name, and the
+// read cannot leave the app's own namespace (spec 0006, AC-11).
+func (c *Client) PodsForApp(ctx context.Context, namespace, slug string) ([]logs.PodStatus, error) {
+	sel := labels.SelectorFromSet(deploy.Selector(slug)).String()
+	list, err := c.cs.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		return nil, fmt.Errorf("kube: listing pods in %s: %w", namespace, err)
+	}
+
+	// Newest first, whatever phase each one is in, so a crash looping or pending
+	// pod is the one reported rather than an older healthy one (AC-5).
+	pods := list.Items
+	sort.SliceStable(pods, func(i, j int) bool {
+		return pods[j].CreationTimestamp.Before(&pods[i].CreationTimestamp)
+	})
+
+	out := make([]logs.PodStatus, 0, len(pods))
+	for i := range pods {
+		out = append(out, podStatus(&pods[i]))
+	}
+	return out, nil
+}
+
+// podStatus projects the one container an app pod has. An empty container status
+// list means no container has started, which is the empty case, never an index
+// into position zero (spec 0006, Value sourcing).
+func podStatus(pod *corev1.Pod) logs.PodStatus {
+	st := logs.PodStatus{Name: pod.Name}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodReady {
+			st.Ready = cond.Status == corev1.ConditionTrue
+		}
+	}
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name != deploy.WorkloadName {
+			continue
+		}
+		st.RestartCount = cs.RestartCount
+		st.ContainerStarted = cs.State.Waiting == nil
+	}
+	return st
+}
+
+// PodLog reads one container's tail with the kubelet's own timestamps, either
+// the running container or the previous one it replaced after a crash.
+//
+// The container is the WorkloadName constant rather than anything a caller
+// named: an app pod has exactly one container, and which one is read is not a
+// decision a caller gets to make (AC-11).
+func (c *Client) PodLog(ctx context.Context, namespace, pod string, tailLines int, previous bool) (string, error) {
+	tail := int64(tailLines)
+	req := c.cs.CoreV1().Pods(namespace).GetLogs(pod, &corev1.PodLogOptions{
+		Container:  deploy.WorkloadName,
+		Timestamps: true,
+		TailLines:  &tail,
+		Previous:   previous,
+	})
+	body, err := req.Stream(ctx)
+	if err != nil {
+		return "", fmt.Errorf("kube: reading the log of %s/%s: %w", namespace, pod, err)
+	}
+	defer func() { _ = body.Close() }()
+
+	// Bounded by the tail the caller asked for, but the ceiling here is a second
+	// fence: a single record the kubelet never split must not be able to pull the
+	// whole response into memory.
+	raw, err := io.ReadAll(io.LimitReader(body, logReadCeiling))
+	if err != nil {
+		return "", fmt.Errorf("kube: reading the log of %s/%s: %w", namespace, pod, err)
+	}
+	return string(raw), nil
+}
+
+// logReadCeiling is the most one log read will pull off the wire, comfortably
+// above the block ceilings in internal/logs so bounding stays that package's
+// decision rather than an accident of this one.
+const logReadCeiling = 8 << 20
 
 // ignoreExists turns an already exists error into success, which is what makes
 // every ensure here idempotent.

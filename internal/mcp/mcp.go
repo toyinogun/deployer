@@ -19,6 +19,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/logs"
 )
 
 // ErrNoApp means the account has no app under that name yet, which is the first
@@ -106,10 +107,26 @@ type Uploads interface {
 	Get(ctx context.Context, id string) (Upload, error)
 }
 
+// Pods is the narrow slice of the cluster a log read needs. It is stated here,
+// in the package that uses it, and satisfied at the edge by internal/kube, so
+// nothing in this package ever sees a Kubernetes client (spec 0006, Build plan).
+type Pods interface {
+	// PodsForApp lists the app's own pods, newest first, with the status the
+	// empty case is decided from.
+	PodsForApp(ctx context.Context, namespace, slug string) ([]logs.PodStatus, error)
+	// PodLog reads one container's tail with the kubelet's timestamps, either
+	// the running container or the previous one it replaced.
+	PodLog(ctx context.Context, namespace, pod string, tailLines int, previous bool) (string, error)
+}
+
 // Options is what the tool surface needs from configuration.
 type Options struct {
 	PublicURL string
 	AppDomain string
+	// SecretLiterals are values the platform itself placed in an app's namespace
+	// and so knows for certain are secret, today the registry pull credential.
+	// They are the only redaction that can be exact (spec 0006, AC-6).
+	SecretLiterals []string
 }
 
 // Server is the MCP surface.
@@ -119,12 +136,15 @@ type Server struct {
 	apps        Apps
 	deployments Deployments
 	uploads     Uploads
+	pods        Pods
 	opts        Options
 }
 
-// New returns the MCP surface.
-func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, u Uploads, opts Options) *Server {
-	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u, opts: opts}
+// New returns the MCP surface. pods may be nil, which is a local run with no
+// cluster to read: get_logs then fails as internal rather than pretending an app
+// printed nothing.
+func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, u Uploads, pods Pods, opts Options) *Server {
+	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u, pods: pods, opts: opts}
 }
 
 // deployInput is the tool's whole argument surface.
@@ -200,6 +220,13 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 		Description: statusDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in statusInput) (*mcp.CallToolResult, statusOutput, error) {
 		return s.status(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_logs",
+		Title:       "Read an app's recent output",
+		Description: logsDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in logsInput) (*mcp.CallToolResult, logsOutput, error) {
+		return s.getLogs(ctx, account, in)
 	})
 	return srv
 }

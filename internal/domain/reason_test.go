@@ -21,13 +21,14 @@ var theSet = []domain.Reason{
 	domain.ReasonInternal,
 	domain.ReasonDeploymentUnknown,
 	domain.ReasonSuperseded,
+	domain.ReasonAppUnknown,
 }
 
-// The set is closed at eleven codes: nine failures, plus deployment_unknown and
-// superseded (spec 0005, AC-11).
-const codesInTheSet = 11
+// The set is closed at twelve codes: nine failures, plus deployment_unknown,
+// superseded (spec 0005, AC-11), and app_unknown (spec 0006, AC-8).
+const codesInTheSet = 12
 
-func TestTheSetIsExactlyElevenCodes(t *testing.T) {
+func TestTheSetIsExactlyTwelveCodes(t *testing.T) {
 	// covers: AC-11
 	t.Parallel()
 	if len(theSet) != codesInTheSet {
@@ -50,7 +51,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 	t.Parallel()
 	for _, r := range []domain.Reason{"", "unknown", "BUILD_FAILED", "build failed", "internal "} {
 		if r.Valid() {
-			t.Errorf("%q reads as valid but is not one of the eleven codes", r)
+			t.Errorf("%q reads as valid but is not one of the twelve codes", r)
 		}
 	}
 }
@@ -136,6 +137,7 @@ func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 
 		domain.ReasonDeploymentUnknown: "deployment_unknown",
 		domain.ReasonSuperseded:        "superseded",
+		domain.ReasonAppUnknown:        "app_unknown",
 	}
 	if len(want) != len(theSet) {
 		t.Fatalf("the pinned map holds %d codes and the set holds %d", len(want), len(theSet))

@@ -190,7 +190,7 @@ func Deployment(in Input) *appsv1.Deployment {
 		ObjectMeta: objectMeta(WorkloadName, in.Slug),
 		Spec: appsv1.DeploymentSpec{
 			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{MatchLabels: selector(in.Slug)},
+			Selector: &metav1.LabelSelector{MatchLabels: Selector(in.Slug)},
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(in.Slug)},
 				Spec: corev1.PodSpec{
@@ -250,7 +250,7 @@ func Service(in Input) *corev1.Service {
 	return &corev1.Service{
 		ObjectMeta: objectMeta(WorkloadName, in.Slug),
 		Spec: corev1.ServiceSpec{
-			Selector: selector(in.Slug),
+			Selector: Selector(in.Slug),
 			Ports: []corev1.ServicePort{{
 				Name:       "http",
 				Port:       ServicePort,
@@ -292,10 +292,11 @@ func Ingress(in Input) *networkingv1.Ingress {
 	}
 }
 
-// selector is what the Deployment matches and the Service routes to. It is
+// Selector is what the Deployment matches and the Service routes to. It is
 // immutable on a Deployment, so it holds only the slug, which never changes for
-// the life of an app.
-func selector(slug string) map[string]string {
+// the life of an app. Exported because reading an app's own pods happens in
+// internal/kube, which composes nothing of its own (spec 0006, AC-11).
+func Selector(slug string) map[string]string {
 	return map[string]string{"app.kubernetes.io/name": slug}
 }
 
