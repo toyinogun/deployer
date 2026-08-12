@@ -53,6 +53,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 - A use case orchestrates, it does not hold business rules. Rules live with the type that owns the invariant.
 - Every workload manifest is composed field by field in Go. No string templating, and no user supplied value is ever merged into a pod spec.
 - Every deployment state transition is a database write before it is an action.
+- A deployment something else already ended is not a fault. A drive that finds its row terminal stops quietly rather than writing over it, and a refusal a caller sees is a real access decision, never a masked internal error.
 - Deploy by image digest, never by a mutable tag.
 - Anything running inside the cluster reaches the platform on `DEPLOYER_INTERNAL_URL`. `DEPLOYER_PUBLIC_URL` is only for text handed to a caller, because a build pod resolves names on cluster DNS, which cannot see the public hostname.
 - A build hands work between three different users: the build pod runs as the builder image's declared `CNB_USER_ID`, and the tree it unpacks is carried into the app image, where the run image's user is a different uid again. Read those uids from the pinned images, never assume them, and leave the unpacked tree readable by a user that does not own it. The build pod's pair is configuration (`DEPLOYER_BUILD_UID`, `DEPLOYER_BUILD_GID`) rather than a Go constant, and CI's `builder uid` step reads it off the pinned builder and fails on drift; reading it once by hand and committing the literal is how this broke before.

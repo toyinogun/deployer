@@ -17,6 +17,7 @@ The platform's only writer of the SQLite database. It owns the connection, the m
 - Edit `queries/*.sql` or the migration, then run `sqlc generate` from the repo root. Never edit anything under `sqlcgen/` by hand; the next generate run overwrites it.
 - The migration is a single forward migration. It is designed once, up front, because there is no database backup yet, so a migration against live data is the thing to avoid.
 - Callers branch on the sentinels in `errors.go` (`ErrNotFound`, `ErrTokenInvalid`, `ErrIllegalTransition`, and friends). Anything else is wrapped with `fmt.Errorf("...: %w", err)` and treated as a fault, not a decision.
+- A sentinel may wrap another sentinel when one case is a kind of the other, so a caller branching on the general case still matches: `ErrTerminal` (the row was already ended, which is what a supersession does mid drive) wraps `ErrIllegalTransition`.
 - Failures that must be indistinguishable stay indistinguishable: `ErrTokenInvalid` covers unknown, revoked, expired, and disabled account tokens alike.
 - Domain and use case packages never import this one. They declare the narrow interfaces they need and take one of these types.
 - Every state transition is a database write before it is an action, and a multi write move (a transition plus its event, a deployment plus its release) runs inside one transaction.
