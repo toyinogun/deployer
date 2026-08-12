@@ -150,3 +150,4 @@ work without them. They are step by step in
    The build side needs no equivalent: the Buildpacks lifecycle is told the
    registry is insecure through `CNB_INSECURE_REGISTRIES` on the build container,
    which the control plane composes.
+
