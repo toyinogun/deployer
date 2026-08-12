@@ -120,7 +120,7 @@ The platform does not pin `runAsUser`, so an image with its own non root `USER` 
 | API group | Resources | Verbs |
 |---|---|---|
 | core | `namespaces` | get, list, watch, create, delete |
-| core | `services`, `secrets`, `serviceaccounts`, `configmaps`, `resourcequotas` | get, list, watch, create, update, patch, delete |
+| core | `services`, `secrets`, `serviceaccounts`, `configmaps`, `resourcequotas`, `limitranges` | get, list, watch, create, update, patch, delete |
 | core | `pods` | get, list, watch, delete |
 | core | `pods/log` | get |
 | core | `events` | get, list, watch |
