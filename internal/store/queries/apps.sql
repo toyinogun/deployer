@@ -6,6 +6,12 @@ RETURNING *;
 -- name: GetApp :one
 SELECT * FROM apps WHERE id = @id AND deleted_at IS NULL;
 
+-- The get or create lookup every deploy starts with: an app is identified by
+-- its account and the name that account gave it, and the same pair must always
+-- resolve to the same row so the hostname never moves (spec 0004, AC-4).
+-- name: GetAppByName :one
+SELECT * FROM apps WHERE account_id = @account_id AND name = @name AND deleted_at IS NULL;
+
 -- name: GetAppBySlug :one
 SELECT * FROM apps WHERE slug = @slug AND deleted_at IS NULL;
 

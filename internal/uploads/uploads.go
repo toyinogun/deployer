@@ -58,6 +58,9 @@ type Upload struct {
 	SizeBytes int64
 	SHA256    string
 	ExpiresAt string
+	// Redeemed says the single use fetch token has already been spent, which is
+	// what makes an upload id unusable for a second deploy.
+	Redeemed bool
 }
 
 // New describes a tarball that has landed on the volume.

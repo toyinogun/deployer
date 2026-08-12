@@ -27,6 +27,7 @@ func row(u Upload) uploads.Upload {
 		SizeBytes: u.SizeBytes,
 		SHA256:    u.Sha256,
 		ExpiresAt: u.ExpiresAt,
+		Redeemed:  u.RedeemedAt != nil,
 	}
 }
 

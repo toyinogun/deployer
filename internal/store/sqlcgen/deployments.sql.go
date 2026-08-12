@@ -183,6 +183,27 @@ func (q *Queries) GetRelease(ctx context.Context, id string) (Release, error) {
 	return i, err
 }
 
+const getReleaseByDeployment = `-- name: GetReleaseByDeployment :one
+SELECT id, app_id, deployment_id, release_number, image_digest, config_snapshot, created_at FROM releases WHERE deployment_id = ?1
+`
+
+// The release a deployment minted, which is what a successful deploy reports
+// back rather than recomputing the number or the digest.
+func (q *Queries) GetReleaseByDeployment(ctx context.Context, deploymentID string) (Release, error) {
+	row := q.db.QueryRowContext(ctx, getReleaseByDeployment, deploymentID)
+	var i Release
+	err := row.Scan(
+		&i.ID,
+		&i.AppID,
+		&i.DeploymentID,
+		&i.ReleaseNumber,
+		&i.ImageDigest,
+		&i.ConfigSnapshot,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertDeploymentEvent = `-- name: InsertDeploymentEvent :exec
 INSERT INTO deployment_events (id, deployment_id, from_state, to_state, reason, detail, occurred_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)

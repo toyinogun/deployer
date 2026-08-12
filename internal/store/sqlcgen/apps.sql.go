@@ -79,6 +79,34 @@ func (q *Queries) GetApp(ctx context.Context, id string) (App, error) {
 	return i, err
 }
 
+const getAppByName = `-- name: GetAppByName :one
+SELECT id, account_id, name, slug, current_release_id, deleted_at, created_at, updated_at FROM apps WHERE account_id = ?1 AND name = ?2 AND deleted_at IS NULL
+`
+
+type GetAppByNameParams struct {
+	AccountID string
+	Name      string
+}
+
+// The get or create lookup every deploy starts with: an app is identified by
+// its account and the name that account gave it, and the same pair must always
+// resolve to the same row so the hostname never moves (spec 0004, AC-4).
+func (q *Queries) GetAppByName(ctx context.Context, arg GetAppByNameParams) (App, error) {
+	row := q.db.QueryRowContext(ctx, getAppByName, arg.AccountID, arg.Name)
+	var i App
+	err := row.Scan(
+		&i.ID,
+		&i.AccountID,
+		&i.Name,
+		&i.Slug,
+		&i.CurrentReleaseID,
+		&i.DeletedAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getAppBySlug = `-- name: GetAppBySlug :one
 SELECT id, account_id, name, slug, current_release_id, deleted_at, created_at, updated_at FROM apps WHERE slug = ?1 AND deleted_at IS NULL
 `

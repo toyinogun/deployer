@@ -74,6 +74,11 @@ RETURNING *;
 -- name: NextReleaseNumber :one
 SELECT COALESCE(MAX(release_number), 0) + 1 AS next FROM releases WHERE app_id = @app_id;
 
+-- The release a deployment minted, which is what a successful deploy reports
+-- back rather than recomputing the number or the digest.
+-- name: GetReleaseByDeployment :one
+SELECT * FROM releases WHERE deployment_id = @deployment_id;
+
 -- name: GetRelease :one
 SELECT * FROM releases WHERE id = ?;
 
