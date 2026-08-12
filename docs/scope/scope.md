@@ -45,7 +45,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 2 | Coding standards & tooling | Foundation | done |
 | 3 | Platform data model | Foundation | done |
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
-| 5 | First deploy end to end | Slice 1 | in-progress |
+| 5 | First deploy end to end | Slice 1 | done |
 | 6 | Async deployment jobs & status | Slice 2 | planned |
 | 7 | Application logs | Slice 3 | planned |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
@@ -108,7 +108,7 @@ spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `int
 
 ## Slice 1: First deploy end to end
 
-### 5. First deploy end to end · in-progress
+### 5. First deploy end to end · done
 The tracer bullet, and the walking skeleton in one. An agent holding a valid token calls one MCP tool, the source tarball uploads, Buildpacks builds an image, the platform deploys it to k3s with enforced defaults, and the agent gets back a healthy hostname. Real auth, real build, real cluster, deliberately narrow: one token, one sample app, one language, no status polling, no logs, no rollback yet.
 **Done when:** from a fresh Claude Code session you can say "deploy this app" and reach the running app on its hostname, with the deployment recorded against a real account and app record.
 spec [0004](../specs/0004-first-deploy-end-to-end/index.md) · code in `internal/auth`, `internal/uploads`, `internal/source`, `internal/httpapi`, `internal/build`, `internal/registry`, `deploy`
