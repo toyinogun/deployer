@@ -47,7 +47,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
 | 5 | First deploy end to end | Slice 1 | done |
 | 6 | Async deployment jobs & status | Slice 2 | done |
-| 7 | Application logs | Slice 3 | in-progress |
+| 7 | Application logs | Slice 3 | done |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
 | 9 | Workload isolation & network policy | Slice 5 | planned |
 | 10 | Dockerfile build path | Slice 6 | planned |
@@ -143,7 +143,7 @@ spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `int
 
 ## Slice 3: Application logs
 
-### 7. Application logs · in-progress
+### 7. Application logs · done
 Thickens the readback segment so an agent can debug an app it deployed without you opening a terminal. Bounded, redacted application logs only, never cluster or platform internals.
 **Done when:** a `get_logs` MCP call returns recent application output for an app the caller owns, bounded in size and time, with secrets and tokens redacted, and platform logs are never exposed.
 spec [0006](../specs/0006-application-logs/index.md)
@@ -159,7 +159,7 @@ spec [0006](../specs/0006-application-logs/index.md)
 - [x] Verify it: `/check verify application logs`
 - [x] Test it: `/test application logs`
 - [x] Review it (fresh model): `/check review application logs`
-- [ ] Document it: `/document application logs`
+- [x] Document it: `/document application logs`
 
 ## Slice 4: Accounts, API tokens & app ownership
 

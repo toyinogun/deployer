@@ -1,7 +1,7 @@
 # 0006. Application logs: a bounded, redacted read of an app's own output
 
 **Date**: 2026-08-12
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
