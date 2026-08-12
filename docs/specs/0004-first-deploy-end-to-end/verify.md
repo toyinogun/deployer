@@ -217,20 +217,24 @@ Met, with the evidence that proved it:
 | AC-14 | TCP readiness probe on 8080; three `releases` rows numbered 1, 2, 3 with `apps.current_release_id` pointing at the newest |
 | AC-15 | the tool returned all six fields: name, slug, url, deployment id, release number, image digest |
 | AC-16 | `upload_invalid`, `build_failed` and `app_never_ready` were all produced live, each one short and sanitized; no build output reached the response, `failure_reason`, or the log at info |
-| AC-17 | the validation half: `DEPLOYER_BUILD_TIMEOUT_SECONDS=soon` fails the boot naming that variable, and a mutable tag on `DEPLOYER_BUILDER_IMAGE` or `DEPLOYER_SELF_IMAGE` is refused naming the variable. `app_never_ready` fired live on an earlier deploy |
+| AC-17 | `DEPLOYER_BUILD_TIMEOUT_SECONDS=soon` fails the boot naming that variable, and a mutable tag on `DEPLOYER_BUILDER_IMAGE` or `DEPLOYER_SELF_IMAGE` is refused naming the variable. All three timeouts were watched fire at their configured values with three distinct reasons, see the AC-17 section below |
 | AC-19 | one `audit_log` row per `deploy_app` call, with the app as target; denials carry a null account |
 | AC-20 | the registry pod is `Running` on a Longhorn volume with an htpasswd `SealedSecret`, has no Ingress, and refuses an anonymous `/v2/` with 401; `registries.yaml` names it on all four nodes |
 | AC-21 | three deploys, same hostname, release 3, HTTP 200 from a tailnet device |
 | AC-22 | `/data/uploads` is empty after every deploy reached a terminal state |
 
+Proved in a second pass the same day, each with its own section below: **AC-17**, all three timeouts
+watched fire at their configured values, and **AC-18**, both the resume half and the vanished Job half.
+
 Still owed, and why:
 
-- **AC-10, a root image is refused**: never exercised against the real cluster. It needs a root running
-  image pushed to the registry under an app's repo and a deploy pointed at it. Only the fake clientset
-  test covers it today, so the real refusal path is unproven.
-- **AC-17, the timeouts firing**: `app_never_ready` fired live, but the build phase timeout and the
-  overall deploy timeout have never been watched fire. Both need config changes ArgoCD would revert.
-- **AC-18**: proved, see below. Both halves ran.
+- **AC-10, a root image is refused**: never exercised against the real cluster, and it cannot be until
+  slice 6. `deploy_app` only builds from source, and the Paketo builder will not produce a root running
+  image, so there is no way to feed one through the real path today. The nearest available check is the
+  value sourcing row above: push a `USER 1000` image and a no `USER` image to the real registry and
+  confirm the platform's registry client reads them as non root and root. The refusal branch itself
+  stays covered only by the fake clientset until the Dockerfile path lands, where a `USER root` line
+  makes this a one line test.
 
 ### AC-18, the resume half, proved 2026-08-12
 
@@ -270,6 +274,37 @@ gone, two seconds before the restart killed it. The startup sweep's own vanished
 therefore not the thing exercised here. That branch is only reachable if the Job disappears while the
 control plane is already down, a narrower window that is still untested at runtime; the sweep's other
 branch, resuming a live Job, is proved in the run above.
+
+### AC-17, all three timeouts fired, proved 2026-08-12
+
+Run with the timeouts temporarily set in the platform ConfigMap, then removed again. Each fired at its
+own configured value, not at the overall budget, and each carried a different reason code.
+
+| Timeout | Set to | Measured | Reason returned |
+|---|---|---|---|
+| `DEPLOYER_READY_TIMEOUT_SECONDS` | 5s | 5.10s, `deploying` to `failed` | `app_never_ready` |
+| `DEPLOYER_BUILD_TIMEOUT_SECONDS` | 45s | 45.03s, `building` to `failed` | `build_failed` |
+| `DEPLOYER_DEPLOY_TIMEOUT_SECONDS` | 50s | 51.4s from `queued` | `timeout` |
+
+The build deadline is genuinely sourced from the variable: the Jobs carried `activeDeadlineSeconds: 45`
+where the default run carries 480. The readiness case used an app that listens on 9999 and ignores
+`PORT`. The overall budget case used the same app with the readiness window widened to 30s, so the
+overall budget was the only thing that could have fired at 50s.
+
+**A real operational risk found while setting this up.** Config is validated at startup and an
+incoherent combination refuses to boot. Setting `DEPLOYER_DEPLOY_TIMEOUT_SECONDS=20` under a 45s build
+timeout produced:
+
+```
+config: DEPLOYER_BUILD_TIMEOUT_SECONDS (45s) must be shorter than DEPLOYER_DEPLOY_TIMEOUT_SECONDS (20s)
+```
+
+The validation is right and the message is excellent. But the consequence is that the platform went
+into `CrashLoopBackOff` and stayed down until the ConfigMap was fixed. Since ArgoCD syncs this
+ConfigMap automatically, **a bad value committed to git takes the whole control plane offline**, and
+because validation happens before serving, there is no last known good configuration to fall back to
+and no running instance left to tell you why. Worth deciding whether that is the trade you want, or
+whether an already running platform should refuse a bad config reload while staying up.
 
 **Worth a look in review.** A Job deleted by an operator reports to the caller as
 `build_failed: the build did not complete, so check that the app builds with Cloud Native Buildpacks`.
