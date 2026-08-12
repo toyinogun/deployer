@@ -16,6 +16,14 @@ WHERE fetch_token_hash = @fetch_token_hash
   AND expires_at > @now
 RETURNING *;
 
+-- Replaces the token a build presents and clears any previous redemption, so a
+-- resumed or retried build mints a fresh usable token rather than finding a
+-- spent one (spec 0004, Value sourcing).
+-- name: SetUploadFetchToken :execrows
+UPDATE uploads
+SET fetch_token_hash = @fetch_token_hash, redeemed_at = NULL, updated_at = @now
+WHERE id = @id;
+
 -- name: DeleteEventsOfSweptDeployments :execrows
 DELETE FROM deployment_events
 WHERE deployment_id IN (

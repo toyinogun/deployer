@@ -177,3 +177,26 @@ func (q *Queries) RedeemUpload(ctx context.Context, arg RedeemUploadParams) (Upl
 	)
 	return i, err
 }
+
+const setUploadFetchToken = `-- name: SetUploadFetchToken :execrows
+UPDATE uploads
+SET fetch_token_hash = ?1, redeemed_at = NULL, updated_at = ?2
+WHERE id = ?3
+`
+
+type SetUploadFetchTokenParams struct {
+	FetchTokenHash string
+	Now            string
+	ID             string
+}
+
+// Replaces the token a build presents and clears any previous redemption, so a
+// resumed or retried build mints a fresh usable token rather than finding a
+// spent one (spec 0004, Value sourcing).
+func (q *Queries) SetUploadFetchToken(ctx context.Context, arg SetUploadFetchTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setUploadFetchToken, arg.FetchTokenHash, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}

@@ -15,7 +15,9 @@ import (
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/config"
+	"github.com/toyinogun/deployer/internal/httpapi"
 	"github.com/toyinogun/deployer/internal/store"
+	"github.com/toyinogun/deployer/internal/uploads"
 )
 
 // dbRetryInterval is how long the boot waits between attempts to open and
@@ -24,6 +26,17 @@ import (
 const dbRetryInterval = 5 * time.Second
 
 func main() {
+	// One binary, two entry points. `fetch-source` runs as the build Job's init
+	// container, so it loads none of the control plane's configuration and opens
+	// no database: it reads the handful of variables the reconcile loop composed
+	// onto it and nothing else (spec 0004, AC-8).
+	if len(os.Args) > 1 && os.Args[1] == "fetch-source" {
+		if err := fetchSource(context.Background(), os.Getenv); err != nil {
+			slog.Error("fetching the source failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("shutting down", "error", err)
 		os.Exit(1)
@@ -57,6 +70,18 @@ func run() error {
 		}
 		respond(r.Context(), w, http.StatusOK, "ready\n")
 	})
+
+	// Everything under /v1 needs the database, which opens behind the already
+	// bound server, so it is reached through the health struct rather than wired
+	// in directly. Before the store is up these answer 503, the same as readiness.
+	mux.Handle("/v1/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		api := h.api()
+		if api == nil {
+			respond(r.Context(), w, http.StatusServiceUnavailable, "not ready\n")
+			return
+		}
+		api.ServeHTTP(w, r)
+	}))
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -101,7 +126,34 @@ func respond(ctx context.Context, w http.ResponseWriter, status int, body string
 type health struct {
 	mu    sync.RWMutex
 	store *store.Store
-	err   error
+	// routes is the /v1 surface, built once the store is open. Nil until then,
+	// which is what makes those endpoints answer 503 rather than panic.
+	routes *http.ServeMux
+	err    error
+}
+
+// api returns the /v1 surface, or nil while the database is still opening.
+func (h *health) api() http.Handler {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	if h.routes == nil {
+		return nil
+	}
+	return h.routes
+}
+
+// buildAPI wires the HTTP surface over an open store.
+func buildAPI(st *store.Store, cfg config.Config) *http.ServeMux {
+	as := store.ForAuth(st)
+	api := httpapi.New(
+		auth.NewAuthenticator(as, as),
+		as,
+		uploads.NewService(store.ForUploads(st), cfg.UploadDir, cfg.MaxUploadBytes, nil),
+		cfg.MaxUploadBytes,
+	)
+	mux := http.NewServeMux()
+	api.Register(mux)
+	return mux
 }
 
 // open keeps trying to open and migrate the database until it succeeds or the
@@ -111,6 +163,9 @@ func (h *health) open(ctx context.Context, cfg config.Config) {
 		st, err := openMigrated(ctx, cfg)
 		h.mu.Lock()
 		h.store, h.err = st, err
+		if err == nil {
+			h.routes = buildAPI(st, cfg)
+		}
 		h.mu.Unlock()
 		if err == nil {
 			slog.Info("database ready", "path", cfg.DBPath, "pod", cfg.PodName)

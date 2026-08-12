@@ -17,6 +17,11 @@ const uploadOrphanWindow = 24 * time.Hour
 
 // NewUpload describes a tarball that has landed on the upload volume.
 type NewUpload struct {
+	// ID is the row's primary key. The caller supplies it when the file on disk
+	// is already named after it, which is the normal path: the upload service
+	// generates the id first so nothing the caller sent decides where the file
+	// goes. Empty means generate one here.
+	ID             string
 	AccountID      string
 	Path           string
 	SizeBytes      int64
@@ -29,8 +34,11 @@ type NewUpload struct {
 // present to fetch it.
 func (s *Store) CreateUpload(ctx context.Context, u NewUpload) (Upload, error) {
 	now := s.now()
+	if u.ID == "" {
+		u.ID = ids.New(ids.Upload, s.clock.Now())
+	}
 	up, err := s.q.CreateUpload(ctx, sqlcgen.CreateUploadParams{
-		ID:             ids.New(ids.Upload, s.clock.Now()),
+		ID:             u.ID,
 		AccountID:      u.AccountID,
 		Path:           u.Path,
 		SizeBytes:      u.SizeBytes,
@@ -89,6 +97,23 @@ func (s *Store) RedeemUpload(ctx context.Context, fetchTokenHash string) (Upload
 		return Upload{}, ErrUploadRedeemed
 	}
 	return Upload{}, ErrUploadExpired
+}
+
+// SetUploadFetchToken replaces the token a build presents for an upload and
+// clears any previous redemption, so a retried build gets a usable token.
+func (s *Store) SetUploadFetchToken(ctx context.Context, uploadID, fetchTokenHash string) error {
+	n, err := s.q.SetUploadFetchToken(ctx, sqlcgen.SetUploadFetchTokenParams{
+		FetchTokenHash: fetchTokenHash,
+		Now:            s.now(),
+		ID:             uploadID,
+	})
+	if err != nil {
+		return fmt.Errorf("store: setting the fetch token on %s: %w", uploadID, err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // SweepCounts reports what a retention sweep removed.
