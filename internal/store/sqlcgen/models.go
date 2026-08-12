@@ -5,11 +5,16 @@
 package sqlcgen
 
 type Account struct {
-	ID         string
-	Name       string
-	DisabledAt *string
-	CreatedAt  string
-	UpdatedAt  string
+	ID              string
+	Name            string
+	DisabledAt      *string
+	CreatedAt       string
+	UpdatedAt       string
+	Email           *string
+	PasswordHash    *string
+	EmailVerifiedAt *string
+	IsAdmin         int64
+	DisplayName     *string
 }
 
 type ApiToken struct {
@@ -86,6 +91,16 @@ type DeploymentEvent struct {
 	OccurredAt   string
 }
 
+type EmailToken struct {
+	ID         string
+	AccountID  string
+	Purpose    string
+	TokenHash  string
+	ExpiresAt  string
+	ConsumedAt *string
+	CreatedAt  string
+}
+
 type Release struct {
 	ID             string
 	AppID          string
@@ -94,6 +109,17 @@ type Release struct {
 	ImageDigest    string
 	ConfigSnapshot string
 	CreatedAt      string
+}
+
+type Session struct {
+	ID         string
+	AccountID  string
+	TokenHash  string
+	ExpiresAt  string
+	LastUsedAt *string
+	RevokedAt  *string
+	CreatedAt  string
+	UpdatedAt  string
 }
 
 type Upload struct {

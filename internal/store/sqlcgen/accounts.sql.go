@@ -56,7 +56,7 @@ func (q *Queries) CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) 
 const createAccount = `-- name: CreateAccount :one
 INSERT INTO accounts (id, name, created_at, updated_at)
 VALUES (?, ?, ?, ?)
-RETURNING id, name, disabled_at, created_at, updated_at
+RETURNING id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name
 `
 
 type CreateAccountParams struct {
@@ -80,12 +80,17 @@ func (q *Queries) CreateAccount(ctx context.Context, arg CreateAccountParams) (A
 		&i.DisabledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.IsAdmin,
+		&i.DisplayName,
 	)
 	return i, err
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, name, disabled_at, created_at, updated_at FROM accounts WHERE id = ?
+SELECT id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name FROM accounts WHERE id = ?
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -97,12 +102,17 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.DisabledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.IsAdmin,
+		&i.DisplayName,
 	)
 	return i, err
 }
 
 const getAccountByName = `-- name: GetAccountByName :one
-SELECT id, name, disabled_at, created_at, updated_at FROM accounts WHERE name = ?
+SELECT id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name FROM accounts WHERE name = ?
 `
 
 // Names are unique, so this is how the bootstrap seeding tells "already seeded"
@@ -116,6 +126,11 @@ func (q *Queries) GetAccountByName(ctx context.Context, name string) (Account, e
 		&i.DisabledAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Email,
+		&i.PasswordHash,
+		&i.EmailVerifiedAt,
+		&i.IsAdmin,
+		&i.DisplayName,
 	)
 	return i, err
 }
@@ -151,7 +166,7 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 }
 
 const resolveToken = `-- name: ResolveToken :one
-SELECT accounts.id, accounts.name, accounts.disabled_at, accounts.created_at, accounts.updated_at, api_tokens.id, api_tokens.account_id, api_tokens.name, api_tokens.token_hash, api_tokens.token_prefix, api_tokens.last_used_at, api_tokens.expires_at, api_tokens.revoked_at, api_tokens.created_at, api_tokens.updated_at
+SELECT accounts.id, accounts.name, accounts.disabled_at, accounts.created_at, accounts.updated_at, accounts.email, accounts.password_hash, accounts.email_verified_at, accounts.is_admin, accounts.display_name, api_tokens.id, api_tokens.account_id, api_tokens.name, api_tokens.token_hash, api_tokens.token_prefix, api_tokens.last_used_at, api_tokens.expires_at, api_tokens.revoked_at, api_tokens.created_at, api_tokens.updated_at
 FROM api_tokens
 JOIN accounts ON accounts.id = api_tokens.account_id
 WHERE api_tokens.token_hash = ?1
@@ -182,6 +197,11 @@ func (q *Queries) ResolveToken(ctx context.Context, arg ResolveTokenParams) (Res
 		&i.Account.DisabledAt,
 		&i.Account.CreatedAt,
 		&i.Account.UpdatedAt,
+		&i.Account.Email,
+		&i.Account.PasswordHash,
+		&i.Account.EmailVerifiedAt,
+		&i.Account.IsAdmin,
+		&i.Account.DisplayName,
 		&i.ApiToken.ID,
 		&i.ApiToken.AccountID,
 		&i.ApiToken.Name,
