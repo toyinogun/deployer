@@ -20,6 +20,9 @@ type stubPods struct {
 	prev    string
 	listErr error
 	logErr  error
+	// prevErr fails only the previous container read, so a test can prove the
+	// current block does not become a partial answer when the second read dies.
+	prevErr error
 
 	calls     []string
 	lastTail  int
@@ -45,6 +48,9 @@ func (p *stubPods) PodLog(_ context.Context, namespace, pod string, tail int, pr
 		return "", p.logErr
 	}
 	if previous {
+		if p.prevErr != nil {
+			return "", p.prevErr
+		}
 		return p.prev, nil
 	}
 	return p.current, nil
@@ -459,6 +465,57 @@ func TestLogsReportsAFaultAsInternalWithNoAuditRow(t *testing.T) {
 				t.Errorf("a fault was audited as a refusal: %+v", auditor.rows)
 			}
 		})
+	}
+}
+
+func TestLogsFailsWholeWhenOnlyThePreviousContainerReadDies(t *testing.T) {
+	// covers: AC-4, AC-10. The current block is already in hand when the second
+	// read fails. Returning it alone would hand back an answer missing the crash
+	// that caused the restart, presented as if there had been none.
+	t.Parallel()
+	pods := &stubPods{
+		pods:    []logs.PodStatus{{Name: "hello-abc", Ready: true, ContainerStarted: true, RestartCount: 2}},
+		current: line(0, "restarted, listening again"),
+		prevErr: errors.New("connection reset"),
+	}
+	s, auditor := logsServer(pods, &stubDeployments{})
+
+	_, out, err := s.getLogs(t.Context(), auth.Account{ID: "acc_1"}, logsInput{Name: "hello"})
+	if err == nil || err.Error() != internalOnly {
+		t.Fatalf("error = %v, want %q", err, internalOnly)
+	}
+	if len(out.Entries) != 0 || out.Previous != nil {
+		t.Errorf("a half answer came back: entries=%+v previous=%+v", out.Entries, out.Previous)
+	}
+	if len(auditor.rows) != 0 {
+		t.Errorf("a fault was audited as a refusal: %+v", auditor.rows)
+	}
+}
+
+func TestLogsEmptyCaseSurvivesAStateItCannotRead(t *testing.T) {
+	// covers: AC-7, AC-10. The state is decoration on the empty case, not the
+	// claim itself. A store that cannot answer leaves it out rather than turning
+	// a true "nothing has started" into a fault.
+	t.Parallel()
+	pods := &stubPods{logErr: errors.New("the log API must not be called")}
+	deployments := &stubDeployments{readErr: errors.New("database is locked")}
+	s, auditor := logsServer(pods, deployments)
+
+	_, out, err := s.getLogs(t.Context(), auth.Account{ID: "acc_1"}, logsInput{Name: "hello"})
+	if err != nil {
+		t.Fatalf("an unreadable state turned the empty case into a failure: %v", err)
+	}
+	if out.State != "" {
+		t.Errorf("state = %q, want it left out", out.State)
+	}
+	if out.Note != noteNotStarted {
+		t.Errorf("note = %q, want %q", out.Note, noteNotStarted)
+	}
+	if len(out.Entries) != 0 {
+		t.Errorf("entries = %+v, want none", out.Entries)
+	}
+	if len(auditor.rows) != 0 {
+		t.Errorf("the empty case audited %+v", auditor.rows)
 	}
 }
 

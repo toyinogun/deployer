@@ -156,6 +156,30 @@ func TestRedactIgnoresShortLiterals(t *testing.T) {
 	}
 }
 
+func TestRedactAllLeavesTheInputAlone(t *testing.T) {
+	// covers: AC-6. RedactAll runs before Bound, so the block it returns is what
+	// the caller receives and its sizes are measured on. It builds a new block
+	// rather than rewriting the parsed one in place, and every timestamp survives.
+	in := []Entry{
+		{At: "t1", Message: "Authorization: Bearer abcdefghijklmnop"},
+		{At: "t2", Message: "started ok"},
+	}
+	out := RedactAll(in, nil)
+
+	if in[0].Message != "Authorization: Bearer abcdefghijklmnop" {
+		t.Fatalf("RedactAll rewrote its input: %s", in[0].Message)
+	}
+	if strings.Contains(out[0].Message, "abcdefghijklmnop") {
+		t.Fatalf("the token survived: %s", out[0].Message)
+	}
+	if out[1].Message != "started ok" {
+		t.Errorf("an ordinary line was changed: %s", out[1].Message)
+	}
+	if out[0].At != "t1" || out[1].At != "t2" {
+		t.Errorf("timestamps did not survive: %+v", out)
+	}
+}
+
 func TestBoundKeepsTheNewest(t *testing.T) {
 	entries := []Entry{
 		{At: "t1", Message: "one"},

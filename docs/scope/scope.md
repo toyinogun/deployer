@@ -156,8 +156,8 @@ spec [0006](../specs/0006-application-logs/index.md)
   - [x] The tool description as contract, and the RBAC confirmation in verify — AC-13, AC-14
 
   code in `internal/logs/`, `internal/kube/kube.go`, `internal/mcp/logs.go`
-- [ ] Verify it: `/check verify application logs`
-- [ ] Test it: `/test application logs`
+- [x] Verify it: `/check verify application logs`
+- [x] Test it: `/test application logs`
 - [ ] Review it (fresh model): `/check review application logs`
 - [ ] Document it: `/document application logs`
 
