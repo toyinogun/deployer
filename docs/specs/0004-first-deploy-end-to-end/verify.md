@@ -230,6 +230,49 @@ Still owed, and why:
   test covers it today, so the real refusal path is unproven.
 - **AC-17, the timeouts firing**: `app_never_ready` fired live, but the build phase timeout and the
   overall deploy timeout have never been watched fire. Both need config changes ArgoCD would revert.
-- **AC-18, a restart during a live build**: the startup sweep does leave no non terminal row (the
-  control plane restarted while deployments existed, and none was left hanging), but a restart while a
-  build Job is actually running, and the delete the Job by hand variant, were not run.
+- **AC-18**: proved, see below. Both halves ran.
+
+### AC-18, the resume half, proved 2026-08-12
+
+Staged with a deliberately slow build (the sample app plus vendored `k8s.io/client-go`, about ninety
+seconds of compilation) so the restart could land inside the build window.
+
+- `08:40:24Z` the control plane was restarted while `dep_01KZTHZPRXBXK8C7THV69BJT32` sat in `building`
+- `08:40:26Z` the new pod logged `resuming a deployment left in flight`, `state: building`
+- `08:40:27Z` the build Job finished, with no control plane watching it
+- `08:40:30Z` the new control plane took it from `building` to `pushing` to `deploying`
+- `08:40:38Z` `healthy`, release 1, digest `sha256:45119707...`, and
+  `https://slowbuild-kgcz7k.deploy.toyintest.org` answers 200
+
+No deployment was left non terminal. This run also proved two things the `hello` deploys could not:
+the digest genuinely changes with the source (every `hello` build was reproducible and produced the
+same digest), and AC-11's namespace create path runs, not just its reuse path.
+
+**Worth carrying into slice 2.** The `deploy_app` call the client was holding returned nothing at all:
+the connection died with the pod, so there was no reason code and no deployment id. The server
+recovered perfectly and the caller still cannot tell. With no status polling in slice 1, a caller's
+only move is to retry, which rebuilds the same source. The reason code set in AC-16 does not cover
+"the platform restarted under you", because the call cannot answer at all once its pod is gone.
+
+### AC-18, the vanished Job half, proved 2026-08-12
+
+Same slow build, but this time the build Job was deleted by hand while the deployment sat in
+`building`, and the control plane restarted straight after.
+
+- `08:42:18Z` `dep_01KZTJ5XTWD8ZAJJDM728Q6PXD` entered `building`
+- the Job was deleted mid build
+- `08:42:48Z` the deployment went `building` to `failed`, reason `build_failed`
+- `08:42:50Z` the new control plane booted with nothing left to sweep
+
+No row was left non terminal, and the deployment failed with a reason rather than hanging, which is
+what AC-18 asks for. Note which code path did it: the **running reconcile loop** noticed the Job had
+gone, two seconds before the restart killed it. The startup sweep's own vanished Job branch was
+therefore not the thing exercised here. That branch is only reachable if the Job disappears while the
+control plane is already down, a narrower window that is still untested at runtime; the sweep's other
+branch, resuming a live Job, is proved in the run above.
+
+**Worth a look in review.** A Job deleted by an operator reports to the caller as
+`build_failed: the build did not complete, so check that the app builds with Cloud Native Buildpacks`.
+The code is in the closed set and it is correctly sanitized, but it points the caller at their own
+source when the real cause was the platform losing the Job. An agent reading that would start
+debugging code that builds fine.
