@@ -132,7 +132,16 @@ func (a *API) fetchUpload(w http.ResponseWriter, r *http.Request) {
 	})
 
 	f, err := os.Open(up.Path)
-	if err != nil {
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		// The tarball is deleted the moment its deployment reaches a terminal
+		// state, so a build still fetching after its own deployment was cancelled
+		// or timed out finds nothing. That is the platform working, and it is the
+		// same answer as an upload that expired, in the same words.
+		slog.InfoContext(ctx, "an upload was fetched after its deployment ended", "upload", up.ID)
+		writeError(ctx, w, http.StatusGone, "expired")
+		return
+	case err != nil:
 		slog.ErrorContext(ctx, "opening an upload failed", "error", err, "upload", up.ID)
 		writeError(ctx, w, http.StatusInternalServerError, "internal error")
 		return
