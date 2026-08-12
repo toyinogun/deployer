@@ -16,7 +16,10 @@ import (
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/config"
 	"github.com/toyinogun/deployer/internal/httpapi"
+	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/kube"
+	"github.com/toyinogun/deployer/internal/mail"
 	"github.com/toyinogun/deployer/internal/mcp"
 	"github.com/toyinogun/deployer/internal/reconcile"
 	"github.com/toyinogun/deployer/internal/registry"
@@ -157,11 +160,26 @@ func (h *health) api() http.Handler {
 // row and waits on committed state (spec 0004, Key invariants).
 func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.ServeMux {
 	as := store.ForAuth(st)
-	authenticator := auth.NewAuthenticator(as, as)
+	// One authenticator, two routes. The bearer route a machine uses and the
+	// session route a person uses resolve through the same object, which is what
+	// makes the verified and disabled gate impossible for a new surface to forget
+	// (spec 0007, Key invariants).
+	authenticator := auth.NewAuthenticator(as, as).WithSessions(as, identity.SessionLifetime)
 	uploadSvc := uploads.NewService(store.ForUploads(st), cfg.UploadDir, cfg.MaxUploadBytes, nil)
+
+	// A nil sender is a supported state: register, resend and password reset
+	// answer mail_unavailable, and the whole MCP and upload path works normally
+	// (spec 0007, AC-26).
+	sender := mail.New(mail.Options{APIKey: cfg.ResendAPIKey, From: cfg.MailFrom})
+	if sender == nil {
+		slog.Warn("DEPLOYER_RESEND_API_KEY is unset, so nobody can register or reset a password")
+	}
+	identitySvc := identity.NewService(store.ForIdentity(st), mailerOrNil(sender), ids.SystemClock{},
+		identity.Options{PublicURL: cfg.PublicURL})
 
 	mux := http.NewServeMux()
 	httpapi.New(authenticator, as, uploadSvc, cfg.MaxUploadBytes).Register(mux)
+	httpapi.NewIdentity(identitySvc, authenticator, as, cfg.PublicURL, sender != nil).Register(mux)
 
 	// One cluster client, shared by the loop that drives deploys and the tool
 	// surface that reads an app's own output back. Nil when there is no in
@@ -187,6 +205,15 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		startReconciler(ctx, st, cfg, uploadSvc, cluster)
 	}
 	return mux
+}
+
+// mailerOrNil keeps a nil sender nil through the interface, so the service sees
+// an absent mailer rather than a non nil interface holding a nil pointer.
+func mailerOrNil(s *mail.Sender) identity.Mailer {
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 // podReader keeps a nil client nil through the interface, so the tool sees an
