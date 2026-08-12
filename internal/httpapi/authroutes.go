@@ -1,0 +1,223 @@
+package httpapi
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/toyinogun/deployer/internal/auth"
+	"github.com/toyinogun/deployer/internal/identity"
+)
+
+// checkYourMail is the one answer register, resend and forgot ever give. It is
+// identical whether the address exists, does not exist, or already has an
+// account, because any difference is a way to ask whether somebody is registered.
+const checkYourMail = "check your email for the next step"
+
+// register creates an account and mails it a verification link.
+//
+// The answer is a 202 with this body whether or not the address was free, and it
+// costs a full password hash either way (AC-2).
+func (i *Identity) register(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !i.spend(w, r) {
+		return
+	}
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		Name     string `json:"name"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := i.svc.Register(ctx, body.Email, body.Password, body.Name); err != nil {
+		i.fail(ctx, w, err)
+		return
+	}
+	// Audited without an account id on purpose: naming the account here would
+	// record whether the address was already taken, which is the one thing this
+	// endpoint is built not to reveal.
+	auth.Record(ctx, i.auditor, auth.Audit{Action: auth.ActionRegister, Allowed: true})
+	writeJSON(ctx, w, http.StatusAccepted, map[string]string{"message": checkYourMail})
+}
+
+// verify spends a verification link. Every way it can fail is link_invalid, in
+// the same words (AC-5).
+func (i *Identity) verify(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if err := i.svc.Verify(ctx, r.URL.Query().Get("token")); err != nil {
+		i.fail(ctx, w, err)
+		return
+	}
+	writeJSON(ctx, w, http.StatusOK, map[string]bool{"verified": true})
+}
+
+// resend issues a fresh verification link, superseding the live one.
+func (i *Identity) resend(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !i.spend(w, r) {
+		return
+	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := i.svc.Resend(ctx, body.Email); err != nil {
+		i.fail(ctx, w, err)
+		return
+	}
+	writeJSON(ctx, w, http.StatusAccepted, map[string]string{"message": checkYourMail})
+}
+
+// login checks a password and opens a session.
+//
+// A failure writes an audit row and feeds the per address backoff; a success
+// clears it, so one correct password undoes the penalty (AC-8, AC-23).
+func (i *Identity) login(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !i.spend(w, r) {
+		return
+	}
+	var body struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	email := identity.NormalizeEmail(body.Email)
+
+	// The per address lockout is checked before any work, so a locked out address
+	// costs neither a database read nor a password hash.
+	if _, locked := i.svc.Limits().LockedOut(email); locked {
+		auth.Record(ctx, i.auditor, auth.Audit{
+			Action: auth.ActionLogin, Reason: string(identity.CodeRateLimited),
+		})
+		writeCode(ctx, w, http.StatusTooManyRequests, identity.CodeRateLimited,
+			"too many failed sign ins, wait a moment")
+		return
+	}
+
+	in, err := i.svc.Login(ctx, body.Email, body.Password)
+	if err != nil {
+		code, _ := identity.CodeOf(err)
+		// An unverified account is a real account presenting the right password,
+		// so it is not a failed attempt and must not feed the backoff.
+		if code != identity.CodeEmailUnverified {
+			i.svc.Limits().Failed(email)
+		}
+		auth.Record(ctx, i.auditor, auth.Audit{Action: auth.ActionLogin, Reason: string(code)})
+		i.fail(ctx, w, err)
+		return
+	}
+	i.svc.Limits().Succeeded(email)
+
+	i.setSessionCookie(w, in.Raw)
+	auth.Record(ctx, i.auditor, auth.Audit{
+		AccountID: in.Account.ID, Action: auth.ActionLogin, Allowed: true,
+	})
+	writeJSON(ctx, w, http.StatusOK, meBody(identityToAuth(in.Account)))
+}
+
+// logout revokes the current session and clears the cookie.
+func (i *Identity) logout(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	account, sess, ok := i.session(w, r)
+	if !ok {
+		return
+	}
+	if err := i.svc.Logout(ctx, sess.ID); err != nil {
+		i.fail(ctx, w, err)
+		return
+	}
+	i.clearSessionCookie(w)
+	auth.Record(ctx, i.auditor, auth.Audit{
+		AccountID: account.ID, Action: auth.ActionLogout, Allowed: true,
+	})
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// forgot mails a password reset link. It always answers 202, whether or not the
+// address exists (AC-28).
+func (i *Identity) forgot(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	if !i.spend(w, r) {
+		return
+	}
+	var body struct {
+		Email string `json:"email"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := i.svc.Forgot(ctx, body.Email); err != nil {
+		i.fail(ctx, w, err)
+		return
+	}
+	writeJSON(ctx, w, http.StatusAccepted, map[string]string{"message": checkYourMail})
+}
+
+// reset spends a reset link and sets a new password, which revokes every live
+// session the account holds (AC-29).
+func (i *Identity) reset(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var body struct {
+		Token    string `json:"token"`
+		Password string `json:"password"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := i.svc.Reset(ctx, body.Token, body.Password); err != nil {
+		i.fail(ctx, w, err)
+		return
+	}
+	// The session this request may have carried is one of the ones just revoked,
+	// so the cookie goes with it rather than being left to fail on the next call.
+	i.clearSessionCookie(w)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// me reports who the caller is.
+func (i *Identity) me(w http.ResponseWriter, r *http.Request) {
+	account, _, ok := i.session(w, r)
+	if !ok {
+		return
+	}
+	acc, err := i.svc.AccountByID(r.Context(), account.ID)
+	if err != nil {
+		if errors.Is(err, identity.ErrNotFound) {
+			writeCode(r.Context(), w, http.StatusUnauthorized, identity.CodeCredentialsInvalid, "sign in first")
+			return
+		}
+		i.fail(r.Context(), w, err)
+		return
+	}
+	writeJSON(r.Context(), w, http.StatusOK, meBody(identityToAuth(acc)))
+}
+
+// meBody is the shape both login and me answer with. Nothing secret is in it: no
+// hash, no session id, no token.
+func meBody(a auth.Account) map[string]any {
+	return map[string]any{
+		"email":    a.Email,
+		"name":     a.Name,
+		"is_admin": a.IsAdmin,
+		"verified": a.Verified,
+	}
+}
+
+// identityToAuth is the small bridge between the two views of an account, so the
+// response shape is written once.
+func identityToAuth(a identity.Account) auth.Account {
+	return auth.Account{
+		ID:       a.ID,
+		Name:     a.DisplayName,
+		Email:    a.Email,
+		Verified: a.Verified,
+		Disabled: a.Disabled,
+		IsAdmin:  a.IsAdmin,
+	}
+}

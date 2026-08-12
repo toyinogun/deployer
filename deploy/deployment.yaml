@@ -55,6 +55,16 @@ spec:
             - secretRef:
                 name: deployer-bootstrap
                 optional: true
+            # The Resend API key registration and password reset send through.
+            # Optional for the same reason: without it the platform boots, every
+            # deploy still works, and only the three endpoints that exist to send
+            # mail answer mail_unavailable (spec 0007, AC-26). Seal it yourself:
+            #   kubectl create secret generic deployer-mail \
+            #     --from-literal=DEPLOYER_RESEND_API_KEY=re_... \
+            #     --dry-run=client -o yaml | kubeseal -o yaml > deploy/mail-sealedsecret.yaml
+            - secretRef:
+                name: deployer-mail
+                optional: true
           env:
             - name: DEPLOYER_POD_NAME
               valueFrom:

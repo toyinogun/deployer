@@ -311,6 +311,14 @@ func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
 		slog.InfoContext(ctx, "the deployment was ended while it was being driven, so the drive stopped",
 			"deployment", dep.ID, "phase", dep.State)
 	default:
+		// The budget expiring is the reason, whichever step happened to notice it.
+		// Only the phase boundary check recognises it by itself; a deadline that
+		// fires inside a store read or a cluster call surfaces as whatever that
+		// step returns, and reporting a spent budget as an internal fault is
+		// exactly the masked error a caller must never be handed.
+		if runCtx.Err() != nil {
+			fail = &failure{domain.ReasonTimeout, runCtx.Err()}
+		}
 		if fail.reason == domain.ReasonTimeout {
 			// The budget is what ran out, so the build goes with it (AC-15).
 			r.deleteBuildJob(ctx, dep)

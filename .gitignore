@@ -2,3 +2,17 @@
 
 # Original plan document, its content lives in docs/scope and docs/specs
 *.pdf
+
+# Installed community skills. skills-lock.json pins the versions, so
+# `npx skills install` restores these on a fresh clone. The workflow skills
+# beside them (architect, develop, and friends) are committed and stay tracked.
+/.agents/skills/resend/
+/.agents/skills/resend-cli/
+/.agents/skills/react-email/
+/.agents/skills/email-best-practices/
+/.agents/skills/agent-email-inbox/
+/.claude/skills/resend
+/.claude/skills/resend-cli
+/.claude/skills/react-email
+/.claude/skills/email-best-practices
+/.claude/skills/agent-email-inbox

@@ -60,4 +60,18 @@ var (
 	// ErrInvalidKey means a configuration key does not match the platform's
 	// naming rule.
 	ErrInvalidKey = errors.New("store: invalid configuration key")
+
+	// ErrEmailTaken means an account already holds that address. It comes from
+	// the losing insert hitting the partial unique index, never from a read
+	// before the write, so two concurrent registrations still produce one account.
+	ErrEmailTaken = errors.New("store: email already registered")
+
+	// ErrSessionInvalid covers unknown, revoked, and expired sessions, and
+	// sessions belonging to a disabled account. Deliberately indistinguishable,
+	// exactly as ErrTokenInvalid is.
+	ErrSessionInvalid = errors.New("store: session invalid")
+
+	// ErrLinkInvalid covers an unknown, consumed, or expired single use email
+	// link, and one whose purpose does not match what it is being spent on.
+	ErrLinkInvalid = errors.New("store: link invalid")
 )

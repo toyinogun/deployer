@@ -60,6 +60,14 @@ func Open(opts Options) (*Store, error) {
 		opts.SuffixSource = domain.RandomSuffix
 	}
 
+	// Deliberately not _txlock=immediate. Taking the write lock at every BEGIN
+	// would fix the SQLITE_BUSY a read then write transaction hits when it
+	// upgrades its lock mid flight, but it would make every read only
+	// transaction queue behind the writer too, and a deployment drive working to
+	// a deadline can spend its whole budget waiting on that BEGIN and fail as an
+	// internal fault instead of as a timeout. The rule this platform holds
+	// instead: a transaction never reads and then writes. Anything that has to
+	// decide from existing rows does it in one statement.
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)",
 		opts.Path, opts.BusyTimeout.Milliseconds(),

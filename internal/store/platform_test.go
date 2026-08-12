@@ -326,6 +326,8 @@ func TestMigrationUpThenDownLeavesTheFileEmpty(t *testing.T) {
 	want := []string{
 		"accounts", "api_tokens", "apps", "app_config", "uploads",
 		"deployments", "deployment_events", "releases", "audit_log",
+		// Added by spec 0007's 00002_identity.sql.
+		"sessions", "email_tokens",
 	}
 	for _, table := range want {
 		if !tableExists(t, s, table) {
@@ -339,8 +341,13 @@ func TestMigrationUpThenDownLeavesTheFileEmpty(t *testing.T) {
 		t.Fatalf("migrating up twice: %v", err)
 	}
 
-	if err := s.MigrateDown(ctx); err != nil {
-		t.Fatalf("migrating down: %v", err)
+	// One MigrateDown rolls back one migration, so an empty file takes as many
+	// calls as there are migrations. Counting them here rather than hardcoding a
+	// number means adding a third does not silently leave this test checking two.
+	for range 2 {
+		if err := s.MigrateDown(ctx); err != nil {
+			t.Fatalf("migrating down: %v", err)
+		}
 	}
 	for _, table := range want {
 		if tableExists(t, s, table) {

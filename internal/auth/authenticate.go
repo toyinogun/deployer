@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 )
 
 // The audit actions this platform records. They are constants rather than free
@@ -26,6 +27,25 @@ const (
 	// recorded: a successful read is not an access decision, and neither is an
 	// internal fault (spec 0006, AC-9).
 	ActionLogs = "logs"
+
+	// The identity actions, added by spec 0007 (AC-22).
+
+	// ActionRegister is one registration attempt. It never names an account, on
+	// purpose: naming one would record whether the address was already taken,
+	// which is the one thing that endpoint is built not to reveal.
+	ActionRegister = "register"
+	// ActionLogin is one sign in. Unlike a read, every failure is recorded: a
+	// failed sign in is an access decision and the run of them is the signal.
+	ActionLogin = "login"
+	// ActionLogout is one deliberate session revocation.
+	ActionLogout = "logout"
+	// ActionTokenMint is one API token created.
+	ActionTokenMint = "token_mint"
+	// ActionTokenRevoke is one API token killed by the account that holds it.
+	ActionTokenRevoke = "token_revoke"
+	// ActionAdmin is any use of the admin surface, allowed or refused. Reason
+	// carries which one, so the closed action set does not grow per endpoint.
+	ActionAdmin = "admin"
 )
 
 // Audit is one authorization outcome. AccountID is empty when the presented
@@ -56,6 +76,10 @@ type TokenToucher interface {
 type Authenticator struct {
 	store   Store
 	toucher TokenToucher
+	// The session route, added by spec 0007. Nil until WithSessions is called,
+	// which is what lets a build with no session surface leave it out.
+	sessions        SessionStore
+	sessionLifetime time.Duration
 }
 
 // NewAuthenticator returns an authenticator over the given store.
@@ -79,6 +103,14 @@ func (a *Authenticator) Authenticate(ctx context.Context, raw string) (Account, 
 			return Account{}, ErrTokenInvalid
 		}
 		return Account{}, fmt.Errorf("auth: resolving the presented token: %w", err)
+	}
+	// The verified gate, on the bearer route. A token held by an account that
+	// never confirmed its address is refused with the same answer an invalid token
+	// gets, on every surface, MCP and upload alike (AC-16). The store already
+	// filtered disabled accounts out; this holds the rule even so, because the
+	// gate must be readable in one place rather than split across two layers.
+	if !account.usable() {
+		return Account{}, ErrTokenInvalid
 	}
 	if a.toucher != nil {
 		if err := a.toucher.TouchToken(ctx, token.ID); err != nil {

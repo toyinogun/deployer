@@ -36,9 +36,23 @@ var (
 )
 
 // Account is the caller identity, carrying only what this package reads.
+//
+// Email, Verified, Disabled and IsAdmin were added by spec 0007. They live here
+// rather than beside the surfaces that read them because the gate they feed is
+// applied in exactly one place, for both the bearer route and the session route.
 type Account struct {
 	ID   string
 	Name string
+	// Email is empty on an account that was never a person, which is exactly the
+	// bootstrap account. That emptiness is what exempts it from the verified gate.
+	Email string
+	// Verified is whether the address has been confirmed. Meaningless, and
+	// ignored, when Email is empty.
+	Verified bool
+	// Disabled is whether an admin has locked the account out.
+	Disabled bool
+	// IsAdmin carries visibility over accounts, and nothing over apps.
+	IsAdmin bool
 }
 
 // Token is one bearer credential, carrying only what this package reads. The
