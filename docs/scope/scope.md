@@ -137,7 +137,7 @@ spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `int
   - [x] The non blocking `deploy_app` and supersession reporting — AC-1, AC-2, AC-3, AC-4, AC-12, AC-20
   - [x] The deploy budget inside the reconcile loop, with the Job delete — AC-14, AC-14a, AC-15, AC-16, AC-17, AC-18
 - [ ] Verify it: `/check verify async deployment jobs & status` — includes the real deploy from an agent session, AC-19
-- [ ] Test it: `/test async deployment jobs & status`
+- [x] Test it: `/test async deployment jobs & status`
 - [ ] Review it (fresh model): `/check review async deployment jobs & status`
 - [ ] Document it: `/document async deployment jobs & status`
 

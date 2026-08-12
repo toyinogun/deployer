@@ -224,6 +224,10 @@ func TestTheToolDescriptionCarriesTheUploadContract(t *testing.T) {
 		"minutes",
 		"deployment_status",
 		"queued",
+		// The async contract itself, not only the tool that reads it back
+		// (spec 0005, AC-4).
+		"straight away",
+		"does not wait",
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("the description does not mention %q", want)
