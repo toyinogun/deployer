@@ -7,8 +7,9 @@ package domain
 // AC-16).
 type Reason string
 
-// The eleven codes a deploy can end on. Nine are failures; ReasonSuperseded
-// describes a cancellation, and ReasonDeploymentUnknown a refused readback.
+// The twelve codes. Nine are failures a deploy can end on; ReasonSuperseded
+// describes a cancellation, and ReasonDeploymentUnknown and ReasonAppUnknown a
+// refused readback.
 const (
 	ReasonUploadInvalid   Reason = "upload_invalid"
 	ReasonUploadExpired   Reason = "upload_expired"
@@ -22,6 +23,12 @@ const (
 	// ReasonDeploymentUnknown is the one answer a status read gives for an id or
 	// name that does not exist and for one belonging to another account.
 	ReasonDeploymentUnknown Reason = "deployment_unknown"
+	// ReasonAppUnknown is the one answer a log read gives for a name that does
+	// not exist and for an app belonging to another account. It is separate from
+	// ReasonDeploymentUnknown because get_logs is addressed by app name, and
+	// answering about deployments and ids is how a closed reason set stops being
+	// useful (spec 0006, Decision).
+	ReasonAppUnknown Reason = "app_unknown"
 	// ReasonSuperseded is why a deployment was cancelled: a later deploy of the
 	// same app replaced it. A cancellation, not a failure.
 	ReasonSuperseded Reason = "superseded"
@@ -42,10 +49,11 @@ var messages = map[Reason]string{
 	ReasonInternal:        "the platform failed to complete the deploy",
 
 	ReasonDeploymentUnknown: "no deployment matches that id or name",
+	ReasonAppUnknown:        "no app matches that name",
 	ReasonSuperseded:        "a later deploy of the same app replaced this one",
 }
 
-// Valid reports whether r is one of the eleven codes.
+// Valid reports whether r is one of the twelve codes.
 func (r Reason) Valid() bool {
 	_, ok := messages[r]
 	return ok

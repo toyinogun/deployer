@@ -163,26 +163,45 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	mux := http.NewServeMux()
 	httpapi.New(authenticator, as, uploadSvc, cfg.MaxUploadBytes).Register(mux)
 
+	// One cluster client, shared by the loop that drives deploys and the tool
+	// surface that reads an app's own output back. Nil when there is no in
+	// cluster credential, which both sides handle rather than refusing to start.
+	cluster, err := kube.New()
+	if err != nil {
+		slog.Warn("no Kubernetes access, so no deployment will be driven and no log can be read", "error", err)
+		cluster = nil
+	}
+
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
-		forTool{svc: uploadSvc}, mcp.Options{
+		forTool{svc: uploadSvc}, podReader(cluster), mcp.Options{
 			PublicURL: cfg.PublicURL,
 			AppDomain: cfg.AppDomain,
+			// The registry pull credential is the one secret the platform placed
+			// in the app's namespace itself, so it is the one it can redact
+			// exactly (spec 0006, AC-6).
+			SecretLiterals: []string{cfg.RegistryPass},
 		})
 	mux.Handle("/mcp", tools.Handler())
 
-	startReconciler(ctx, st, cfg, uploadSvc)
+	if cluster != nil {
+		startReconciler(ctx, st, cfg, uploadSvc, cluster)
+	}
 	return mux
 }
 
-// startReconciler starts the deployment loop, unless there is no cluster to
-// drive. A local run without the in cluster credential serves the API and skips
-// the loop, which is honest: an upload still works, a deploy stays queued.
-func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, uploadSvc *uploads.Service) {
-	cluster, err := kube.New()
-	if err != nil {
-		slog.Warn("no Kubernetes access, so no deployment will be driven", "error", err)
-		return
+// podReader keeps a nil client nil through the interface, so the tool sees an
+// absent cluster rather than a non nil interface holding a nil pointer.
+func podReader(cluster *kube.Client) mcp.Pods {
+	if cluster == nil {
+		return nil
 	}
+	return cluster
+}
+
+// startReconciler starts the deployment loop. The caller skips it when there is
+// no cluster to drive, which is honest for a local run: an upload still works, a
+// deploy stays queued.
+func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, uploadSvc *uploads.Service, cluster *kube.Client) {
 	rs := store.ForReconcile(st)
 	loop := reconcile.New(rs, rs, uploadSource{svc: uploadSvc},
 		registry.New(cfg.RegistryHost, cfg.RegistryUser, cfg.RegistryPass),

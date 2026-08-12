@@ -47,7 +47,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
 | 5 | First deploy end to end | Slice 1 | done |
 | 6 | Async deployment jobs & status | Slice 2 | in-progress |
-| 7 | Application logs | Slice 3 | planned |
+| 7 | Application logs | Slice 3 | in-progress |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | planned |
 | 9 | Workload isolation & network policy | Slice 5 | planned |
 | 10 | Dockerfile build path | Slice 6 | planned |
@@ -143,10 +143,23 @@ spec [0005](../specs/0005-async-deployment-jobs-status/index.md) · code in `int
 
 ## Slice 3: Application logs
 
-### 7. Application logs · needs a decision
+### 7. Application logs · in-progress
 Thickens the readback segment so an agent can debug an app it deployed without you opening a terminal. Bounded, redacted application logs only, never cluster or platform internals.
 **Done when:** a `get_logs` MCP call returns recent application output for an app the caller owns, bounded in size and time, with secrets and tokens redacted, and platform logs are never exposed.
-- [ ] Design it (spec): `/architect application logs`
+spec [0006](../specs/0006-application-logs/index.md)
+- [x] Design it (spec): `/architect application logs`
+- [x] Build it: `/develop application logs`
+  - [x] The pure `internal/logs` package: parsing, redaction, clamping, bounding, and the constants — AC-2, AC-3, AC-6
+  - [x] The cluster reads in `internal/kube`: newest pod with its status, and one container's tail — AC-5, AC-11
+  - [x] The `app_unknown` reason code and the logs audit action — AC-8, AC-9
+  - [x] The `get_logs` tool: the empty case gate, the previous container block, the failure path — AC-1, AC-4, AC-7, AC-10, AC-12
+  - [x] The tool description as contract, and the RBAC confirmation in verify — AC-13, AC-14
+
+  code in `internal/logs/`, `internal/kube/kube.go`, `internal/mcp/logs.go`
+- [ ] Verify it: `/check verify application logs`
+- [ ] Test it: `/test application logs`
+- [ ] Review it (fresh model): `/check review application logs`
+- [ ] Document it: `/document application logs`
 
 ## Slice 4: Accounts, API tokens & app ownership
 
@@ -174,6 +187,7 @@ Thickens the build segment with the escape hatch: when the project ships a Docke
 ### 11. App environment configuration · needs a decision
 Thickens the app contract so deployed apps can actually be configured. The platform injects `PORT` and any values set for the app, and decides what happens to values that are sensitive.
 **Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables, a change triggers a new release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
+From spec 0006: this is also where `get_logs` gains exact redaction, because the platform will finally know which values are secret because it injected them.
 - [ ] Design it (spec): `/architect app environment configuration`
 
 ## Slice 8: Rollback & release history
@@ -203,6 +217,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
 - **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision
+- **Kubernetes events for an app that prints nothing**: surfacing image pull failures, out of memory kills, and probe failures, which explain a failed app that produced no output of its own. From spec 0006, only worth building if `state: failed` with an empty log turns out to be a common dead end · needs a decision
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug

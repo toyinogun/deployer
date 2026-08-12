@@ -22,6 +22,10 @@ const (
 	// a polling read audited every time fills a table with no signal in it
 	// (spec 0005, AC-10).
 	ActionStatus = "status"
+	// ActionLogs is one get_logs call. Like ActionStatus, only a refusal is
+	// recorded: a successful read is not an access decision, and neither is an
+	// internal fault (spec 0006, AC-9).
+	ActionLogs = "logs"
 )
 
 // Audit is one authorization outcome. AccountID is empty when the presented
