@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
+	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store/sqlcgen"
 )
 
@@ -17,8 +19,45 @@ type AuthStore struct{ s *Store }
 // ForAuth returns the auth facing view of the store.
 func ForAuth(s *Store) AuthStore { return AuthStore{s: s} }
 
-// Compile time proof that the adapter is what internal/auth asked for.
-var _ auth.Store = AuthStore{}
+// Compile time proof that the adapter is what internal/auth asked for, on both
+// of its routes.
+var (
+	_ auth.Store        = AuthStore{}
+	_ auth.SessionStore = AuthStore{}
+)
+
+// toAuthAccount projects a row onto the caller identity, including the four
+// fields spec 0007 added. A null email becomes an empty string, which is exactly
+// what exempts the bootstrap account from the verified gate.
+func toAuthAccount(acc Account) auth.Account {
+	return auth.Account{
+		ID:       acc.ID,
+		Name:     acc.Name,
+		Email:    deref(acc.Email),
+		Verified: acc.EmailVerifiedAt != nil,
+		Disabled: acc.DisabledAt != nil,
+		IsAdmin:  acc.IsAdmin == 1,
+	}
+}
+
+// ResolveSession turns a session hash into the account it belongs to, mapping the
+// store's single indistinguishable failure onto the auth package's own.
+func (a AuthStore) ResolveSession(ctx context.Context, tokenHash string) (auth.Account, auth.Session, error) {
+	acc, sess, err := a.s.ResolveSession(ctx, tokenHash)
+	if errors.Is(err, ErrSessionInvalid) {
+		return auth.Account{}, auth.Session{}, auth.ErrSessionInvalid
+	}
+	if err != nil {
+		return auth.Account{}, auth.Session{}, err
+	}
+	return toAuthAccount(acc), auth.Session{ID: sess.ID, AccountID: sess.AccountID}, nil
+}
+
+// TouchSession records a use and pushes the rolling expiry forward by lifetime,
+// measured from the store's own clock.
+func (a AuthStore) TouchSession(ctx context.Context, id string, lifetime time.Duration) error {
+	return a.s.TouchSession(ctx, id, ids.Stamp(a.s.clock.Now().Add(lifetime)))
+}
 
 // AccountByName returns the account with that name, or auth.ErrNoAccount.
 func (a AuthStore) AccountByName(ctx context.Context, name string) (auth.Account, error) {
@@ -29,7 +68,7 @@ func (a AuthStore) AccountByName(ctx context.Context, name string) (auth.Account
 	if err != nil {
 		return auth.Account{}, err
 	}
-	return auth.Account{ID: acc.ID, Name: acc.Name}, nil
+	return toAuthAccount(acc), nil
 }
 
 // CreateAccount registers a caller identity.
@@ -38,7 +77,7 @@ func (a AuthStore) CreateAccount(ctx context.Context, name string) (auth.Account
 	if err != nil {
 		return auth.Account{}, err
 	}
-	return auth.Account{ID: acc.ID, Name: acc.Name}, nil
+	return toAuthAccount(acc), nil
 }
 
 // ResolveToken turns a token hash into the account it belongs to, mapping the
@@ -51,8 +90,7 @@ func (a AuthStore) ResolveToken(ctx context.Context, tokenHash string) (auth.Acc
 	if err != nil {
 		return auth.Account{}, auth.Token{}, err
 	}
-	return auth.Account{ID: acc.ID, Name: acc.Name},
-		auth.Token{ID: tok.ID, AccountID: tok.AccountID}, nil
+	return toAuthAccount(acc), auth.Token{ID: tok.ID, AccountID: tok.AccountID}, nil
 }
 
 // RevokeTokensNamed kills every live token an account holds under one name.
