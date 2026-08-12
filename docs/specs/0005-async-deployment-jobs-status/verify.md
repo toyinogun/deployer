@@ -32,7 +32,7 @@ _Steps derived from spec 0005 acceptance criteria. `/check verify` runs these; `
 - [x] `url`: deploy an app whose name needs slugging (mixed case, spaces) → `deploy_app` and `deployment_status` return the same `https://<slug>.<domain>`, and it is never read from a stored column
 - [x] `state` on deploy: stop the reconcile loop (no cluster access), then `deploy_app` → still returns `queued` in under a second, proving the handler reads nothing back → AC-1, AC-3
 - [x] status by id vs by name: create two apps, ask by each name → each reports its own most recent deployment, never the other's
-- [ ] `reason`/`message`: fail a deploy with a root image → status carries `image_runs_as_root` and its one line, and nothing from the build log
+- [ ] `reason`/`message`: fail a deploy with a root image → status carries `image_runs_as_root` and its one line, and nothing from the build log. **Deferred to slice 6 (Dockerfile build path)**, the same blocker spec 0004's AC-10 hit: `deploy_app` only builds from source and Paketo will not produce a root running image, so this failure cannot be reached through the real path yet. The projection itself is covered by the failed branch of the status payload test
 - [x] `release_number`/`image_digest`: status the same deployment before and after it turns healthy → absent, then present, matching the `releases` row
 - [x] `superseded_by`: deploy three times in a row → deployment 1 points at 2, deployment 2 points at 3, ordered by id and not by `created_at`
 - [x] `timeline`: write an event with a `detail` holding a raw cluster message, then status → the message appears in no field of the payload → AC-8
