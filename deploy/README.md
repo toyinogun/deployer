@@ -107,7 +107,7 @@ creates at runtime.
    # paste the printed digest into deploy/deployment.yaml
    ```
 
-## The four things no file here can tell you
+## The five things no file here can tell you
 
 These are done once, by hand, outside this repository, and the build does not
 work without them. They are step by step in
@@ -127,3 +127,26 @@ work without them. They are step by step in
 4. Point the ingress-nginx `--default-ssl-certificate` flag at
    `ingress-nginx/wildcard-apps-tls`. This restarts the shared controller and
    briefly interrupts TLS for the apps already behind it, so do it deliberately.
+5. Tell k3s the in cluster registry is served over plain HTTP. The registry has
+   no certificate on purpose (it has no Ingress and is reachable only on the pod
+   network), but containerd will refuse to pull from it until it is told so.
+   Without this every app deploy fails at the pull, not at the build, which is a
+   confusing place to discover it.
+
+   On **every** node, create or extend `/etc/rancher/k3s/registries.yaml`:
+
+   ```yaml
+   mirrors:
+     "deployer-registry.deployer-system.svc:5000":
+       endpoint:
+         - "http://deployer-registry.deployer-system.svc:5000"
+   ```
+
+   Then restart k3s on that node (`systemctl restart k3s` on the server,
+   `systemctl restart k3s-agent` on the workers). Missing it on one worker means
+   deploys succeed or fail depending on where the pod is scheduled, which is the
+   worst version of this failure, so do all four.
+
+   The build side needs no equivalent: the Buildpacks lifecycle is told the
+   registry is insecure through `CNB_INSECURE_REGISTRIES` on the build container,
+   which the control plane composes.
