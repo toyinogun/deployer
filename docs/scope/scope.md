@@ -121,7 +121,7 @@ spec [0004](../specs/0004-first-deploy-end-to-end/index.md) · code in `internal
   - [x] The reconcile loop, the `deploy_app` tool, reason codes, and the startup sweep — AC-3, AC-4, AC-5, AC-6, AC-14, AC-15, AC-16, AC-18, AC-22. The real deploy against the cluster (AC-21) needs a published image, so it runs in `/check verify`; `testdata/sample-go` is in place for it
 - [x] Verify it: `/check verify first deploy end to end` — 21 of 22 acceptance criteria proved against the real cluster. AC-10 (a root image is refused) is deferred to slice 6: `deploy_app` only builds from source and Paketo will not produce a root running image, so it cannot be reached through the real path yet
 - [x] Test it: `/test first deploy end to end`
-- [ ] Review it (fresh model): `/check review first deploy end to end`
+- [x] Review it (fresh model): `/check review first deploy end to end`
 - [ ] Document it: `/document first deploy end to end`
 
 ## Slice 2: Async deployment jobs & status
