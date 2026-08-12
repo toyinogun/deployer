@@ -102,8 +102,8 @@ spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `int
   - [x] The control plane in the cluster: namespace, RBAC, volume, config, probes — AC-1, AC-2, AC-3, AC-4, AC-16
   - [x] Platform exposure and ArgoCD delivery — AC-13, AC-15. The certificate alert is deferred, see the spec's Follow-up: the cluster runs no monitoring stack, so there is nowhere to send one yet
 - [x] Verify it: `/check verify cluster foundation`
-- [ ] Test it: `/test cluster foundation`
-- [ ] Review it (fresh model): `/check review cluster foundation`
+- [x] Test it: `/test cluster foundation`
+- [x] Review it (fresh model): `/check review cluster foundation`
 - [ ] Document it: `/document cluster foundation`
 
 ## Slice 1: First deploy end to end

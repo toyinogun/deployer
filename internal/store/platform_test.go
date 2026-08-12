@@ -349,6 +349,44 @@ func TestMigrationUpThenDownLeavesTheFileEmpty(t *testing.T) {
 	}
 }
 
+// TestReadyFailsWhileMigrationsArePending verifies AC-4: an open but unmigrated
+// database is not ready, so the readiness probe pulls the pod out of its Service
+// instead of serving traffic against a schema that is not there yet.
+func TestReadyFailsWhileMigrationsArePending(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, err := store.Open(store.Options{Path: filepath.Join(t.TempDir(), "deployer.db")})
+	if err != nil {
+		t.Fatalf("opening: %v", err)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Errorf("closing: %v", err)
+		}
+	}()
+
+	// Open does not migrate, so the file is reachable but the schema is missing.
+	if err := s.Ready(ctx); err == nil {
+		t.Fatal("Ready said the store was ready with migrations still pending")
+	}
+
+	if err := s.Migrate(ctx); err != nil {
+		t.Fatalf("migrating up: %v", err)
+	}
+	if err := s.Ready(ctx); err != nil {
+		t.Errorf("Ready still failed after migrating: %v", err)
+	}
+
+	// Rolling back puts the migration pending again, so readiness goes back down
+	// rather than latching on the first success.
+	if err := s.MigrateDown(ctx); err != nil {
+		t.Fatalf("migrating down: %v", err)
+	}
+	if err := s.Ready(ctx); err == nil {
+		t.Error("Ready stayed ready after the schema was rolled back")
+	}
+}
+
 func tableExists(t *testing.T, s *store.Store, name string) bool {
 	t.Helper()
 	var n int
