@@ -17,6 +17,9 @@ resources:
   - registry-htpasswd-sealedsecret.yaml
   - registry-credential-sealedsecret.yaml
   - bootstrap-sealedsecret.yaml
+  # The Resend API key. Optional to the pod, which boots and deploys without it
+  # and only refuses register, resend and password reset (spec 0007, AC-26).
+  - mail-sealedsecret.yaml
   - registry.yaml
   - pvc.yaml
   - configmap.yaml
