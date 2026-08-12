@@ -3,8 +3,10 @@ kind: Kustomization
 namespace: deployer-system
 resources:
   - namespace.yaml
+  - builds-namespace.yaml
   - rbac.yaml
   - admission-policy.yaml
+  - registry.yaml
   - pvc.yaml
   - configmap.yaml
   - deployment.yaml

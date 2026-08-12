@@ -37,6 +37,38 @@ type Config struct {
 	AppQuotaCPU      string // per app CPU ceiling, a Kubernetes quantity
 	AppQuotaMemory   string // per app memory ceiling, a Kubernetes quantity
 	AppQuotaPods     int    // per app pod ceiling
+
+	// Added by spec 0004, the first deploy end to end. Loaded and validated by
+	// loadFirstDeploy in firstdeploy.go.
+
+	// BootstrapToken is the single API token seeded at startup. Empty means no
+	// seeding runs and the platform boots with no usable token, which is a
+	// warning rather than a failure so a local run needs no secret.
+	BootstrapToken string
+	// PublicURL is the platform's own reachable base address. It goes into the
+	// deploy_app tool description, so an agent can only upload if it is right.
+	PublicURL string
+	// BuilderImage is the digest pinned Paketo builder the lifecycle runs from.
+	BuilderImage string
+	// SelfImage is the control plane's own image, reused as the build Job's init
+	// container. The downward API cannot supply it, so the manifest sets it
+	// beside the same digest CI pins.
+	SelfImage string
+
+	DeployTimeout     time.Duration // whole budget for one deploy_app call
+	BuildTimeout      time.Duration // the build Job's activeDeadlineSeconds
+	ReadyTimeout      time.Duration // how long to wait for an available replica
+	ReconcileInterval time.Duration // the loop tick, reused as the handler's poll interval
+
+	AppCPU         string // an app container's CPU request
+	AppMemory      string // an app container's memory request
+	AppLimitCPU    string // an app container's CPU limit
+	AppLimitMemory string // an app container's memory limit
+
+	// MaxUploadFiles and MaxExtractedBytes cap what the source extractor will
+	// unpack, so a zip bomb fails the deployment rather than the node.
+	MaxUploadFiles    int
+	MaxExtractedBytes int64
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -147,6 +179,10 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, fmt.Sprintf("DEPLOYER_LOG_LEVEL must be debug, info, warn or error, got %q", raw))
 		}
 	}
+	deployMissing, deployErrs := loadFirstDeploy(getenv, &c)
+	missing = append(missing, deployMissing...)
+	errs = append(errs, deployErrs...)
+
 	if len(missing) > 0 {
 		errs = append(errs, "missing required environment: "+strings.Join(missing, ", "))
 	}

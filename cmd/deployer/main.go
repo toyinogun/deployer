@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/config"
 	"github.com/toyinogun/deployer/internal/store"
 )
@@ -138,7 +139,30 @@ func openMigrated(ctx context.Context, cfg config.Config) (*store.Store, error) 
 		}
 		return nil, err
 	}
+	// Seeding runs behind the migration and before readiness, so the platform is
+	// never reachable with a schema or an account it does not have yet.
+	if err := seedBootstrap(migrateCtx, st, cfg); err != nil {
+		if closeErr := st.Close(); closeErr != nil {
+			slog.Error("closing the database after a failed bootstrap", "error", closeErr)
+		}
+		return nil, err
+	}
 	return st, nil
+}
+
+// seedBootstrap ensures the single account and token this slice authenticates
+// with exist (spec 0004, AC-1). The raw token is passed straight through and
+// never logged, at any level: only whether one was configured.
+func seedBootstrap(ctx context.Context, st *store.Store, cfg config.Config) error {
+	if cfg.BootstrapToken == "" {
+		slog.Warn("DEPLOYER_BOOTSTRAP_TOKEN is unset, so the platform has no usable API token and every call will be refused")
+		return nil
+	}
+	if err := auth.Bootstrap(ctx, store.ForAuth(st), cfg.BootstrapToken); err != nil {
+		return err
+	}
+	slog.Info("bootstrap account seeded", "account", auth.BootstrapAccountName)
+	return nil
 }
 
 // ready reports whether the control plane can take traffic.

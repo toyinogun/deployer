@@ -1,0 +1,43 @@
+# Where build Jobs run (spec 0004, AC-7). This namespace executes code the
+# platform did not author, over a tarball the platform did not author, so it
+# holds no cluster credentials beyond the one registry credential a build needs
+# to push, and it enforces `restricted` pod security like everything else here.
+#
+# Whether the Buildpacks lifecycle actually fits inside `restricted` is not
+# proven until a build runs here. If it does not, that is a finding and a spec
+# update, never a right granted in advance (spec 0004, Consequences).
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deployer-builds
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
+---
+# The control plane's reach into the build namespace. Declared here rather than
+# created at runtime, because this namespace is part of the platform and ArgoCD
+# owns it: the control plane only creates bindings in the app-<slug> namespaces
+# it makes itself.
+#
+# ClusterRole/deployer-app is wider than a build needs (it also covers
+# Deployments, Ingresses and the rest), but splitting it would mean two roles to
+# keep in step for no reduction in what a build Job can actually do: the Job is
+# the thing running untrusted code, and it holds no service account rights at
+# all. This binding is for the control plane, not for the builder.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-builds
+  namespace: deployer-builds
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: deployer-app
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: deployer-system

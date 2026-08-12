@@ -48,6 +48,13 @@ spec:
             # for the placeholder that lets the control plane boot before then.
             - secretRef:
                 name: deployer-registry
+            # The single API token this slice authenticates with. Optional on
+            # purpose: without it the platform still boots, warns that it has no
+            # usable token, and refuses every call, which is a better failure
+            # than a pod that will not start (spec 0004, AC-1).
+            - secretRef:
+                name: deployer-bootstrap
+                optional: true
           env:
             - name: DEPLOYER_POD_NAME
               valueFrom:
@@ -57,6 +64,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+            # The control plane's own image, reused as the build Job's init
+            # container so it can fetch and safely unpack the source tarball. The
+            # downward API cannot report a container's image, so it is set here,
+            # and the same `publish` job that rewrites `image:` above rewrites
+            # this line from the same value. Keep them identical: a stale one
+            # means builds run an old extractor against a new control plane.
+            - name: DEPLOYER_SELF_IMAGE
+              value: ghcr.io/toyinogun/deployer@sha256:1e15acbc2f078e3cfef736a524a73611d41bcc5ade4ee63d3195fad3eada7548
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false

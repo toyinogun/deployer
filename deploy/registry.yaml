@@ -1,0 +1,126 @@
+# The in cluster image registry every build pushes to and every app pulls from
+# (spec 0004, AC-20). Deliberately small: one `distribution` container, one
+# Longhorn volume, one ClusterIP Service, and no Ingress at all.
+#
+# No Ingress is the point. The registry holds a write credential that is mounted
+# beside build code the platform did not author, so the only thing keeping that
+# blast radius small is that nothing outside the cluster can reach it.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: deployer-registry-data
+  namespace: deployer-system
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 50Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deployer-registry
+  namespace: deployer-system
+  labels:
+    app: deployer-registry
+spec:
+  replicas: 1
+  # One writer on one ReadWriteOnce volume, same reasoning as the control plane.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: deployer-registry
+  template:
+    metadata:
+      labels:
+        app: deployer-registry
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        # Longhorn presents the volume root owned, and the registry writes to it
+        # as an unprivileged user, so without this it cannot create its own
+        # blob directories and the pod never becomes ready.
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          # Pinned to an exact version rather than `3`, so a registry bump is a
+          # deliberate commit. See the Follow-up in spec 0004 about resolving
+          # this to a digest the way the control plane's own image is pinned.
+          image: registry:3.0.0
+          ports:
+            - name: registry
+              containerPort: 5000
+          env:
+            - name: REGISTRY_HTTP_ADDR
+              value: ":5000"
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /var/lib/registry
+            - name: REGISTRY_AUTH
+              value: htpasswd
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: deployer
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: /auth/htpasswd
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          livenessProbe:
+            httpGet:
+              path: /
+              port: registry
+            initialDelaySeconds: 5
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /
+              port: registry
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: deployer-registry-data
+        - name: auth
+          secret:
+            # Created by registry-htpasswd-sealedsecret.yaml. The htpasswd file
+            # is the only copy of the credential in the cluster.
+            secretName: deployer-registry-htpasswd
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: deployer-registry
+  namespace: deployer-system
+spec:
+  type: ClusterIP
+  selector:
+    app: deployer-registry
+  ports:
+    - name: registry
+      port: 5000
+      targetPort: registry

@@ -14,6 +14,8 @@ creates at runtime.
 | File | What it is |
 |---|---|
 | `namespace.yaml` | `deployer-system`, with restricted pod security |
+| `builds-namespace.yaml` | `deployer-builds`, where build Jobs run, plus the control plane's RoleBinding into it |
+| `registry.yaml` | The in cluster `distribution` registry, its Longhorn volume, and its ClusterIP Service. No Ingress, on purpose |
 | `rbac.yaml` | The ServiceAccount, and the one ClusterRole listing every right the control plane holds |
 | `pvc.yaml` | The 10Gi Longhorn volume the SQLite file lives on |
 | `configmap.yaml` | Every `DEPLOYER_*` setting that is not a credential |
@@ -25,22 +27,69 @@ creates at runtime.
 
 ## Before the first apply
 
-1. **Create the registry Secret.** `deployment.yaml` reads
-   `DEPLOYER_REGISTRY_HOST`, `_USER`, and `_PASSWORD` from a Secret named
-   `deployer-registry`, and `internal/config` refuses to boot without all three.
-   Slice 1 owns the real registry. Until then, a placeholder is enough to get the
-   control plane up:
+1. **Mint the registry credential, twice sealed.** One password, in two shapes:
+   an htpasswd file the registry checks logins against, and a plain user and
+   password the control plane presents. Neither may be committed in the clear, so
+   both go through `kubeseal`. Do this before the first sync, because
+   `registry.yaml` will not start without the htpasswd Secret and
+   `internal/config` refuses to boot without the credential Secret.
 
    ```bash
+   PASSWORD="$(openssl rand -base64 30)"
+
+   # 1. The htpasswd file the registry reads. bcrypt, which is what
+   #    distribution v3 accepts.
+   htpasswd -nbB deployer "$PASSWORD" > /tmp/htpasswd
+   kubectl -n deployer-system create secret generic deployer-registry-htpasswd \
+     --from-file=htpasswd=/tmp/htpasswd --dry-run=client -o yaml \
+     | kubeseal --format yaml > deploy/registry-htpasswd-sealedsecret.yaml
+
+   # 2. The same credential as the control plane's own environment.
    kubectl -n deployer-system create secret generic deployer-registry \
-     --from-literal=DEPLOYER_REGISTRY_HOST=registry.deployer-system.svc:5000 \
-     --from-literal=DEPLOYER_REGISTRY_USER=placeholder \
-     --from-literal=DEPLOYER_REGISTRY_PASSWORD=placeholder
+     --from-literal=DEPLOYER_REGISTRY_HOST=deployer-registry.deployer-system.svc:5000 \
+     --from-literal=DEPLOYER_REGISTRY_USER=deployer \
+     --from-literal=DEPLOYER_REGISTRY_PASSWORD="$PASSWORD" \
+     --dry-run=client -o yaml \
+     | kubeseal --format yaml > deploy/registry-credential-sealedsecret.yaml
+
+   rm /tmp/htpasswd
    ```
 
-   Replace it with a SealedSecret when slice 1 mints the real credentials.
+   Add both generated files to `kustomization.yaml`. They are sealed to this
+   cluster's key, so they are safe to commit and useless anywhere else. Rotating
+   the password means regenerating both together: the registry and the control
+   plane must never hold different halves of it.
 
-2. **The image.** You do not build it by hand. `deployment.yaml` carries a real
+   The registry is served over plain HTTP inside the cluster, so this credential
+   crosses the pod network in a Basic auth header. That is acceptable only
+   because the registry has no Ingress and Cilium enforces policy on that
+   network; it is not a credential to reuse anywhere else.
+
+2. **Mint the bootstrap API token.** The one credential an agent presents, on
+   both the upload endpoint and the MCP tool. The platform stores only its
+   SHA-256 hash, so this printed value is the only copy: keep it where your agent
+   sessions can read it, because nothing can recover it later.
+
+   ```bash
+   TOKEN="dpl_$(openssl rand -hex 32)"
+   echo "$TOKEN"   # the only time you will see it
+
+   kubectl -n deployer-system create secret generic deployer-bootstrap \
+     --from-literal=DEPLOYER_BOOTSTRAP_TOKEN="$TOKEN" \
+     --dry-run=client -o yaml \
+     | kubeseal --format yaml > deploy/bootstrap-sealedsecret.yaml
+   ```
+
+   Add it to `kustomization.yaml`. Rotating it is the same two commands: the
+   seeding revokes the previous token before minting the new one, so exactly one
+   credential works at a time. Leaving the Secret out entirely is supported and
+   the pod still starts, it just refuses every call and says so in its log.
+
+   This is the whole auth model until feature 8. There is no revocation path you
+   can reach without editing the sealed secret, no minting, and no per app
+   ownership check beyond the fact that only one account exists.
+
+3. **The image.** You do not build it by hand. `deployment.yaml` carries a real
    `ghcr.io/toyinogun/deployer@sha256:...` digest, and the `publish` job in
    [ci.yml](../.github/workflows/ci.yml) rewrites that line on every push to
    `main`, then commits it. ArgoCD applies the file as written, so it must always

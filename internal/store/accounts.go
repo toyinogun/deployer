@@ -37,6 +37,18 @@ func (s *Store) GetAccount(ctx context.Context, id string) (Account, error) {
 	return acc, nil
 }
 
+// GetAccountByName reads one account by its unique name.
+func (s *Store) GetAccountByName(ctx context.Context, name string) (Account, error) {
+	acc, err := s.q.GetAccountByName(ctx, name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Account{}, ErrNotFound
+	}
+	if err != nil {
+		return Account{}, fmt.Errorf("store: reading account %q: %w", name, err)
+	}
+	return acc, nil
+}
+
 // NewToken describes a token being minted. The raw token never reaches the
 // store: the caller hashes it and keeps the plaintext only long enough to hand
 // it back once.

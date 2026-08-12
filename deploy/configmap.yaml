@@ -19,3 +19,26 @@ data:
   DEPLOYER_APP_QUOTA_PODS: "5"
   DEPLOYER_BUILD_NAMESPACE: deployer-builds
   DEPLOYER_LOG_LEVEL: info
+
+  # Added by spec 0004. The control plane's own reachable address goes into the
+  # deploy_app tool description, so an agent uploads to the right place. It must
+  # match ingress.yaml's host.
+  DEPLOYER_PUBLIC_URL: https://deployer.tail62ceef.ts.net
+
+  # The Paketo builder every build runs the lifecycle from, pinned by digest so a
+  # builder bump is a deliberate commit. This is `builder-jammy-base:latest` as
+  # it resolved on 2026-08-12; builder tags move, so re-resolve rather than
+  # assume when you next touch this:
+  #   crane digest paketobuildpacks/builder-jammy-base:latest
+  DEPLOYER_BUILDER_IMAGE: paketobuildpacks/builder-jammy-base@sha256:edcb35967ec49840274aeb38d309ec6939eadac44fb02e5aa50519f89cac890e
+
+  # The app container's own ceilings, inside the LimitRange maxima spec 0003 sets.
+  DEPLOYER_APP_DEFAULT_CPU: 100m
+  DEPLOYER_APP_DEFAULT_MEMORY: 128Mi
+  DEPLOYER_APP_LIMIT_CPU: 500m
+  DEPLOYER_APP_LIMIT_MEMORY: 512Mi
+
+  # DEPLOYER_SELF_IMAGE is deliberately not here: it lives in deployment.yaml
+  # beside the image it must match, so CI can rewrite both from one value.
+  # The timeouts, the reconcile interval, and the extraction caps all take their
+  # defaults from internal/config; set one here only to move it off the default.

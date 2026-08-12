@@ -83,6 +83,12 @@ jobs:
           # can match. The | delimiter keeps the digest's own characters safe.
           sed -i -E "s|^( +)image: ghcr\.io/.*$|\1image: ${image}|" deploy/deployment.yaml
           grep -q "image: ${image}$" deploy/deployment.yaml
+          # DEPLOYER_SELF_IMAGE is the same image, read back by the control plane
+          # so it can use itself as the build Job's init container. The downward
+          # API cannot supply it, so it is rewritten here from the same value and
+          # the two can never drift (spec 0004).
+          sed -i -E "s|^( +)value: ghcr\.io/.*$|\1value: ${image}|" deploy/deployment.yaml
+          grep -q "value: ${image}$" deploy/deployment.yaml
 
       - name: Commit the pinned digest
         run: |

@@ -101,6 +101,25 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 	return i, err
 }
 
+const getAccountByName = `-- name: GetAccountByName :one
+SELECT id, name, disabled_at, created_at, updated_at FROM accounts WHERE name = ?
+`
+
+// Names are unique, so this is how the bootstrap seeding tells "already seeded"
+// from "seed it now" without ever creating a second account (spec 0004, AC-1).
+func (q *Queries) GetAccountByName(ctx context.Context, name string) (Account, error) {
+	row := q.db.QueryRowContext(ctx, getAccountByName, name)
+	var i Account
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.DisabledAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const insertAuditLog = `-- name: InsertAuditLog :exec
 INSERT INTO audit_log (id, account_id, action, target_type, target_id, outcome, reason, occurred_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -190,6 +209,29 @@ type RevokeAPITokenParams struct {
 
 func (q *Queries) RevokeAPIToken(ctx context.Context, arg RevokeAPITokenParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeAPIToken, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeTokensNamed = `-- name: RevokeTokensNamed :execrows
+UPDATE api_tokens
+SET revoked_at = ?1, updated_at = ?1
+WHERE account_id = ?2 AND name = ?3 AND revoked_at IS NULL
+`
+
+type RevokeTokensNamedParams struct {
+	Now       *string
+	AccountID string
+	Name      string
+}
+
+// Revokes every live token an account holds under one name. The bootstrap
+// seeding uses it so rotating DEPLOYER_BOOTSTRAP_TOKEN leaves exactly one live
+// token rather than two working ones (spec 0004, AC-1).
+func (q *Queries) RevokeTokensNamed(ctx context.Context, arg RevokeTokensNamedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeTokensNamed, arg.Now, arg.AccountID, arg.Name)
 	if err != nil {
 		return 0, err
 	}

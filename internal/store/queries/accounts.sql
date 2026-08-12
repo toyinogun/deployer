@@ -6,6 +6,11 @@ RETURNING *;
 -- name: GetAccount :one
 SELECT * FROM accounts WHERE id = ?;
 
+-- Names are unique, so this is how the bootstrap seeding tells "already seeded"
+-- from "seed it now" without ever creating a second account (spec 0004, AC-1).
+-- name: GetAccountByName :one
+SELECT * FROM accounts WHERE name = ?;
+
 -- name: CreateAPIToken :one
 INSERT INTO api_tokens (id, account_id, name, token_hash, token_prefix, expires_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -22,6 +27,14 @@ WHERE api_tokens.token_hash = @token_hash
   AND api_tokens.revoked_at IS NULL
   AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > @now)
   AND accounts.disabled_at IS NULL;
+
+-- Revokes every live token an account holds under one name. The bootstrap
+-- seeding uses it so rotating DEPLOYER_BOOTSTRAP_TOKEN leaves exactly one live
+-- token rather than two working ones (spec 0004, AC-1).
+-- name: RevokeTokensNamed :execrows
+UPDATE api_tokens
+SET revoked_at = @now, updated_at = @now
+WHERE account_id = @account_id AND name = @name AND revoked_at IS NULL;
 
 -- name: TouchTokenLastUsed :exec
 UPDATE api_tokens SET last_used_at = @now, updated_at = @now WHERE id = @id;
