@@ -171,23 +171,65 @@ _Steps derived from spec 0004 acceptance criteria and its Value sourcing table, 
 
 Each varies the input and checks the output changes with it, so a value taken from the wrong source fails here even when the shape is right.
 
-- [ ] Bootstrap seed: run the platform twice with the same `DEPLOYER_BOOTSTRAP_TOKEN`, then once with a different one. Expect one `accounts` row named `bootstrap` throughout, and exactly one live `api_tokens` row, holding the SHA-256 of whichever token is current → AC-1
+- [ ] Bootstrap seed: run the platform twice with the same `DEPLOYER_BOOTSTRAP_TOKEN`, then once with a different one. Expect one `accounts` row named `bootstrap` throughout, and exactly one live `api_tokens` row, holding the SHA-256 of whichever token is current → AC-1. **Half done 2026-08-12**: same token across a restart leaves one account and one token, and `sha256(raw token)` equals the stored `token_hash`. Rotating to a different token is still owed
 - [x] Bootstrap seed, secrecy: `kubectl -n deployer-system logs deploy/deployer | grep "$DEPLOYER_BOOTSTRAP_TOKEN"` → no match, at any log level → AC-1
-- [ ] Upload `path`: post two uploads and read `uploads.path`. Expect `DEPLOYER_UPLOAD_DIR` joined with each row's own `upl_` id, never anything from the request → AC-2
-- [ ] Upload `sha256` and `size_bytes`: post a body, then `sha256sum` the same bytes locally. Expect the stored hash and size to match what you sent, computed by the platform rather than declared by the client → AC-2
+- [x] Upload `path`: post two uploads and read `uploads.path`. Expect `DEPLOYER_UPLOAD_DIR` joined with each row's own `upl_` id, never anything from the request → AC-2
+- [x] Upload `sha256` and `size_bytes`: post a body, then `sha256sum` the same bytes locally. Expect the stored hash and size to match what you sent, computed by the platform rather than declared by the client → AC-2
 - [x] Upload `expires_at`: post an upload and expect `expires_at` to be exactly one hour after `created_at`, not a fixed clock time → AC-2
-- [ ] Upload `fetch_token_hash` at upload time: post an upload, then try `GET /v1/uploads/{id}` with any token you can construct. Expect 401: the seeded hash unlocks nothing, because its input was discarded unread → AC-2
-- [ ] Fetch token minted at build time: mint, fetch (200), fetch again (409), mint again, fetch (200), then retry the first token (401). Proves a resumed build gets a working token and a leaked one stays dead → AC-8
+- [x] Upload `fetch_token_hash` at upload time: post an upload, then try `GET /v1/uploads/{id}` with any token you can construct. Expect 401: the seeded hash unlocks nothing, because its input was discarded unread → AC-2
+- [ ] Fetch token minted at build time: mint, fetch (200), fetch again (409), mint again, fetch (200), then retry the first token (401). Proves a resumed build gets a working token and a leaked one stays dead → AC-8. **Half done 2026-08-12**: the build's own token fetched once (the build succeeded) and replaying that spent token returned 409. Minting a second token for the same upload is still owed
 - [x] Expected `sha256` passed to the build: read the composed Job's init container env and expect `DEPLOYER_EXPECTED_SHA256` to equal `uploads.sha256` for that upload, not anything the archive carries → AC-8
 - [x] Build Job name: expect the deployment id in the RFC 1123 form an object name has to take, `build-dep-<lowercased ULID>`, so a row read off disk after a restart finds its own Job → AC-18. The raw id carries an underscore and uppercase letters and the API server refuses both
 - [x] Build target image: expect `DEPLOYER_REGISTRY_HOST + "/apps/" + slug + ":" + deployment id`, with the slug the platform derived and no part of the app name the caller sent → AC-9
-- [ ] Builder and init images: change `DEPLOYER_BUILDER_IMAGE` to a mutable tag and expect the boot to fail naming that variable. Same for `DEPLOYER_SELF_IMAGE` → AC-17
+- [x] Builder and init images: change `DEPLOYER_BUILDER_IMAGE` to a mutable tag and expect the boot to fail naming that variable. Same for `DEPLOYER_SELF_IMAGE` → AC-17
 - [x] Build result digest: push a tag by hand, resolve it with the registry client, and expect the digest the registry reports rather than anything the build container said → AC-9
 - [ ] Image user: push one image with `USER 1000` and one with no `USER`. Expect the first to read as non root and the second to read as root → AC-10
 
 ## Cluster steps still owed for these milestones
 
-- [ ] Registry (AC-20): `kubectl -n deployer-system get pod -l app=deployer-registry` is `Running`, and from a throwaway pod in the cluster a `docker` or `crane` push and pull of a small image both succeed with the sealed credential. Confirm there is no Ingress for it: `kubectl get ingress -A | grep registry` returns nothing
+- [x] Registry (AC-20): `kubectl -n deployer-system get pod -l app=deployer-registry` is `Running`, and from a throwaway pod in the cluster a `docker` or `crane` push and pull of a small image both succeed with the sealed credential. Confirm there is no Ingress for it: `kubectl get ingress -A | grep registry` returns nothing. Push and pull were proved by the real thing rather than by hand: three builds pushed to it and the kubelet pulled the result by digest. A throwaway pod with no credential gets 401 on `/v2/`
 - [x] Build namespace (AC-7): `kubectl get ns deployer-builds -o jsonpath='{.metadata.labels}'` shows `pod-security.kubernetes.io/enforce: restricted`
 - [x] Whether the Buildpacks lifecycle actually runs under `restricted` is not proven until a real build runs there. If it does not fit, that is a finding and a spec update, never a right granted in advance
 - [x] Insecure registry on every node: `/etc/rancher/k3s/registries.yaml` names the registry on all four nodes, and k3s has been restarted on each. Missing it on one worker makes deploys succeed or fail by where the pod is scheduled
+
+## Run record, `/check verify` 2026-08-12
+
+The whole pipe ran against the real cluster. `deploy_app` was called over the live MCP endpoint with a
+freshly uploaded `testdata/sample-go`, and returned release 3 on the same hostname the first two
+deploys got. The app answers 200 on `https://hello-4dfssb.deploy.toyintest.org`.
+
+Met, with the evidence that proved it:
+
+| AC | How it was proved |
+|---|---|
+| AC-1 | one `accounts` row and one live `api_tokens` row after a restart; `sha256(raw token)` equals the stored hash; the raw token appears zero times in the full pod log |
+| AC-2 | 401 with no token and with a bad one, 413 on a 120 MiB body, 400 on a non gzip body, 201 returning only `upload_id` and `expires_at`; stored `size_bytes` and `sha256` match the bytes sent, `path` is the upload dir joined with the row's own id, `expires_at` is one hour after `created_at`; every denial wrote one `audit_log` row |
+| AC-3 | `tools/list` returns exactly one tool, `deploy_app`, with `name` and `upload_id` both required and a description carrying the upload step, the endpoint, and the minutes long warning; an unknown `upload_id` returns `upload_invalid` and creates no deployment |
+| AC-4 | three deploys of `hello` all resolved to slug `hello-4dfssb` |
+| AC-5 | `deployment_events` for each healthy deploy holds exactly `queued`, `building`, `pushing`, `deploying`, `healthy`, in order, once each |
+| AC-6 | only one build Job was ever in `Running` while the others sat `Complete` |
+| AC-7 | the Job carries `backoffLimit: 0`, `activeDeadlineSeconds: 480`, `ttlSecondsAfterFinished: 3600`, `automountServiceAccountToken: false`, `runAsNonRoot` as uid 1001, all capabilities dropped, `RuntimeDefault` seccomp, in a namespace labelled `enforce: restricted` |
+| AC-8 | the init container's `DEPLOYER_EXPECTED_SHA256` equals that upload's stored `sha256`; a forged fetch token gets 401; replaying the build's own spent token gets 409 |
+| AC-9 | the build ran the pinned Paketo builder by digest and pushed to `<registry>/apps/hello-4dfssb:<deployment id>`; the platform recorded the digest the registry reported |
+| AC-11 | `app-hello-4dfssb` carries the ownership and restricted pod security labels and holds the ResourceQuota and LimitRange from the template |
+| AC-12 | one `kubernetes.io/dockerconfigjson` secret in the app namespace, referenced once from `imagePullSecrets` and nowhere else: no volume, no env |
+| AC-13 | the container image is an `@sha256:` reference, `PORT=8080` is the only environment variable, the security context matches, the Service is `app` on 80 targeting 8080, the Ingress carries no `tls` block; the third deploy updated the Deployment in place rather than recreating it |
+| AC-14 | TCP readiness probe on 8080; three `releases` rows numbered 1, 2, 3 with `apps.current_release_id` pointing at the newest |
+| AC-15 | the tool returned all six fields: name, slug, url, deployment id, release number, image digest |
+| AC-16 | `upload_invalid`, `build_failed` and `app_never_ready` were all produced live, each one short and sanitized; no build output reached the response, `failure_reason`, or the log at info |
+| AC-17 | the validation half: `DEPLOYER_BUILD_TIMEOUT_SECONDS=soon` fails the boot naming that variable, and a mutable tag on `DEPLOYER_BUILDER_IMAGE` or `DEPLOYER_SELF_IMAGE` is refused naming the variable. `app_never_ready` fired live on an earlier deploy |
+| AC-19 | one `audit_log` row per `deploy_app` call, with the app as target; denials carry a null account |
+| AC-20 | the registry pod is `Running` on a Longhorn volume with an htpasswd `SealedSecret`, has no Ingress, and refuses an anonymous `/v2/` with 401; `registries.yaml` names it on all four nodes |
+| AC-21 | three deploys, same hostname, release 3, HTTP 200 from a tailnet device |
+| AC-22 | `/data/uploads` is empty after every deploy reached a terminal state |
+
+Still owed, and why:
+
+- **AC-10, a root image is refused**: never exercised against the real cluster. It needs a root running
+  image pushed to the registry under an app's repo and a deploy pointed at it. Only the fake clientset
+  test covers it today, so the real refusal path is unproven.
+- **AC-17, the timeouts firing**: `app_never_ready` fired live, but the build phase timeout and the
+  overall deploy timeout have never been watched fire. Both need config changes ArgoCD would revert.
+- **AC-18, a restart during a live build**: the startup sweep does leave no non terminal row (the
+  control plane restarted while deployments existed, and none was left hanging), but a restart while a
+  build Job is actually running, and the delete the Job by hand variant, were not run.
