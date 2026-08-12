@@ -122,7 +122,7 @@ spec [0004](../specs/0004-first-deploy-end-to-end/index.md) · code in `internal
 - [x] Verify it: `/check verify first deploy end to end` — 21 of 22 acceptance criteria proved against the real cluster. AC-10 (a root image is refused) is deferred to slice 6: `deploy_app` only builds from source and Paketo will not produce a root running image, so it cannot be reached through the real path yet
 - [x] Test it: `/test first deploy end to end`
 - [x] Review it (fresh model): `/check review first deploy end to end`
-- [ ] Document it: `/document first deploy end to end`
+- [x] Document it: `/document first deploy end to end`
 
 ## Slice 2: Async deployment jobs & status
 
