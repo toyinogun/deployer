@@ -104,7 +104,7 @@ spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `int
 - [x] Verify it: `/check verify cluster foundation`
 - [x] Test it: `/test cluster foundation`
 - [x] Review it (fresh model): `/check review cluster foundation`
-- [ ] Document it: `/document cluster foundation`
+- [x] Document it: `/document cluster foundation`
 
 ## Slice 1: First deploy end to end
 
