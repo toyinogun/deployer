@@ -44,7 +44,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 1 | Stack & architecture | Foundation | done |
 | 2 | Coding standards & tooling | Foundation | done |
 | 3 | Platform data model | Foundation | done |
-| 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | in-progress |
+| 4 | Cluster foundation: namespaces, ingress, wildcard DNS & TLS | Foundation | done |
 | 5 | First deploy end to end | Slice 1 | planned |
 | 6 | Async deployment jobs & status | Slice 2 | planned |
 | 7 | Application logs | Slice 3 | planned |
@@ -90,7 +90,7 @@ spec [0002](../specs/0002-platform-data-model/index.md) · code in `internal/sto
 - [x] Review it (fresh model): `/check review platform data model`
 - [x] Document it: `/document platform data model`
 
-### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · in-progress
+### 4. Cluster foundation: namespaces, ingress, wildcard DNS & TLS · done
 The ground the platform stands on inside k3s: how the control plane is deployed and what service account rights it holds, the namespace layout for platform versus user apps, the ingress controller, and how one wildcard hostname plus TLS reaches an app container.
 **Done when:** the control plane runs in the cluster with a scoped service account, and a hand deployed hello world container is reachable over HTTPS on a generated hostname from your LAN or VPN.
 spec [0003](../specs/0003-cluster-foundation/index.md) · code in `deploy`, `internal/config`, `cmd/deployer`
