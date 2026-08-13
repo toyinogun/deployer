@@ -68,6 +68,93 @@ func TestUnsetConfigBatchRemovesEveryKeyOrNoneOfThem(t *testing.T) {
 	}
 }
 
+func TestOnlyTheDeployReadPathEverReturnsASecretValue(t *testing.T) {
+	// covers: spec 0010 AC-2
+	// The split between the two read methods is the invariant, and it is settled
+	// in SQL rather than in Go so that no caller can forget it. Nothing above this
+	// layer proves it: every test up there runs against a stub that was told to
+	// behave this way.
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newStore(t)
+	f := newFixture(t, s)
+
+	if err := s.SetConfigBatch(ctx, f.app.ID, []store.ConfigEntry{
+		{Key: "API_KEY", Value: "hunter2", IsSecret: true},
+		{Key: "LOG_LEVEL", Value: "debug"},
+	}); err != nil {
+		t.Fatalf("setting the configuration: %v", err)
+	}
+
+	response, err := s.ListConfigForResponse(ctx, f.app.ID)
+	if err != nil {
+		t.Fatalf("reading for a response: %v", err)
+	}
+	deployed, err := s.ListConfigForDeploy(ctx, f.app.ID)
+	if err != nil {
+		t.Fatalf("reading for a deploy: %v", err)
+	}
+	if len(response) != 2 || len(deployed) != 2 {
+		t.Fatalf("the two reads returned %d and %d entries, want both keys from each", len(response), len(deployed))
+	}
+
+	for _, e := range response {
+		switch e.Key {
+		case "API_KEY":
+			// The key and its flag are the whole answer. The value is not withheld
+			// in Go, it never arrives.
+			if !e.IsSecret || e.Value != "" {
+				t.Errorf("the response read returned %+v, want the flag and no value", e)
+			}
+		case "LOG_LEVEL":
+			if e.IsSecret || e.Value != "debug" {
+				t.Errorf("the response read withheld a value nobody called secret: %+v", e)
+			}
+		}
+	}
+	for _, e := range deployed {
+		if e.Key == "API_KEY" && e.Value != "hunter2" {
+			t.Errorf("the deploy read returned %+v, want the real value the container needs", e)
+		}
+	}
+}
+
+func TestCurrentReleaseConfigIsWhatTheRunningReleaseRanWith(t *testing.T) {
+	// covers: spec 0010 AC-11
+	// This read is where a rotated secret survives: the pod that is running
+	// printed the old value, and once the key is set again nothing else holds it.
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newStore(t)
+	f := newFixture(t, s)
+
+	// An app that has never run is an empty configuration rather than an error.
+	before, err := s.CurrentReleaseConfig(ctx, f.app.ID)
+	if err != nil {
+		t.Fatalf("reading the release configuration of an app with no release: %v", err)
+	}
+	if len(before) != 0 {
+		t.Errorf("an app that never ran reports %+v", before)
+	}
+
+	if err := s.SetConfig(ctx, f.app.ID, "API_KEY", "oldsecretvalue", true); err != nil {
+		t.Fatalf("setting the secret: %v", err)
+	}
+	deployToHealthy(t, s, f, f.upload.ID, "sha256:aaa")
+
+	// Rotating the key leaves the running release untouched, which is the point.
+	if err := s.SetConfig(ctx, f.app.ID, "API_KEY", "newsecretvalue", true); err != nil {
+		t.Fatalf("rotating the secret: %v", err)
+	}
+	ran, err := s.CurrentReleaseConfig(ctx, f.app.ID)
+	if err != nil {
+		t.Fatalf("reading the release configuration: %v", err)
+	}
+	if ran["API_KEY"] != "oldsecretvalue" {
+		t.Errorf("the running release reports API_KEY as %q, want the value the pod was started with", ran["API_KEY"])
+	}
+}
+
 // configKeys is the app's keys as the deploy path reads them.
 func configKeys(t *testing.T, s *store.Store, appID string) []string {
 	t.Helper()

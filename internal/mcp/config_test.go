@@ -317,6 +317,125 @@ func TestAConfigurationChangeIsAuditedPerKeyAndNeverCarriesAValue(t *testing.T) 
 	}
 }
 
+func TestTheBoundsCountWhatTheAppAlreadyHolds(t *testing.T) {
+	// covers: AC-6
+	// The domain rule is tested on its own, but only this path proves the tool
+	// reads the app's current keys and hands them to it. Without that read both
+	// bounds would silently become per call, and a caller could hold any number
+	// of keys by sending them a few at a time.
+	cases := map[string]struct {
+		seed   map[string]configValue
+		then   map[string]configValue
+		reason domain.Reason
+	}{
+		"one key past the count bound": {
+			seed:   nKeys(domain.MaxConfigKeys, "v"),
+			then:   map[string]configValue{"ONE_MORE": entry("v", false)},
+			reason: domain.ReasonConfigTooManyKeys,
+		},
+		"one value past the total size bound": {
+			// Each value is under the single value bound, so the only thing that can
+			// refuse this is the total taken over the merge.
+			seed:   nKeys(7, strings.Repeat("x", domain.MaxConfigValueBytes)),
+			then:   map[string]configValue{"LAST": entry(strings.Repeat("x", domain.MaxConfigValueBytes), false)},
+			reason: domain.ReasonConfigTooLarge,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, _, account := configServer()
+			ctx := t.Context()
+			if _, _, err := s.setConfig(ctx, account, setConfigInput{Name: "hello", Config: tc.seed}); err != nil {
+				t.Fatalf("seeding %d keys: %v", len(tc.seed), err)
+			}
+
+			_, _, err := s.setConfig(ctx, account, setConfigInput{Name: "hello", Config: tc.then})
+			if err == nil || !strings.HasPrefix(err.Error(), string(tc.reason)) {
+				t.Fatalf("the call answered %v, want %s", err, tc.reason)
+			}
+			_, out, err := s.getConfig(ctx, account, getConfigInput{Name: "hello"})
+			if err != nil {
+				t.Fatalf("get_config: %v", err)
+			}
+			if len(out.Config) != len(tc.seed) {
+				t.Errorf("the refused call left %d keys, want the %d seeded", len(out.Config), len(tc.seed))
+			}
+		})
+	}
+}
+
+func TestARefusedChangeIsAuditedWithItsReasonAndNoValue(t *testing.T) {
+	// covers: AC-12
+	// A refusal is an access decision, so it is recorded like one. The row names
+	// the app and the reason code, and the value the caller sent is not part of
+	// either.
+	s, auditor, account := configServer()
+	ctx := t.Context()
+
+	_, _, err := s.setConfig(ctx, account, setConfigInput{
+		Name:   "hello",
+		Config: map[string]configValue{"PORT": entry("hunter2", false)},
+	})
+	if err == nil {
+		t.Fatal("the reserved key was accepted")
+	}
+
+	var found bool
+	for _, row := range auditor.rows {
+		if row.Reason != string(domain.ReasonConfigKeyReserved) {
+			continue
+		}
+		found = true
+		if row.Action != auth.ActionConfigSet || row.TargetID != "app_1" {
+			t.Errorf("the refusal is recorded as %+v, want it against the app under %s", row, auth.ActionConfigSet)
+		}
+		if strings.Contains(row.TargetID+row.Reason, "hunter2") {
+			t.Errorf("the refusal row carries the value: %+v", row)
+		}
+	}
+	if !found {
+		t.Errorf("the refusal left no audit row: %+v", auditor.rows)
+	}
+}
+
+func TestUnsetConfigRefusesAKeyThatCouldNeverHaveBeenStored(t *testing.T) {
+	// covers: AC-3, AC-4
+	// A badly shaped key is not the same answer as a key that is simply not set.
+	// Without the shape check here it would fall through to the store, come back
+	// as a missing row, and the caller would be told config_key_unknown about a
+	// key no app could ever hold.
+	s, _, account := configServer()
+	ctx := t.Context()
+	if _, _, err := s.setConfig(ctx, account, setConfigInput{
+		Name: "hello", Config: map[string]configValue{"KEEP": entry("me", false)},
+	}); err != nil {
+		t.Fatalf("seeding: %v", err)
+	}
+
+	for _, keys := range [][]string{{"bad key"}, {"KEEP", "lower"}, nil} {
+		_, _, err := s.unsetConfig(ctx, account, unsetConfigInput{Name: "hello", Keys: keys})
+		if err == nil || !strings.HasPrefix(err.Error(), string(domain.ReasonConfigKeyInvalid)) {
+			t.Errorf("unsetting %v answered %v, want %s", keys, err, domain.ReasonConfigKeyInvalid)
+		}
+	}
+	_, out, err := s.getConfig(ctx, account, getConfigInput{Name: "hello"})
+	if err != nil {
+		t.Fatalf("get_config: %v", err)
+	}
+	if len(out.Config) != 1 {
+		t.Errorf("a refused unset changed the configuration: %+v", out.Config)
+	}
+}
+
+// nKeys is n distinct valid keys, all holding the same value.
+func nKeys(n int, value string) map[string]configValue {
+	config := make(map[string]configValue, n)
+	for i := range n {
+		config["K"+strings.Repeat("A", i/26)+string(rune('A'+i%26))] = entry(value, false)
+	}
+	return config
+}
+
 func TestGetConfigOnAnAppWithNothingSetIsAnEmptyList(t *testing.T) {
 	s, auditor, account := configServer()
 	_, out, err := s.getConfig(t.Context(), account, getConfigInput{Name: "hello"})
