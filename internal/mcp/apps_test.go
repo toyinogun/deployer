@@ -283,6 +283,38 @@ func TestANamespaceDeleteThatFailsStillLeavesTheRowDeleted(t *testing.T) {
 	}
 }
 
+// TestADeleteWithNoClusterAccessReadsAsAFailedTeardown pins the local run, where
+// the server holds no cluster at all. It has to read exactly like a namespace
+// delete that failed, because for the caller it is one: the row is retired, the
+// teardown did not happen, and nothing tells them it did.
+func TestADeleteWithNoClusterAccessReadsAsAFailedTeardown(t *testing.T) {
+	// covers: AC-19
+	s, auditor, apps, _, account := lifecycleServer()
+	s.cluster = nil
+
+	_, out, err := s.deleteApp(t.Context(), account, deleteAppInput{Name: "notes"})
+	if err == nil {
+		t.Fatal("the delete reported success with no cluster to tear the namespace down on")
+	}
+	if !strings.HasPrefix(err.Error(), string(domain.ReasonInternal)) {
+		t.Errorf("the refusal reads %q, want it to start with internal", err)
+	}
+	if out.Deleted {
+		t.Error("the output claims the app was deleted, want the zero value on a refusal")
+	}
+	if len(apps.deleted) != 1 {
+		t.Errorf("retired %v, want the row deleted regardless, the same as a failed namespace delete", apps.deleted)
+	}
+	if len(auditor.rows) != 1 {
+		t.Fatalf("audit rows = %+v, want exactly one for the refusal", auditor.rows)
+	}
+	row := auditor.rows[0]
+	if row.Allowed || row.Action != auth.ActionAppDelete ||
+		row.Reason != string(domain.ReasonInternal) || row.TargetID != "app_1" {
+		t.Errorf("audit row = %+v, want one denied app_delete carrying internal and the app", row)
+	}
+}
+
 // TestEveryUnknownAppRefusalReadsTheSame pins that a name that never existed,
 // another account's app, and an already deleted one are indistinguishable.
 func TestEveryUnknownAppRefusalReadsTheSame(t *testing.T) {
@@ -336,7 +368,7 @@ func TestListAppsAndDeleteAppOverTheWire(t *testing.T) {
 	}
 
 	unknown := callOverTheWire(t, s, account, "delete_app", map[string]any{"name": "nothing-here"})
-	if got := resultText(unknown); !refused.IsError || !strings.HasPrefix(got, string(domain.ReasonAppUnknown)) {
+	if got := resultText(unknown); !unknown.IsError || !strings.HasPrefix(got, string(domain.ReasonAppUnknown)) {
 		t.Errorf("the refusal reads %q, want app_unknown", got)
 	}
 }
