@@ -92,10 +92,12 @@ func (a ReconcileStore) Transition(ctx context.Context, id string, to domain.Sta
 	return err
 }
 
-// RecordBuild stores what the build produced, without moving the row.
-func (a ReconcileStore) RecordBuild(ctx context.Context, id, jobName, imageRepo, imageDigest string) error {
+// RecordBuild stores what the build produced, without moving the row. An empty
+// field leaves whatever the row already holds, which is how the second call of a
+// build (the one carrying the digest) keeps the path the first one wrote.
+func (a ReconcileStore) RecordBuild(ctx context.Context, id, buildPath, jobName, imageRepo, imageDigest string) error {
 	return a.s.RecordBuildResult(ctx, id, BuildResult{
-		BuildPath:    "buildpacks",
+		BuildPath:    buildPath,
 		BuildJobName: jobName,
 		ImageRepo:    imageRepo,
 		ImageDigest:  imageDigest,

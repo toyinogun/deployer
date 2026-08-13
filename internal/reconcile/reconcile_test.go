@@ -1,8 +1,12 @@
 package reconcile_test
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -89,9 +93,10 @@ func setup(t *testing.T) *world {
 	uploadDir := filepath.Join(dir, "uploads")
 	svc := uploads.NewService(store.ForUploads(st), uploadDir, 1<<20, nil)
 	// A real file on the volume, because the loop deletes it at the end and the
-	// test asserts that it did (AC-22).
-	body := strings.NewReader("\x1f\x8b" + strings.Repeat("x", 64))
-	up, err := svc.Accept(ctx, account.ID, body)
+	// test asserts that it did (AC-22). It is a readable gzip tar rather than two
+	// magic bytes, because the loop now walks its headers to choose a build
+	// engine, and an archive it cannot read is refused before any Job exists.
+	up, err := svc.Accept(ctx, account.ID, tarball(t, "main.go", "go.mod"))
 	if err != nil {
 		t.Fatalf("accepting the upload: %v", err)
 	}
@@ -112,6 +117,32 @@ func setup(t *testing.T) *world {
 		accountID:  account.ID,
 		uploadPath: up.Path,
 	}
+}
+
+// tarball is a readable gzip tar holding one regular entry per name, which is
+// the least an upload can be now that the loop reads the archive to pick an
+// engine. Entry bodies are one byte: nothing here unpacks them.
+func tarball(t *testing.T, names ...string) io.Reader {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for _, name := range names {
+		header := &tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: 1}
+		if err := tw.WriteHeader(header); err != nil {
+			t.Fatalf("writing the %s header: %v", name, err)
+		}
+		if _, err := tw.Write([]byte("x")); err != nil {
+			t.Fatalf("writing %s: %v", name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("closing the tar: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("closing the gzip: %v", err)
+	}
+	return &buf
 }
 
 // buildEnds makes every build Job read back with one condition, which is how the
@@ -168,6 +199,9 @@ func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Opt
 		BuilderImage:          "paketobuildpacks/builder@" + testDigest,
 		BuildUID:              1001,
 		BuildGID:              1000,
+		BuildkitImage:         "moby/buildkit@" + testDigest,
+		BuildkitUID:           1000,
+		BuildkitGID:           1000,
 		InternalURL:           "http://deployer.deployer-system.svc",
 		RegistryHost:          "registry.deployer-system:5000",
 		RegistryUser:          "deployer",
@@ -203,6 +237,8 @@ func (u uploadsFor) Get(ctx context.Context, id string) (reconcile.Upload, error
 	}
 	return reconcile.Upload{ID: up.ID, Path: up.Path, SHA256: up.SHA256}, nil
 }
+
+func (u uploadsFor) Open(path string) (io.ReadCloser, error) { return u.svc.Open(path) }
 
 func (u uploadsFor) MintFetchToken(ctx context.Context, id string) (string, error) {
 	return u.svc.MintFetchToken(ctx, id)

@@ -32,12 +32,19 @@ SELECT * FROM deployment_events
 WHERE deployment_id = @deployment_id
 ORDER BY occurred_at, id;
 
+-- A field the caller left empty keeps whatever the row already holds, which is
+-- what the Go wrapper always meant by only setting the fields it was given. It
+-- matters because this statement runs twice for one deployment: once when the
+-- build starts, carrying the path and the Job name, and once when the image is
+-- resolved, carrying the digest. Without the coalesce the second call erases what
+-- the first wrote, and the build path a failed deployment reports is exactly the
+-- field that would go missing (spec 0009, AC-4).
 -- name: RecordBuildResult :execrows
 UPDATE deployments
-SET build_path = @build_path,
-    build_job_name = @build_job_name,
-    image_repo = @image_repo,
-    image_digest = @image_digest,
+SET build_path = COALESCE(@build_path, build_path),
+    build_job_name = COALESCE(@build_job_name, build_job_name),
+    image_repo = COALESCE(@image_repo, image_repo),
+    image_digest = COALESCE(@image_digest, image_digest),
     updated_at = @now
 WHERE id = @id;
 

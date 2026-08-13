@@ -2,7 +2,6 @@ package reconcile_test
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/toyinogun/deployer/internal/deploy"
@@ -271,7 +270,7 @@ func appNamespaceObject(name, slug string) *corev1.Namespace {
 func (w *world) queueAnother(t *testing.T) reconcile.Deployment {
 	t.Helper()
 	ctx := t.Context()
-	up, err := w.uploads.Accept(ctx, w.accountID, strings.NewReader("\x1f\x8b"+strings.Repeat("y", 64)))
+	up, err := w.uploads.Accept(ctx, w.accountID, tarball(t, "main.go"))
 	if err != nil {
 		t.Fatalf("accepting the second upload: %v", err)
 	}

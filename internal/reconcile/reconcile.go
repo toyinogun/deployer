@@ -14,12 +14,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/build"
 	"github.com/toyinogun/deployer/internal/deploy"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/source"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -80,8 +82,10 @@ type Deployments interface {
 	ListNonTerminal(ctx context.Context) ([]Deployment, error)
 	// Transition moves a deployment, writing the row and one event together.
 	Transition(ctx context.Context, id string, to domain.State, reason, detail string) error
-	// RecordBuild stores what the build produced without moving the row.
-	RecordBuild(ctx context.Context, id, jobName, imageRepo, imageDigest string) error
+	// RecordBuild stores what the build produced without moving the row. The
+	// path is written on the way in rather than on the way out, so a build that
+	// fails still says which engine ran it (spec 0009, AC-4).
+	RecordBuild(ctx context.Context, id, buildPath, jobName, imageRepo, imageDigest string) error
 	// MarkHealthy writes the transition, the release, and the app's current
 	// release pointer in one transaction.
 	MarkHealthy(ctx context.Context, id string) (Release, error)
@@ -95,6 +99,10 @@ type Apps interface {
 // Uploads is what the loop needs of the source tarball.
 type Uploads interface {
 	Get(ctx context.Context, id string) (Upload, error)
+	// Open reads a stored tarball back. The loop walks its tar headers to choose
+	// a build engine, so this is the one place the control plane opens caller
+	// supplied bytes it otherwise only stores and hashes.
+	Open(path string) (io.ReadCloser, error)
 	// MintFetchToken generates the single use token this build presents, and
 	// returns the raw value, which is never persisted or logged.
 	MintFetchToken(ctx context.Context, id string) (string, error)
@@ -406,6 +414,13 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 		return fail
 	}
 
+	// The engine is chosen before anything else, because a Job's image is fixed
+	// the moment it is created, and refused here costs no Job and no credential.
+	path, fail := r.buildPath(upload)
+	if fail != nil {
+		return fail
+	}
+
 	token, err := r.uploads.MintFetchToken(ctx, upload.ID)
 	if err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("minting a fetch token: %w", err)}
@@ -415,10 +430,14 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 		DeploymentID:    dep.ID,
 		Namespace:       r.opts.BuildNamespace,
 		AppSlug:         app.Slug,
+		Path:            path,
 		SelfImage:       r.opts.SelfImage,
 		BuilderImage:    r.opts.BuilderImage,
 		BuildUID:        r.opts.BuildUID,
 		BuildGID:        r.opts.BuildGID,
+		BuildkitImage:   r.opts.BuildkitImage,
+		BuildkitUID:     r.opts.BuildkitUID,
+		BuildkitGID:     r.opts.BuildkitGID,
 		TargetImage:     target,
 		FetchURL:        r.opts.InternalURL + "/v1/uploads/" + upload.ID,
 		FetchToken:      token,
@@ -445,10 +464,43 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 
 	dep.ImageRepo = build.ImageRepo(r.opts.RegistryHost, app.Slug)
 	dep.BuildJobName = build.JobName(dep.ID)
-	if err := r.deployments.RecordBuild(ctx, dep.ID, dep.BuildJobName, dep.ImageRepo, ""); err != nil {
+	if err := r.deployments.RecordBuild(ctx, dep.ID, path.String(), dep.BuildJobName, dep.ImageRepo, ""); err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("recording the build job: %w", err)}
 	}
 	return nil
+}
+
+// buildPath chooses the engine by reading the stored archive's tar headers: a
+// regular file that unpacks to Dockerfile at the root goes to BuildKit, and
+// anything else goes to Buildpacks, which is what every tree got before this.
+//
+// Nothing a caller sent selects it, and deploy_app has no argument for it. An
+// archive this cannot read is source_rejected here rather than at extraction,
+// because the alternative is a deployment that chose an engine on its way to
+// being refused for something else.
+func (r *Reconciler) buildPath(upload Upload) (build.Path, *failure) {
+	f, err := r.uploads.Open(upload.Path)
+	if err != nil {
+		return build.PathBuildpacks, &failure{domain.ReasonInternal, fmt.Errorf("opening the archive: %w", err)}
+	}
+	defer func() { _ = f.Close() }()
+
+	// The same entry limit the extractor enforces, not a second number: this walk
+	// is the control plane doing work on caller supplied bytes, and an archive of
+	// nothing but headers is small on disk and long to read.
+	found, err := source.HasRootDockerfile(f, source.Limits{
+		MaxFiles: r.opts.MaxUploadFiles,
+		MaxBytes: r.opts.MaxExtractedBytes,
+	})
+	switch {
+	case errors.Is(err, source.ErrRejected):
+		return build.PathBuildpacks, &failure{domain.ReasonSourceRejected, fmt.Errorf("detecting the build path: %w", err)}
+	case err != nil:
+		return build.PathBuildpacks, &failure{domain.ReasonInternal, fmt.Errorf("detecting the build path: %w", err)}
+	case found:
+		return build.PathDockerfile, nil
+	}
+	return build.PathBuildpacks, nil
 }
 
 // awaitBuild polls the Job until it ends, and moves the row to pushing when it
@@ -503,7 +555,9 @@ func (r *Reconciler) resolveImage(ctx context.Context, dep *Deployment, app App)
 	}
 
 	dep.ImageRepo, dep.ImageDigest = repo, digest
-	if err := r.deployments.RecordBuild(ctx, dep.ID, build.JobName(dep.ID), repo, digest); err != nil {
+	// The path is left as it was: startBuild wrote it, and an empty field here
+	// keeps whatever the row already holds rather than clearing it.
+	if err := r.deployments.RecordBuild(ctx, dep.ID, "", build.JobName(dep.ID), repo, digest); err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("recording the image digest: %w", err)}
 	}
 	return r.move(ctx, dep, domain.StateDeploying)

@@ -206,6 +206,20 @@ func checkGzip(path string) error {
 	return nil
 }
 
+// Open reads a stored tarball back off the volume. The reconcile loop walks its
+// tar headers to choose a build engine, and the fetch endpoint serves it, so this
+// is the only way anything outside this package reaches the bytes.
+//
+// It opens read only and never rewrites: an upload is immutable once its hash was
+// recorded, and the hash is what the build pod checks the download against.
+func (s *Service) Open(path string) (io.ReadCloser, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("uploads: opening %s: %w", path, err)
+	}
+	return f, nil
+}
+
 // discard removes a file an upload never finished claiming. A failure here
 // leaves a stray file the retention sweep will not know about, so it is logged
 // loudly rather than dropped.
