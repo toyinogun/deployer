@@ -65,6 +65,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 - Every exported type and function carries a doc comment starting with its own name.
 - Tests: pure logic is written test first. Kubernetes and HTTP wiring is tested after, with the `client-go` fake clientset and a real SQLite file in a temp dir. No mocking of the store.
 - The fake clientset resolves no names, execs nothing, and the test process owns every file it writes, so a DNS address, a user switch, or a file mode taken from the wrong source passes the whole suite. Those belong to `/check verify` against the real cluster, and each one that bites is worth a unit test pinning the value afterwards.
+- A test calling an MCP handler method directly never crosses the tool's argument schema, so a schema that refuses a call before the handler runs hands the caller a validation string instead of a reason code and passes the suite. Anything the closed reason codes promise needs a test through a real client and server session: `internal/mcp/wire_test.go` holds that path.
 - Commits follow conventional format (`feat:`, `fix:`, `chore:`).
 
 ## Tooling
