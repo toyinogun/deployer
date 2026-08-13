@@ -66,6 +66,56 @@ func (a MCPApps) Create(ctx context.Context, accountID, name string) (mcp.App, e
 	return appRow(app), nil
 }
 
+// Config lists the app's keys the way a response may see them: a secret key
+// comes back without its value, which the query decides rather than this
+// adapter (spec 0010, AC-2).
+func (a MCPApps) Config(ctx context.Context, appID string) ([]mcp.ConfigEntry, error) {
+	entries, err := a.s.ListConfigForResponse(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	return configRows(entries), nil
+}
+
+// ConfigValues lists the app's keys with their real values. Its callers are the
+// size bounds and the log redaction, neither of which puts what it read into a
+// response.
+func (a MCPApps) ConfigValues(ctx context.Context, appID string) ([]mcp.ConfigEntry, error) {
+	entries, err := a.s.ListConfigForDeploy(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	return configRows(entries), nil
+}
+
+// SetConfig writes every entry or none of them.
+func (a MCPApps) SetConfig(ctx context.Context, appID string, entries []mcp.ConfigEntry) error {
+	rows := make([]ConfigEntry, 0, len(entries))
+	for _, e := range entries {
+		rows = append(rows, ConfigEntry{Key: e.Key, Value: e.Value, IsSecret: e.Secret})
+	}
+	return a.s.SetConfigBatch(ctx, appID, rows)
+}
+
+// UnsetConfig removes every key or none of them, mapping a key that is not set
+// onto the tool surface's own sentinel.
+func (a MCPApps) UnsetConfig(ctx context.Context, appID string, keys []string) error {
+	err := a.s.UnsetConfigBatch(ctx, appID, keys)
+	if errors.Is(err, ErrNotFound) {
+		return mcp.ErrNoConfigKey
+	}
+	return err
+}
+
+// configRows maps stored configuration onto what the tool surface reads.
+func configRows(entries []ConfigEntry) []mcp.ConfigEntry {
+	out := make([]mcp.ConfigEntry, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, mcp.ConfigEntry{Key: e.Key, Value: e.Value, Secret: e.IsSecret})
+	}
+	return out
+}
+
 // Create writes a queued deployment. Anything already in flight for the app is
 // superseded inside the same transaction, which is the store's rule, not a
 // decision this adapter makes.

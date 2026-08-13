@@ -78,7 +78,8 @@ type Release struct {
 	Digest string
 }
 
-// Apps is the slice of persistence this package needs for the get or create.
+// Apps is the slice of persistence this package needs for the get or create, and
+// for the configuration an app carries.
 type Apps interface {
 	// ByName returns the account's app under that name, or ErrNoApp.
 	ByName(ctx context.Context, accountID, name string) (App, error)
@@ -86,6 +87,19 @@ type Apps interface {
 	Get(ctx context.Context, appID string) (App, error)
 	// Create registers an app, deriving its permanent slug from the name.
 	Create(ctx context.Context, accountID, name string) (App, error)
+	// Config is the response shaped read: a secret key comes back with its flag
+	// and no value, decided in SQL rather than here, so no code path in this
+	// package can forget (spec 0010, AC-2).
+	Config(ctx context.Context, appID string) ([]ConfigEntry, error)
+	// ConfigValues is the full read, secret values included. Only the size
+	// bounds and the log redaction may call it, and neither puts what it read in
+	// a response.
+	ConfigValues(ctx context.Context, appID string) ([]ConfigEntry, error)
+	// SetConfig writes every entry or none of them.
+	SetConfig(ctx context.Context, appID string, entries []ConfigEntry) error
+	// UnsetConfig removes every key or none of them, answering ErrNoConfigKey
+	// when one of them is not set.
+	UnsetConfig(ctx context.Context, appID string, keys []string) error
 }
 
 // Deployments is the slice of persistence this package needs.
@@ -237,6 +251,27 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 		Description: logsDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in logsInput) (*mcp.CallToolResult, logsOutput, error) {
 		return s.getLogs(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "set_config",
+		Title:       "Set an app's environment variables",
+		Description: setConfigDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setConfigInput) (*mcp.CallToolResult, configOutput, error) {
+		return s.setConfig(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "unset_config",
+		Title:       "Remove an app's environment variables",
+		Description: unsetConfigDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in unsetConfigInput) (*mcp.CallToolResult, configOutput, error) {
+		return s.unsetConfig(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_config",
+		Title:       "List an app's environment variables",
+		Description: getConfigDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getConfigInput) (*mcp.CallToolResult, configOutput, error) {
+		return s.getConfig(ctx, account, in)
 	})
 	return srv
 }

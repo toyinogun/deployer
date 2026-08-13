@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +20,62 @@ type stubApps struct {
 	// readErr stands in for a store fault rather than a missing row, which is a
 	// different answer for a caller.
 	readErr error
+	// config is the app's stored configuration, keyed by app id then by key. It
+	// is a map rather than a real store because what these tests exercise is the
+	// tool surface; the transactional half is proven against real SQLite in
+	// internal/store.
+	config map[string]map[string]ConfigEntry
+}
+
+func (s *stubApps) Config(_ context.Context, appID string) ([]ConfigEntry, error) {
+	entries := s.configEntries(appID)
+	// The response path never carries a secret value, which is the store's job
+	// in production and has to be the stub's here too (spec 0010, AC-2).
+	for i, e := range entries {
+		if e.Secret {
+			entries[i].Value = ""
+		}
+	}
+	return entries, nil
+}
+
+func (s *stubApps) ConfigValues(_ context.Context, appID string) ([]ConfigEntry, error) {
+	return s.configEntries(appID), nil
+}
+
+func (s *stubApps) configEntries(appID string) []ConfigEntry {
+	entries := make([]ConfigEntry, 0, len(s.config[appID]))
+	for _, e := range s.config[appID] {
+		entries = append(entries, e)
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Key < entries[j].Key })
+	return entries
+}
+
+func (s *stubApps) SetConfig(_ context.Context, appID string, entries []ConfigEntry) error {
+	if s.config == nil {
+		s.config = map[string]map[string]ConfigEntry{}
+	}
+	if s.config[appID] == nil {
+		s.config[appID] = map[string]ConfigEntry{}
+	}
+	for _, e := range entries {
+		s.config[appID][e.Key] = e
+	}
+	return nil
+}
+
+func (s *stubApps) UnsetConfig(_ context.Context, appID string, keys []string) error {
+	// All or nothing, exactly as the transaction behind the real one is.
+	for _, k := range keys {
+		if _, ok := s.config[appID][k]; !ok {
+			return ErrNoConfigKey
+		}
+	}
+	for _, k := range keys {
+		delete(s.config[appID], k)
+	}
+	return nil
 }
 
 func (s *stubApps) ByName(_ context.Context, _, name string) (App, error) {
