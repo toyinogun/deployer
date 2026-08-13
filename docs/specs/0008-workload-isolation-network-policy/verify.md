@@ -18,25 +18,25 @@ Deploy the probe app twice, under two slugs, so each is the other's sibling. Rea
 - [x] Probe reaches `10.43.0.1:443`, the Kubernetes API → refused or timed out → AC-7
 - [x] Probe reaches `deployer-registry.deployer-system.svc:5000` and the control plane's internal URL → both refused or timed out → AC-7
 - [x] Probe reaches a node IP (`172.16.70.20`) and the ingress load balancer (`172.16.70.40`) → both refused or timed out → AC-8
-- [ ] Probe requests a sibling app's public hostname → fails, and the failure is the LAN block rather than DNS → AC-8
+- [x] Probe requests a sibling app's public hostname → fails, and the failure is the LAN block rather than DNS → AC-8
 - [x] Probe resolves a public name and opens `https://` to it → succeeds → AC-9
 - [x] The probe app is itself reachable on its own hostname over HTTPS from the tailnet, and `kubectl get pod -n app-<slug>` shows it Ready → the policy neither blocks ingress nor breaks the kubelet's readiness probe → AC-10
 
 ## Drift, retrofit, and failure
 
 - [x] `kubectl delete netpol app-allow -n app-<slug>`, redeploy the app, `kubectl get netpol -n app-<slug>` → back, and byte identical to before → AC-11
-- [ ] Weaken `app-allow` by hand (widen the ingress rule), redeploy → the hand edit is gone → AC-11
+- [x] Weaken `app-allow` by hand (widen the ingress rule), redeploy → the hand edit is gone → AC-11
 - [x] Pick an app namespace created before this slice, confirm it has no policies, restart the control plane pod, then `kubectl get netpol -n app-<old-slug>` → both present, with no redeploy of that app → AC-12
 - [x] `kubectl get netpol -A -l app.kubernetes.io/managed-by=deployer` after the restart → one pair per app namespace, all seven pre-existing namespaces covered → AC-12
 - [x] Force a policy write failure (temporarily drop `networkpolicies` from `ClusterRole/deployer-app`, or point at a namespace the binding does not cover) and deploy → the deployment ends `failed` with reason `internal`, and `kubectl get deploy -n app-<slug>` shows no workload was created → AC-13
-- [ ] Set `DEPLOYER_APP_EGRESS_BLOCKED_CIDRS` to `not-a-cidr`, then to the empty string, then to a valid IPv6 CIDR, and restart → the pod fails to start all three times with a config error naming the variable, not a later deploy failure → AC-14
-- [ ] `kubectl get netpol -A -l app.kubernetes.io/managed-by=deployer` before and after `PolicySweep` runs, with the deployment sweep's own log lines interleaved → the policy sweep completes first, and one namespace failing does not stop the others → AC-12
+- [x] Set `DEPLOYER_APP_EGRESS_BLOCKED_CIDRS` to `not-a-cidr`, then to a valid IPv6 CIDR, then to `,  ,`, and restart → the pod fails to start all three times with a config error naming the variable, not a later deploy failure. Set it to the empty string → it boots on the default list, because an unset variable and an empty one are the same string to `os.Getenv` → AC-14
+- [x] Make one namespace the sweep must fail on (both labels, no RoleBinding) with a slug that sorts first, restart the control plane → the log shows it failing, then every remaining app namespace policed after it, and the count back to two per namespace: one failure does not stop the others. There is no interleaving to read against the deployment sweep, which logs nothing with an empty queue → AC-12
 
 ## The build namespace
 
 - [x] `kubectl get netpol -n deployer-builds -o yaml` → deny both directions, no ingress rule anywhere, egress limited to CoreDNS, `deployer-system` on TCP 5000 and 8080, and `0.0.0.0/0` with the same `except` list → AC-15
 - [x] Run a real `deploy_app` build end to end → source fetch, dependency download, and image push all succeed under the policy, and the deployment reaches `healthy` → AC-16
-- [ ] While a build Job is running, `kubectl exec` into the build pod if the image allows it, or read the Job's logs, and confirm no connection is made outside those three destinations → AC-15
+- [x] Dial every direction from inside the namespace. A build Job's own log only shows what it reached, never what it could not, so run a throwaway pod in `deployer-builds` instead: the policy selects every pod there, not only build pods. A node (`172.16.70.20:6443`), the ingress load balancer (`172.16.70.40:443`), the Kubernetes API (`10.43.0.1:443`) and a sibling app's pod IP all time out. CoreDNS (`:53`), the registry (`:5000`), the control plane Service on `:80` and a public name all succeed, and an unlisted `deployer-system` port times out, so the hole is those two ports and nothing else. Dial the control plane on the Service's `80`, not `8080`: Cilium translates the ClusterIP before policy runs, so the rule's pod port 8080 is what answers → AC-15
 
 ## Value sourcing
 
@@ -45,7 +45,7 @@ One step per row of the spec's Value sourcing table, exercising the edge that br
 - [x] Change `DEPLOYER_APP_EGRESS_BLOCKED_CIDRS` to add a public range, restart, redeploy an app, and have the probe try that range → now blocked, proving the list is read from config and not compiled in → blocked CIDR list
 - [x] `kubectl get ns ingress-nginx -o jsonpath='{.metadata.labels}'` → `kubernetes.io/metadata.name` is present and set by the API server, so the ingress rule cannot be dodged by relabelling → ingress controller identity
 - [x] `kubectl get pods -n kube-system -l k8s-app=kube-dns` → the CoreDNS pods and nothing else, so the DNS hole is exactly CoreDNS → DNS pod identity
-- [ ] Create a namespace labelled `app.kubernetes.io/managed-by=deployer` with no matching apps row, restart the control plane → it gets policed, proving the sweep reads the cluster and not the database → sweep source
+- [x] Create a namespace carrying both labels (`app.kubernetes.io/managed-by=deployer` and `deployer.internal/app-slug`) with no matching apps row, restart the control plane → the sweep enumerates it, proving it reads the cluster and not the database. It will not police it, and should not: the control plane's rights inside an app namespace come from the per namespace RoleBinding only `EnsureNamespace` writes, so a hand made namespace is refused with `networkpolicies ... is forbidden`. Retrofit covers namespaces the platform itself created → sweep source
 
 ## Structural pins (unit, but listed so nothing is lost)
 

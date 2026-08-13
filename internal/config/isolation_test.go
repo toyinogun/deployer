@@ -23,6 +23,20 @@ func TestBlockedCIDRsDefault(t *testing.T) {
 	}
 }
 
+// Set but empty is the same string as unset to os.Getenv, so it has to mean the
+// default rather than a refusal: a ConfigMap that omits the key still boots, and
+// it boots fenced. A value that is set and leaves no usable entry is the case
+// that gets refused, pinned in TestBlockedCIDRsRejectedAtBoot (AC-14).
+func TestAnEmptyBlockedCIDRsMeansTheDefault(t *testing.T) {
+	c, err := Load(env(withValid(map[string]string{blockedKey: ""})))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(c.AppEgressBlockedCIDRs) != 5 || c.AppEgressBlockedCIDRs[0] != "10.0.0.0/8" {
+		t.Errorf("blocked CIDRs = %v, want the five default ranges", c.AppEgressBlockedCIDRs)
+	}
+}
+
 func TestBlockedCIDRsOverride(t *testing.T) {
 	c, err := Load(env(withValid(map[string]string{blockedKey: "10.0.0.0/8, 192.168.0.0/16"})))
 	if err != nil {
