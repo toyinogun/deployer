@@ -59,3 +59,12 @@ One step per row of the spec's Value sourcing table, exercising the edge that br
 ## Acceptance-criteria coverage
 
 - AC-1 · AC-2 · AC-3 · AC-4 · AC-5 · AC-6 · AC-7 · AC-8 · AC-9 · AC-10 · AC-11 · AC-12 · AC-13 · AC-14 · AC-15 · AC-16 · AC-17 · AC-18 · AC-20 all covered above. AC-19 is covered by the probe app being the instrument for the fence section rather than by a step of its own.
+
+## Added by /develop, the concrete forms of the steps above
+
+The build made four of the steps above exact rather than approximate. Updated 2026-08-13.
+
+- [ ] `go test -race ./...` → green, including the composed policy tests, the boot rejection of a bad CIDR list, and the write order test → AC-1, AC-2, AC-3, AC-4, AC-5, AC-11, AC-12, AC-13, AC-14
+- [ ] `go test ./internal/config/ -run Drift` → the `except` list in `deploy/builds-networkpolicy.yaml` matches the config default; edit one entry in the YAML and confirm it fails → AC-20
+- [ ] `go test ./internal/deploy/ -run 'Privileged|Passthrough'` → no host or privileged field on either pod spec, and `deploy.Input` carries no map, pointer, or passthrough named field → AC-17, AC-18
+- [ ] Deploy `testdata/probe` twice under two slugs, then `curl "https://<slug>.$DEPLOYER_APP_DOMAIN/probe?sibling_pod=<ip>:8080&sibling_service=<ip>:80&node=<ip>:6443&load_balancer=<ip>:443"` → only `public_host` reads `reached`; `sibling_pod`, `sibling_service`, `kubernetes_api`, `registry`, `control_plane`, `node` and `load_balancer` all read `timeout`, because a policy drop is silent rather than a refusal. `testdata/probe/README.md` has the `kubectl` lines that produce the four addresses → AC-6, AC-7, AC-8, AC-9, AC-19
