@@ -265,11 +265,11 @@ Closes the loop. An agent can see what it has deployed and tear an app down clea
 From spec 0012: an app's state is two facts, not one, because an app whose last deploy failed is usually still serving its previous release; and the delete gets an orphan reaper behind it, the platform's first unattended destructive loop.
 spec [0012](../specs/0012-app-lifecycle-list-delete/index.md) · code in `internal/mcp`, `internal/store/apps.go`, `internal/kube`, `internal/reconcile`, `internal/domain/reason.go`, `internal/config`
 - [x] Design it (spec): `/architect app lifecycle`
-- [ ] Build it: `/develop app lifecycle`
-  - [ ] `list_apps` end to end: the single statement query, the 50 row bound, the serving and last deployment pair, the audit and the description, driven through a real MCP session — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12
-  - [ ] `delete_app` end to end: the `deployment_in_flight` code, `kube.DeleteNamespace` tolerating gone and terminating, the one method cluster port on `internal/mcp`, the audit rows, the description, and every refusal over the wire — AC-13, AC-14, AC-15, AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22, AC-28, AC-29, AC-30, AC-31
-  - [ ] The orphan reaper: both new variables, `LiveAppSlugs`, `AppNamespacesOlderThan`, and the pass on its own ticker plus one at startup, with the abort, label and grace guards each pinned — AC-23, AC-24, AC-25, AC-26, AC-27
-  - [ ] What a deleted app answers: the existing tools all refuse it, pinned rather than assumed — AC-32
+- [x] Build it: `/develop app lifecycle`
+  - [x] `list_apps` end to end: the single statement query, the 50 row bound, the serving and last deployment pair, the audit and the description, driven through a real MCP session — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12
+  - [x] `delete_app` end to end: the `deployment_in_flight` code, `kube.DeleteNamespace` tolerating gone and terminating, the one method cluster port on `internal/mcp`, the audit rows, the description, and every refusal over the wire — AC-13, AC-14, AC-15, AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22, AC-28, AC-29, AC-30, AC-31
+  - [x] The orphan reaper: both new variables, `LiveAppSlugs`, `AppNamespacesOlderThan`, and the pass on its own ticker plus one at startup, with the abort, label and grace guards each pinned — AC-23, AC-24, AC-25, AC-26, AC-27
+  - [x] What a deleted app answers: the existing tools all refuse it, pinned rather than assumed — AC-32
 - [ ] Verify it: `/check verify app lifecycle`
 - [ ] Test it: `/test app lifecycle`
 - [ ] Review it (fresh model): `/check review app lifecycle`
