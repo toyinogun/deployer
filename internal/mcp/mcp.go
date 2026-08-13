@@ -172,6 +172,10 @@ func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, 
 type deployInput struct {
 	Name     string `json:"name" jsonschema:"the app's name, which fixes its hostname for good; reuse it to redeploy the same app"`
 	UploadID string `json:"upload_id" jsonschema:"the id returned by POST /v1/uploads"`
+	// Config is optional, and follows exactly set_config's rules. It is here so a
+	// brand new app's first run is not a guaranteed crash on a missing variable
+	// (spec 0010, AC-9).
+	Config map[string]configValue `json:"config,omitempty" jsonschema:"optional environment variables to set before this deploy, each with a value and a required secret flag; omit it to leave the app's configuration untouched"`
 }
 
 // deployOutput is what an accepted deploy reports. It carries no release number
@@ -212,9 +216,19 @@ caches layers; a Buildpacks build of the same app again is faster.
 The URL in this response is the app's permanent hostname, but it does not serve
 anything until deployment_status reports "healthy".
 
-The app must listen on the port given in the PORT environment variable, and
-its image must run as a non root user. Deploying the same name again replaces
-the running app and keeps the same hostname.`, s.opts.PublicURL)
+config is optional and follows set_config's rules exactly: each key needs a
+value and a secret flag, keys look like environment variable names, and PORT
+and APP_URL are refused because the platform sets them itself. Sending it here
+sets those values before this deploy runs, which is how a new app's first run
+avoids crashing on a missing variable. Keys you do not name are left alone, and
+omitting config entirely changes nothing. Nothing you configure reaches the
+build: values exist only in the running container, so a private package
+registry is still out of reach at build time.
+
+The app must listen on the port given in the PORT environment variable, and can
+build links to itself from APP_URL, which the platform sets to its public
+address. Its image must run as a non root user. Deploying the same name again
+replaces the running app and keeps the same hostname.`, s.opts.PublicURL)
 }
 
 // Handler is the MCP endpoint, authenticated the same way the upload endpoint
@@ -297,6 +311,15 @@ func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInpu
 	app, err := s.resolveApp(ctx, account.ID, in.Name)
 	if err != nil {
 		return nil, deployOutput{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, err)
+	}
+
+	// Written before the deployment row, through the same path set_config uses,
+	// so the two can never enforce different rules. A refusal here writes no
+	// configuration and starts no deployment (AC-9).
+	if len(in.Config) > 0 {
+		if reason := s.writeConfig(ctx, account, app, in.Config, auth.ActionConfigSet); reason != "" {
+			return nil, deployOutput{}, s.deny(ctx, account.ID, app.ID, reason, nil)
+		}
 	}
 
 	deploymentID, err := s.deployments.Create(ctx, app.ID, account.ID, in.UploadID)
