@@ -100,6 +100,9 @@ type Apps interface {
 	// UnsetConfig removes every key or none of them, answering ErrNoConfigKey
 	// when one of them is not set.
 	UnsetConfig(ctx context.Context, appID string, keys []string) error
+	// ReleaseConfig is the configuration the app's current release actually ran
+	// with. An app that has never run has an empty one rather than an error.
+	ReleaseConfig(ctx context.Context, appID string) (map[string]string, error)
 }
 
 // Deployments is the slice of persistence this package needs.

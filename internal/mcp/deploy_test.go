@@ -25,6 +25,13 @@ type stubApps struct {
 	// tool surface; the transactional half is proven against real SQLite in
 	// internal/store.
 	config map[string]map[string]ConfigEntry
+	// released is what the app's current release ran with, which is the second
+	// half of what get_logs redacts against.
+	released map[string]string
+}
+
+func (s *stubApps) ReleaseConfig(_ context.Context, _ string) (map[string]string, error) {
+	return s.released, nil
 }
 
 func (s *stubApps) Config(_ context.Context, appID string) ([]ConfigEntry, error) {

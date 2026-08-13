@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/toyinogun/deployer/internal/domain"
@@ -47,6 +50,39 @@ func (s *Store) ListConfigForDeploy(ctx context.Context, appID string) ([]Config
 		out = append(out, ConfigEntry{Key: r.Key, Value: r.Value, IsSecret: r.IsSecret == 1})
 	}
 	return out, nil
+}
+
+// CurrentReleaseConfig returns the configuration the app's current release ran
+// with, secret values included. An app with no release yet has an empty one,
+// which is not an error: it has simply never run.
+//
+// This is what makes redacting a rotated secret possible. The pod that is
+// running printed the old value, and the old value only survives here
+// (spec 0010, AC-11).
+func (s *Store) CurrentReleaseConfig(ctx context.Context, appID string) (map[string]string, error) {
+	app, err := s.GetApp(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	releaseID := deref(app.CurrentReleaseID)
+	if releaseID == "" {
+		return map[string]string{}, nil
+	}
+	rel, err := s.q.GetRelease(ctx, releaseID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return map[string]string{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("store: reading release %s: %w", releaseID, err)
+	}
+	values := map[string]string{}
+	if rel.ConfigSnapshot == "" {
+		return values, nil
+	}
+	if err := json.Unmarshal([]byte(rel.ConfigSnapshot), &values); err != nil {
+		return nil, fmt.Errorf("store: decoding the configuration snapshot of release %s: %w", releaseID, err)
+	}
+	return values, nil
 }
 
 // SetConfig writes one configuration key, replacing any existing value.

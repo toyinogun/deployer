@@ -107,6 +107,13 @@ func (a MCPApps) UnsetConfig(ctx context.Context, appID string, keys []string) e
 	return err
 }
 
+// ReleaseConfig reads what the app's current release ran with, which is how a
+// value the running pod already printed is still blanked after it was rotated
+// (spec 0010, AC-11).
+func (a MCPApps) ReleaseConfig(ctx context.Context, appID string) (map[string]string, error) {
+	return a.s.CurrentReleaseConfig(ctx, appID)
+}
+
 // configRows maps stored configuration onto what the tool surface reads.
 func configRows(entries []ConfigEntry) []mcp.ConfigEntry {
 	out := make([]mcp.ConfigEntry, 0, len(entries))
