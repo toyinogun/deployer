@@ -22,13 +22,20 @@ var theSet = []domain.Reason{
 	domain.ReasonDeploymentUnknown,
 	domain.ReasonSuperseded,
 	domain.ReasonAppUnknown,
+	domain.ReasonConfigKeyInvalid,
+	domain.ReasonConfigKeyReserved,
+	domain.ReasonConfigKeyUnknown,
+	domain.ReasonConfigFlagMissing,
+	domain.ReasonConfigTooManyKeys,
+	domain.ReasonConfigTooLarge,
 }
 
-// The set is closed at twelve codes: nine failures, plus deployment_unknown,
-// superseded (spec 0005, AC-11), and app_unknown (spec 0006, AC-8).
-const codesInTheSet = 12
+// The set is closed at eighteen codes: nine failures, plus deployment_unknown,
+// superseded (spec 0005, AC-11), app_unknown (spec 0006, AC-8), and the six
+// configuration refusals (spec 0010).
+const codesInTheSet = 18
 
-func TestTheSetIsExactlyTwelveCodes(t *testing.T) {
+func TestTheSetIsExactlyEighteenCodes(t *testing.T) {
 	// covers: AC-11
 	t.Parallel()
 	if len(theSet) != codesInTheSet {
@@ -51,7 +58,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 	t.Parallel()
 	for _, r := range []domain.Reason{"", "unknown", "BUILD_FAILED", "build failed", "internal "} {
 		if r.Valid() {
-			t.Errorf("%q reads as valid but is not one of the twelve codes", r)
+			t.Errorf("%q reads as valid but is not one of the eighteen codes", r)
 		}
 	}
 }
@@ -157,6 +164,13 @@ func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 		domain.ReasonDeploymentUnknown: "deployment_unknown",
 		domain.ReasonSuperseded:        "superseded",
 		domain.ReasonAppUnknown:        "app_unknown",
+
+		domain.ReasonConfigKeyInvalid:  "config_key_invalid",
+		domain.ReasonConfigKeyReserved: "config_key_reserved",
+		domain.ReasonConfigKeyUnknown:  "config_key_unknown",
+		domain.ReasonConfigFlagMissing: "config_flag_missing",
+		domain.ReasonConfigTooManyKeys: "config_too_many_keys",
+		domain.ReasonConfigTooLarge:    "config_too_large",
 	}
 	if len(want) != len(theSet) {
 		t.Fatalf("the pinned map holds %d codes and the set holds %d", len(want), len(theSet))

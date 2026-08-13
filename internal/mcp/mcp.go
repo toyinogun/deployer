@@ -78,7 +78,8 @@ type Release struct {
 	Digest string
 }
 
-// Apps is the slice of persistence this package needs for the get or create.
+// Apps is the slice of persistence this package needs for the get or create, and
+// for the configuration an app carries.
 type Apps interface {
 	// ByName returns the account's app under that name, or ErrNoApp.
 	ByName(ctx context.Context, accountID, name string) (App, error)
@@ -86,6 +87,22 @@ type Apps interface {
 	Get(ctx context.Context, appID string) (App, error)
 	// Create registers an app, deriving its permanent slug from the name.
 	Create(ctx context.Context, accountID, name string) (App, error)
+	// Config is the response shaped read: a secret key comes back with its flag
+	// and no value, decided in SQL rather than here, so no code path in this
+	// package can forget (spec 0010, AC-2).
+	Config(ctx context.Context, appID string) ([]ConfigEntry, error)
+	// ConfigValues is the full read, secret values included. Only the size
+	// bounds and the log redaction may call it, and neither puts what it read in
+	// a response.
+	ConfigValues(ctx context.Context, appID string) ([]ConfigEntry, error)
+	// SetConfig writes every entry or none of them.
+	SetConfig(ctx context.Context, appID string, entries []ConfigEntry) error
+	// UnsetConfig removes every key or none of them, answering ErrNoConfigKey
+	// when one of them is not set.
+	UnsetConfig(ctx context.Context, appID string, keys []string) error
+	// ReleaseConfig is the configuration the app's current release actually ran
+	// with. An app that has never run has an empty one rather than an error.
+	ReleaseConfig(ctx context.Context, appID string) (map[string]string, error)
 }
 
 // Deployments is the slice of persistence this package needs.
@@ -155,6 +172,10 @@ func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, 
 type deployInput struct {
 	Name     string `json:"name" jsonschema:"the app's name, which fixes its hostname for good; reuse it to redeploy the same app"`
 	UploadID string `json:"upload_id" jsonschema:"the id returned by POST /v1/uploads"`
+	// Config is optional, and follows exactly set_config's rules. It is here so a
+	// brand new app's first run is not a guaranteed crash on a missing variable
+	// (spec 0010, AC-9).
+	Config map[string]configValue `json:"config,omitempty" jsonschema:"optional environment variables to set before this deploy, each with a value and a required secret flag; omit it to leave the app's configuration untouched"`
 }
 
 // deployOutput is what an accepted deploy reports. It carries no release number
@@ -195,9 +216,19 @@ caches layers; a Buildpacks build of the same app again is faster.
 The URL in this response is the app's permanent hostname, but it does not serve
 anything until deployment_status reports "healthy".
 
-The app must listen on the port given in the PORT environment variable, and
-its image must run as a non root user. Deploying the same name again replaces
-the running app and keeps the same hostname.`, s.opts.PublicURL)
+config is optional and follows set_config's rules exactly: each key needs a
+value and a secret flag, keys look like environment variable names, and PORT
+and APP_URL are refused because the platform sets them itself. Sending it here
+sets those values before this deploy runs, which is how a new app's first run
+avoids crashing on a missing variable. Keys you do not name are left alone, and
+omitting config entirely changes nothing. Nothing you configure reaches the
+build: values exist only in the running container, so a private package
+registry is still out of reach at build time.
+
+The app must listen on the port given in the PORT environment variable, and can
+build links to itself from APP_URL, which the platform sets to its public
+address. Its image must run as a non root user. Deploying the same name again
+replaces the running app and keeps the same hostname.`, s.opts.PublicURL)
 }
 
 // Handler is the MCP endpoint, authenticated the same way the upload endpoint
@@ -238,6 +269,27 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in logsInput) (*mcp.CallToolResult, logsOutput, error) {
 		return s.getLogs(ctx, account, in)
 	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "set_config",
+		Title:       "Set an app's environment variables",
+		Description: setConfigDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in setConfigInput) (*mcp.CallToolResult, configOutput, error) {
+		return s.setConfig(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "unset_config",
+		Title:       "Remove an app's environment variables",
+		Description: unsetConfigDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in unsetConfigInput) (*mcp.CallToolResult, configOutput, error) {
+		return s.unsetConfig(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "get_config",
+		Title:       "List an app's environment variables",
+		Description: getConfigDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getConfigInput) (*mcp.CallToolResult, configOutput, error) {
+		return s.getConfig(ctx, account, in)
+	})
 	return srv
 }
 
@@ -259,6 +311,15 @@ func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInpu
 	app, err := s.resolveApp(ctx, account.ID, in.Name)
 	if err != nil {
 		return nil, deployOutput{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, err)
+	}
+
+	// Written before the deployment row, through the same path set_config uses,
+	// so the two can never enforce different rules. A refusal here writes no
+	// configuration and starts no deployment (AC-9).
+	if len(in.Config) > 0 {
+		if reason := s.writeConfig(ctx, account, app, in.Config, auth.ActionConfigSet); reason != "" {
+			return nil, deployOutput{}, s.deny(ctx, account.ID, app.ID, reason, nil)
+		}
 	}
 
 	deploymentID, err := s.deployments.Create(ctx, app.ID, account.ID, in.UploadID)

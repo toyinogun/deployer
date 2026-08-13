@@ -105,8 +105,17 @@ func TestDeploymentIsRestrictedAndRunsTheDigest(t *testing.T) {
 	if c.Image != in.Image || !strings.Contains(c.Image, "@sha256:") {
 		t.Errorf("image = %q, want the digest reference", c.Image)
 	}
-	if len(c.Env) != 1 || c.Env[0].Name != "PORT" || c.Env[0].Value != "8080" {
-		t.Errorf("env = %+v, want exactly PORT=8080", c.Env)
+	// The two variables the platform owns, listed after envFrom so they win over
+	// anything the app's own configuration holds (spec 0010, AC-5, AC-7).
+	if len(c.Env) != 2 || c.Env[0].Name != "PORT" || c.Env[0].Value != "8080" {
+		t.Errorf("env = %+v, want PORT=8080 first", c.Env)
+	}
+	if c.Env[1].Name != "APP_URL" || c.Env[1].Value != "https://"+in.Host {
+		t.Errorf("env = %+v, want APP_URL built from the ingress host", c.Env)
+	}
+	if len(c.EnvFrom) != 1 || c.EnvFrom[0].SecretRef == nil ||
+		c.EnvFrom[0].SecretRef.Name != deploy.ConfigSecretName {
+		t.Errorf("envFrom = %+v, want the app's configuration Secret", c.EnvFrom)
 	}
 	if len(c.Ports) != 1 || c.Ports[0].ContainerPort != 8080 {
 		t.Errorf("ports = %+v, want just 8080", c.Ports)

@@ -46,7 +46,23 @@ const (
 	// ActionAdmin is any use of the admin surface, allowed or refused. Reason
 	// carries which one, so the closed action set does not grow per endpoint.
 	ActionAdmin = "admin"
+
+	// The configuration actions, added by spec 0010 (AC-12). A write records one
+	// row per key it changed; a read records only a refusal.
+
+	// ActionConfigSet is one key written by set_config or by deploy_app's
+	// optional config map.
+	ActionConfigSet = "config_set"
+	// ActionConfigUnset is one key removed by unset_config.
+	ActionConfigUnset = "config_unset"
+	// ActionConfigGet is one get_config call, recorded only when it is refused.
+	ActionConfigGet = "config_get"
 )
+
+// TargetAppConfig is the target type a configuration change is recorded against.
+// The table carries one target pair, so the app id and the key travel joined by a
+// slash in TargetID and both survive (spec 0010, AC-12).
+const TargetAppConfig = "app_config"
 
 // Audit is one authorization outcome. AccountID is empty when the presented
 // token resolved to nothing, which is exactly the denial worth recording.

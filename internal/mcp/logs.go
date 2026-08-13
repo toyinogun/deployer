@@ -35,10 +35,16 @@ where the cause is. It is absent when there has been no restart.
 An app that has not started a container yet is a success with no entries, plus
 the deployment's state and one sentence saying why there is nothing to show.
 
-Secrets are blanked on a best effort basis: bearer and basic credentials, JWTs,
-passwords inside URLs, access key ids, and assignments named like a key, token,
-secret, or password. This is pattern matching, not a guarantee. A secret your
-app prints in an unusual shape can still appear here.
+Any value you set with set_config and marked secret is blanked wherever it
+appears, as long as it is eight characters or longer. That covers the value the
+running app was deployed with as well as the current one, so rotating a secret
+does not un blank what the running pod already printed.
+
+Everything else is blanked on a best effort basis: bearer and basic credentials,
+JWTs, passwords inside URLs, access key ids, and assignments named like a key,
+token, secret, or password. That half is pattern matching, not a guarantee. A
+credential your app prints in an unusual shape, and never told the platform
+about, can still appear here.
 
 Only your own app's output is returned. Build output, platform logs, and
 anything outside the app are never reachable through this.`
@@ -108,6 +114,12 @@ func (s *Server) getLogs(ctx context.Context, account auth.Account, in logsInput
 // no partial success (spec 0006, Key invariants).
 func (s *Server) readLogs(ctx context.Context, app App, requested int) (logsOutput, error) {
 	tail, clamped := logs.ClampTail(requested)
+	// Before any output is read, and fatal if it fails: output the platform
+	// cannot redact is output it does not hand back (AC-3, spec 0010, AC-11).
+	literals, err := s.secretLiterals(ctx, app)
+	if err != nil {
+		return logsOutput{}, err
+	}
 	out := logsOutput{
 		AppName:   app.Name,
 		TailLines: tail,
@@ -147,7 +159,7 @@ func (s *Server) readLogs(ctx context.Context, app App, requested int) (logsOutp
 	// Redaction runs on every line before bounding, so the reported sizes and
 	// counts describe what the caller actually receives (AC-3, AC-6).
 	entries, dropped := logs.Bound(
-		logs.RedactAll(logs.Parse(raw), s.opts.SecretLiterals), tail, logs.CurrentBytes)
+		logs.RedactAll(logs.Parse(raw), literals), tail, logs.CurrentBytes)
 	out.Entries, out.Dropped, out.Truncated = entries, dropped, dropped > 0
 
 	// The previous block is capped independently, so a noisy current container
@@ -159,13 +171,54 @@ func (s *Server) readLogs(ctx context.Context, app App, requested int) (logsOutp
 			return logsOutput{}, fmt.Errorf("reading the previous container of pod %s/%s: %w", namespace, pod.Name, err)
 		}
 		out.Previous, _ = logs.Bound(
-			logs.RedactAll(logs.Parse(prev), s.opts.SecretLiterals), logs.PreviousLines, logs.PreviousBytes)
+			logs.RedactAll(logs.Parse(prev), literals), logs.PreviousLines, logs.PreviousBytes)
 	}
 
 	if !pod.Ready && len(pods) > 1 {
 		out.Note = noteOlderPod
 	}
 	return out, nil
+}
+
+// secretLiterals is every string this app's output must not carry: the platform's
+// own (the registry credential), the app's current secret values, and the values
+// the running release was deployed with for keys that are secret today.
+//
+// The second set is what covers a rotation. The pod that is running printed the
+// old value, and once the key has been set again the old value survives only in
+// the release snapshot. A key that is no longer marked secret drops out of both
+// sets, which is the hole the spec accepts rather than recording secrecy per
+// release (spec 0010, AC-11).
+//
+// Values shorter than the redactor's minimum are passed through and ignored
+// there: blanking a three letter string destroys the log without protecting
+// anything worth protecting.
+func (s *Server) secretLiterals(ctx context.Context, app App) ([]string, error) {
+	literals := make([]string, 0, len(s.opts.SecretLiterals)+4)
+	literals = append(literals, s.opts.SecretLiterals...)
+
+	current, err := s.apps.ConfigValues(ctx, app.ID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the configuration of app %s: %w", app.ID, err)
+	}
+	secretNow := make(map[string]struct{}, len(current))
+	for _, e := range current {
+		if e.Secret {
+			secretNow[e.Key] = struct{}{}
+			literals = append(literals, e.Value)
+		}
+	}
+
+	ran, err := s.apps.ReleaseConfig(ctx, app.ID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the release configuration of app %s: %w", app.ID, err)
+	}
+	for key, value := range ran {
+		if _, secret := secretNow[key]; secret {
+			literals = append(literals, value)
+		}
+	}
+	return literals, nil
 }
 
 // emptyCase reports the deployment's current state and the one sentence saying
