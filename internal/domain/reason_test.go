@@ -119,6 +119,25 @@ func TestAnUnknownReasonReadsAsAPlatformFault(t *testing.T) {
 	}
 }
 
+func TestBuildFailedNamesNoSingleEngine(t *testing.T) {
+	// covers: spec 0009 AC-13
+	t.Parallel()
+	// Two engines can now produce this code, so the one message both of them
+	// reach cannot tell the agent to go and fix the wrong thing. It points at
+	// build_path instead, which is where the answer actually is. Naming an
+	// engine here was correct while there was only one, which is exactly why
+	// nothing would have caught it going stale.
+	msg := domain.ReasonBuildFailed.Message()
+	for _, engine := range []string{"buildpack", "cloud native", "paketo", "buildkit", "dockerfile"} {
+		if strings.Contains(strings.ToLower(msg), engine) {
+			t.Errorf("build_failed names %q, but either engine can produce it: %q", engine, msg)
+		}
+	}
+	if !strings.Contains(msg, "build_path") {
+		t.Errorf("build_failed does not send the agent to build_path, so it cannot tell which engine ran: %q", msg)
+	}
+}
+
 func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 	// covers: AC-16
 	t.Parallel()
