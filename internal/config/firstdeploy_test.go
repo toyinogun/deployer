@@ -154,6 +154,24 @@ func TestFirstDeployRejectsBadValues(t *testing.T) {
 			map[string]string{"DEPLOYER_BUILD_GID": "-1"},
 			"DEPLOYER_BUILD_GID",
 		},
+		// The second engine gets the same treatment as the first. Its image and
+		// its uid pair are a unit, and pinning one loosely is how the wrong user
+		// reaches a build pod (spec 0009, AC-8).
+		{
+			"a BuildKit image pinned to a mutable tag",
+			map[string]string{"DEPLOYER_BUILDKIT_IMAGE": "moby/buildkit:v0.32.2-rootless"},
+			"DEPLOYER_BUILDKIT_IMAGE",
+		},
+		{
+			"a BuildKit uid that is not a number",
+			map[string]string{"DEPLOYER_BUILDKIT_UID": "user"},
+			"DEPLOYER_BUILDKIT_UID",
+		},
+		{
+			"a BuildKit uid of root",
+			map[string]string{"DEPLOYER_BUILDKIT_UID": "0"},
+			"never runs as root",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -176,6 +194,7 @@ func TestFirstDeployRequiresItsRequiredVars(t *testing.T) {
 		"DEPLOYER_PUBLIC_URL", "DEPLOYER_INTERNAL_URL",
 		"DEPLOYER_BUILDER_IMAGE", "DEPLOYER_SELF_IMAGE",
 		"DEPLOYER_BUILD_UID", "DEPLOYER_BUILD_GID",
+		"DEPLOYER_BUILDKIT_IMAGE", "DEPLOYER_BUILDKIT_UID", "DEPLOYER_BUILDKIT_GID",
 	}
 	dropped := map[string]bool{}
 	for _, k := range want {

@@ -136,6 +136,12 @@ type Options struct {
 	// pod has to start as.
 	BuildUID int64
 	BuildGID int64
+	// BuildkitImage is the rootless BuildKit engine the Dockerfile path runs,
+	// and BuildkitUID/BuildkitGID are the pair that image declares. They are a
+	// unit with it, never interchangeable with the Paketo pair above.
+	BuildkitImage string
+	BuildkitUID   int64
+	BuildkitGID   int64
 	// InternalURL is where the build Job's init container reaches the platform.
 	// It runs on cluster DNS, so it cannot use the public address.
 	InternalURL string
