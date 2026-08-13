@@ -464,25 +464,34 @@ func TestTheBuildFetchesThroughTheInClusterAddress(t *testing.T) {
 
 // toLoop is what the store adapter hands the loop, built here so a test can
 // drive one deployment without going through a claim.
+//
+// It maps every field the adapter does, including the ones only a rollback
+// uses: a helper that quietly dropped source_release_id would make a rollback
+// look like a build deploy to every test in this package, which is the same
+// mistake AC-24 is about in the real code.
 func toLoop(d store.Deployment) reconcile.Deployment {
-	var upload string
-	if d.UploadID != nil {
-		upload = *d.UploadID
-	}
 	created, err := time.Parse(time.RFC3339Nano, d.CreatedAt)
 	if err != nil {
 		panic("a stored created_at that will not parse: " + d.CreatedAt)
 	}
-	var jobName string
-	if d.BuildJobName != nil {
-		jobName = *d.BuildJobName
-	}
 	return reconcile.Deployment{
-		ID:           d.ID,
-		AppID:        d.AppID,
-		UploadID:     upload,
-		State:        domain.State(d.State),
-		CreatedAt:    created,
-		BuildJobName: jobName,
+		ID:              d.ID,
+		AppID:           d.AppID,
+		UploadID:        orEmpty(d.UploadID),
+		State:           domain.State(d.State),
+		ImageRepo:       orEmpty(d.ImageRepo),
+		ImageDigest:     orEmpty(d.ImageDigest),
+		CreatedAt:       created,
+		BuildJobName:    orEmpty(d.BuildJobName),
+		BuildPath:       orEmpty(d.BuildPath),
+		SourceReleaseID: orEmpty(d.SourceReleaseID),
 	}
+}
+
+// orEmpty reads a nullable column as the empty string the loop's fields use.
+func orEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
