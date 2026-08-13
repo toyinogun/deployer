@@ -51,7 +51,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 8 | Accounts, API tokens & app ownership | Slice 4 | done |
 | 9 | Workload isolation & network policy | Slice 5 | done |
 | 10 | Dockerfile build path | Slice 6 | in-progress |
-| 11 | App environment configuration | Slice 7 | in-progress |
+| 11 | App environment configuration | Slice 7 | done |
 | 12 | Rollback & release history | Slice 8 | in-progress |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
@@ -220,7 +220,7 @@ spec [0009](../specs/0009-dockerfile-build-path/index.md)
 
 ## Slice 7: App environment configuration
 
-### 11. App environment configuration · in-progress
+### 11. App environment configuration · done
 Thickens the app contract so deployed apps can actually be configured. The platform injects `PORT` and `APP_URL` plus any values set for the app, and decides what happens to values that are sensitive.
 **Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables through a Secret, a change lands on the next deploy and is snapshotted onto the release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
 From spec 0006: this is also where `get_logs` gains exact redaction, because the platform will finally know which values are secret because it injected them.
@@ -236,7 +236,7 @@ spec [0010](../specs/0010-app-environment-configuration/index.md) · code in `in
 - [x] Verify it: `/check verify app environment configuration`
 - [x] Test it: `/test app environment configuration`
 - [x] Review it (fresh model): `/check review app environment configuration`
-- [ ] Document it: `/document app environment configuration`
+- [x] Document it: `/document app environment configuration` — CHANGELOG entry, PR [#27](https://github.com/toyinogun/deployer/pull/27)
 
 ## Slice 8: Rollback & release history
 
