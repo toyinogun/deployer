@@ -171,6 +171,6 @@ Tracer Bullet, so the first slice is one value travelling the whole way from an 
 ## Follow-up
 
 - [ ] The deferred backup and restore item should now name configuration explicitly. The database holds live credentials, not just metadata.
-- [ ] Slice 8's rollback must rewrite the app's Secret from the release snapshot, not only re promote the image digest. A rollback that restores an old image beside today's configuration is not a rollback. The pod template checksum this spec adds is what will make that rollback actually roll the pods.
+- [x] Slice 8's rollback must rewrite the app's Secret from the release snapshot, not only re promote the image digest. A rollback that restores an old image beside today's configuration is not a rollback. The pod template checksum this spec adds is what will make that rollback actually roll the pods. Closed by spec [0011](../0011-rollback-and-release-history/index.md): a rollback composes the Secret from the source release's snapshot, and the checksum is what rolls the pods when the digest is unchanged.
 - [ ] The deferred egress by hostname item becomes expressible once an app can declare configuration. Worth revisiting after this ships.
 - [ ] Decide, when a build cache or a private dependency need actually appears, whether BuildKit build secrets are worth the split behaviour between the two build paths. Not now.

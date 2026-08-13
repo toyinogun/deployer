@@ -52,7 +52,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 9 | Workload isolation & network policy | Slice 5 | done |
 | 10 | Dockerfile build path | Slice 6 | in-progress |
 | 11 | App environment configuration | Slice 7 | in-progress |
-| 12 | Rollback & release history | Slice 8 | planned |
+| 12 | Rollback & release history | Slice 8 | in-progress |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
 
@@ -240,11 +240,22 @@ spec [0010](../specs/0010-app-environment-configuration/index.md) · code in `in
 
 ## Slice 8: Rollback & release history
 
-### 12. Rollback & release history
+### 12. Rollback & release history · in-progress
 Thickens the release segment. Every healthy deploy is a known good release, and going back to one re promotes the exact prior image rather than rebuilding from source.
 **Done when:** an agent can list an app's recent releases and roll back to one, the rollback re promotes the stored image digest without a build, health is re verified, and a failed new release never replaces a healthy current one.
 From spec 0010: a rollback must also rewrite the app's configuration Secret from the release snapshot, not only the image digest, and the pod template checksum spec 0010 adds is what makes that roll the pods.
-- [ ] Build it: `/develop rollback & release history`
+spec [0011](../specs/0011-rollback-and-release-history/index.md) · code in `internal/domain/reason.go`, `internal/store/deployments.go`, `internal/reconcile`, `internal/mcp`
+- [x] Design it (spec): `/architect rollback & release history`
+- [x] Build it: `/develop rollback & release history`
+  - [x] The reason code and the rollback tool: `release_unknown`, the release number lookup, `rollback_app` over the existing `CreateDeployment`, ownership and audit — AC-6, AC-7, AC-8, AC-9, AC-10, AC-18, AC-20, AC-21
+  - [x] The loop learns the deployment's kind: `SourceReleaseID` on `reconcile.Deployment`, the branch in `Drive` ahead of the upload read, the `queued` branch in `run`, and the image repo recomposed from the slug — AC-11, AC-19, AC-24
+  - [x] Configuration fidelity: the Secret composed from the source snapshot, the `{value, secret}` snapshot format with both contracts widened, and the `app_config` rewrite inside `MarkHealthy` — AC-12, AC-13, AC-14, AC-15, AC-16, AC-17, AC-25
+  - [x] The listing: the narrow five column query, `CurrentReleaseID` on the app, `list_releases` bounded at twenty, and the empty and refused cases — AC-1, AC-2, AC-3, AC-4, AC-5
+  - [x] The contract surface: both tool descriptions, and both tools driven through a real MCP session including the refusals — AC-22, AC-23
+- [ ] Verify it: `/check verify rollback & release history`
+- [ ] Test it: `/test rollback & release history`
+- [ ] Review it (fresh model): `/check review rollback & release history`
+- [ ] Document it: `/document rollback & release history`
 
 ## Slice 9: App lifecycle: list & decommission
 
@@ -258,6 +269,7 @@ Closes the loop. An agent can see what it has deployed and tear an app down clea
 ### 14. Web interface: register, sign in, apps & tokens · needs a decision
 From spec 0007. The pages on top of the identity surface feature 8 builds: register, verify, sign in, mint and revoke tokens, and see your apps, releases and logs without an agent. Feature 8 deliberately builds no pages, so every endpoint they need is already there and drivable with curl.
 **Done when:** a person can register, verify, sign in, mint a token, and see their apps and logs in a browser, on the tailnet, with no curl and no agent.
+From spec 0011: `list_releases` is capped at the newest twenty with no paging, on purpose, so this is where full release history gets a paged view over the same store method.
 - [ ] Design it (spec): `/architect web interface`
 
 ## Deferred
@@ -278,6 +290,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
 - **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · needs a decision
 - **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration · needs a decision
+- **A test that a tool description matches its behaviour**: every MCP tool description is contract rather than documentation, and nothing checks one against what the code does. From spec 0011, which adds two more, taking the gap to eight tools wide · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 
