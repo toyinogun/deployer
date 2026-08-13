@@ -44,7 +44,10 @@ func loadIsolation(getenv func(string) string, c *Config) (errs []string) {
 			errs = append(errs, fmt.Sprintf("%s entry %q must be IPv4: the allow rule names 0.0.0.0/0 only, so an IPv6 exception would do nothing", key, entry))
 			continue
 		}
-		c.AppEgressBlockedCIDRs = append(c.AppEgressBlockedCIDRs, prefix.String())
+		// Masked, so a hand typed 10.0.0.5/8 is stored as the 10.0.0.0/8 it
+		// actually means. The value goes straight into an `except` entry, and the
+		// drift test compares it against the YAML byte for byte.
+		c.AppEgressBlockedCIDRs = append(c.AppEgressBlockedCIDRs, prefix.Masked().String())
 	}
 	// An empty `except` list turns the allow all rule into an open door silently,
 	// which is the one failure mode worth refusing to boot over.

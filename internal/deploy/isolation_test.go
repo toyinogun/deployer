@@ -76,8 +76,8 @@ func assertContainerIsFenced(t *testing.T, c corev1.Container) {
 		t.Errorf("container %q adds capabilities: %+v", c.Name, sc.Capabilities.Add)
 	}
 	dropsAll := false
-	for _, cap := range sc.Capabilities.Drop {
-		if cap == "ALL" {
+	for _, capability := range sc.Capabilities.Drop {
+		if capability == "ALL" {
 			dropsAll = true
 		}
 	}
