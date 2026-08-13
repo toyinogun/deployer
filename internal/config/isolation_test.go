@@ -33,6 +33,19 @@ func TestBlockedCIDRsOverride(t *testing.T) {
 	}
 }
 
+// A hand typed override keeps whatever host bits the operator left on, and the
+// value goes into an `except` entry the drift test compares byte for byte, so it
+// is normalised on the way in rather than left to read back differently.
+func TestBlockedCIDRsAreStoredMasked(t *testing.T) {
+	c, err := Load(env(withValid(map[string]string{blockedKey: "10.0.0.5/8"})))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(c.AppEgressBlockedCIDRs) != 1 || c.AppEgressBlockedCIDRs[0] != "10.0.0.0/8" {
+		t.Errorf("blocked CIDRs = %v, want [10.0.0.0/8] with the host bits masked off", c.AppEgressBlockedCIDRs)
+	}
+}
+
 // Every one of these parses cleanly somewhere else in the system and does the
 // wrong thing here, which is why the boot is where they are caught (AC-14).
 func TestBlockedCIDRsRejectedAtBoot(t *testing.T) {
