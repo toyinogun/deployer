@@ -85,6 +85,11 @@ type Input struct {
 	// ControlPlaneNamespace is where the deployer ServiceAccount lives, which is
 	// the subject of the RoleBinding this creates.
 	ControlPlaneNamespace string
+
+	// EgressBlockedCIDRs is DEPLOYER_APP_EGRESS_BLOCKED_CIDRS, already parsed at
+	// startup. It becomes the `except` list of the egress allow rule and is the
+	// whole of an app's isolation from other apps and from the cluster.
+	EgressBlockedCIDRs []string
 }
 
 // NamespaceName is the namespace one app lives in.
