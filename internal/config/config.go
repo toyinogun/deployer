@@ -121,6 +121,16 @@ type Config struct {
 	// ranges sit inside it, so narrowing it for an unrelated reason weakens that
 	// isolation as a side effect (spec 0008, Key invariants).
 	AppEgressBlockedCIDRs []string
+
+	// Added by spec 0012, the app lifecycle.
+
+	// ReapInterval is how often the orphan namespace reaper runs, on its own
+	// ticker rather than the reconcile tick, because a pass lists every app
+	// namespace on the cluster. Default ten minutes.
+	ReapInterval time.Duration
+	// OrphanGrace is how old an app namespace must be before the reaper will
+	// consider it orphaned. Default fifteen minutes.
+	OrphanGrace time.Duration
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -260,6 +270,7 @@ func Load(getenv func(string) string) (Config, error) {
 	errs = append(errs, deployErrs...)
 	errs = append(errs, loadIdentity(getenv, &c)...)
 	errs = append(errs, loadIsolation(getenv, &c)...)
+	errs = append(errs, loadLifecycle(getenv, &c)...)
 
 	if len(missing) > 0 {
 		errs = append(errs, "missing required environment: "+strings.Join(missing, ", "))

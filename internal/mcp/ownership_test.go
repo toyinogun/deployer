@@ -59,7 +59,7 @@ func newOwnershipHarness(t *testing.T) *ownershipHarness {
 	uploadSvc := uploads.NewService(store.ForUploads(st), filepath.Join(dir, "uploads"), 4096, nil)
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
-		forTool{svc: uploadSvc}, nil, mcp.Options{
+		forTool{svc: uploadSvc}, nil, acceptingCluster{}, mcp.Options{
 			PublicURL: "https://deploy.example.org",
 			AppDomain: "apps.example.org",
 		})
@@ -149,6 +149,13 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 	clone.Header.Set("Authorization", "Bearer "+b.token)
 	return http.DefaultTransport.RoundTrip(clone)
 }
+
+// acceptingCluster stands in for the real namespace delete. The fake clientset
+// is exercised in internal/kube; what these tests need is a cluster that says
+// yes, so a delete_app reaches its audit row and its response.
+type acceptingCluster struct{}
+
+func (acceptingCluster) DeleteNamespace(context.Context, string) error { return nil }
 
 // forTool is the upload lookup the tool surface needs.
 type forTool struct{ svc *uploads.Service }

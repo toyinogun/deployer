@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"syscall"
 	"testing"
@@ -361,5 +362,51 @@ func TestRun_servesNothingBesidesTheProbes(t *testing.T) {
 	}
 	if got != http.StatusNotFound {
 		t.Fatalf("GET /: want %d, got %d", http.StatusNotFound, got)
+	}
+}
+
+// --- reconcileOptions ---------------------------------------------------------
+
+// The reconcile loop's own tests build Options by hand, so this function is the
+// only place the suite crosses from a loaded Config into the loop's Options. A
+// field left unassigned here arrives as a zero value, and the loop turns some of
+// those into a panic at boot: DEPLOYER_REAP_INTERVAL_SECONDS reached the process
+// as a valid default, was never passed on, and time.NewTicker(0) crash looped the
+// pod while every test stayed green.
+func TestReconcileOptions_carriesEveryDurationAcrossFromTheConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := config.Load(func(k string) string {
+		return map[string]string{
+			"DEPLOYER_REGISTRY_HOST":     "registry.deployer-system.svc:5000",
+			"DEPLOYER_REGISTRY_USER":     "pusher",
+			"DEPLOYER_REGISTRY_PASSWORD": "s3cret",
+			"DEPLOYER_APP_DOMAIN":        "apps.example.ts.net",
+			"DEPLOYER_NAMESPACE":         "deployer-system",
+			"DEPLOYER_PUBLIC_URL":        "https://deployer.example.ts.net",
+			"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",
+			"DEPLOYER_BUILDER_IMAGE":     "paketobuildpacks/builder-jammy-base@sha256:" + strings.Repeat("a", 64),
+			"DEPLOYER_SELF_IMAGE":        "ghcr.io/toyinogun/deployer@sha256:" + strings.Repeat("b", 64),
+			"DEPLOYER_BUILD_UID":         "1001",
+			"DEPLOYER_BUILD_GID":         "1000",
+			"DEPLOYER_BUILDKIT_IMAGE":    "moby/buildkit@sha256:" + strings.Repeat("c", 64),
+			"DEPLOYER_BUILDKIT_UID":      "1000",
+			"DEPLOYER_BUILDKIT_GID":      "1000",
+		}[k]
+	})
+	if err != nil {
+		t.Fatalf("loading a valid configuration failed: %v", err)
+	}
+
+	opts := reconcileOptions(cfg)
+	v := reflect.ValueOf(opts)
+	for i := range v.NumField() {
+		f := v.Type().Field(i)
+		if f.Type != reflect.TypeOf(time.Duration(0)) {
+			continue
+		}
+		if v.Field(i).Interface().(time.Duration) <= 0 {
+			t.Errorf("Options.%s is %v, want a positive duration: it was not carried across from the config", f.Name, v.Field(i))
+		}
 	}
 }

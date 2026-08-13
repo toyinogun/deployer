@@ -53,9 +53,14 @@ func (a MCPApps) ByName(ctx context.Context, accountID, name string) (mcp.App, e
 }
 
 // Get reads the app a deployment belongs to, which is where a status payload's
-// name, slug, and url come from.
+// name, slug, and url come from. A deleted app reads as mcp.ErrNoApp, the same
+// sentinel a name lookup gives, so a status read by the id of a deleted app's
+// deployment is a refusal rather than a fault (spec 0012, AC-32).
 func (a MCPApps) Get(ctx context.Context, appID string) (mcp.App, error) {
 	app, err := a.s.GetApp(ctx, appID)
+	if errors.Is(err, ErrNotFound) {
+		return mcp.App{}, mcp.ErrNoApp
+	}
 	if err != nil {
 		return mcp.App{}, err
 	}
@@ -270,4 +275,43 @@ func (a MCPDeployments) Release(ctx context.Context, deploymentID string) (mcp.R
 		return mcp.Release{}, err
 	}
 	return mcp.Release{Number: rel.ReleaseNumber, Digest: rel.ImageDigest}, nil
+}
+
+// ListSummaries reads the account's live apps through the listing's own query,
+// so no configuration column is named and no snapshot enters the process
+// (spec 0012, AC-7, AC-8).
+func (a MCPApps) ListSummaries(ctx context.Context, accountID string, limit int64) ([]mcp.AppSummary, error) {
+	rows, err := a.s.ListAppSummaries(ctx, accountID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.AppSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mcp.AppSummary{
+			Name:                 r.Name,
+			Slug:                 r.Slug,
+			CreatedAt:            r.CreatedAt,
+			ServingRelease:       r.ServingRelease,
+			LastDeploymentID:     r.LastDeploymentID,
+			LastDeploymentState:  r.LastDeploymentState,
+			LastDeploymentReason: r.LastDeploymentReason,
+			LastDeployedAt:       r.LastDeployedAt,
+		})
+	}
+	return out, nil
+}
+
+// Delete retires the app, mapping the store's two decisions onto the tool
+// surface's own sentinels: a deployment in flight refuses the call whole, and a
+// row that was already deleted reads as an app that does not exist
+// (spec 0012, AC-15, AC-20).
+func (a MCPApps) Delete(ctx context.Context, appID string) error {
+	err := a.s.SoftDeleteApp(ctx, appID)
+	switch {
+	case errors.Is(err, ErrDeploymentInFlight):
+		return mcp.ErrAppInFlight
+	case errors.Is(err, ErrNotFound):
+		return mcp.ErrNoApp
+	}
+	return err
 }

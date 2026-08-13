@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"time"
 
 	"github.com/toyinogun/deployer/internal/build"
 	"github.com/toyinogun/deployer/internal/deploy"
@@ -118,6 +119,65 @@ func (c *Client) AppNamespaces(ctx context.Context) ([]string, error) {
 		if slug := ns.Labels[appSlugLabel]; slug != "" {
 			slugs = append(slugs, slug)
 		}
+	}
+	return slugs, nil
+}
+
+// DeleteNamespace tears an app's whole namespace down, which cascades every
+// object inside it: the Deployment, the Service, the Ingress, the Secret, both
+// NetworkPolicies, the ResourceQuota, the LimitRange and the RoleBinding. No
+// object is deleted individually (spec 0012, AC-16).
+//
+// A namespace that is already gone, and one already terminating, are both
+// success: the only thing asked for was that it not be there. That tolerance
+// lives here rather than in a caller, the same way ignoreExists does, so no
+// handler in internal/mcp or internal/reconcile ever inspects a Kubernetes error
+// (AC-18).
+func (c *Client) DeleteNamespace(ctx context.Context, slug string) error {
+	name := deploy.NamespaceName(slug)
+	api := c.cs.CoreV1().Namespaces()
+	// Read before deleting, so a namespace already terminating is answered
+	// without a second delete call against it.
+	ns, err := api.Get(ctx, name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		return nil
+	case err != nil:
+		return fmt.Errorf("kube: reading namespace %s: %w", name, err)
+	case ns.Status.Phase == corev1.NamespaceTerminating:
+		return nil
+	}
+	if err := api.Delete(ctx, name, metav1.DeleteOptions{}); err != nil && !apierrors.IsNotFound(err) {
+		return fmt.Errorf("kube: deleting namespace %s: %w", name, err)
+	}
+	return nil
+}
+
+// AppNamespacesOlderThan lists the slug of every app namespace the platform owns
+// that was created more than grace before now.
+//
+// now is a parameter rather than a call to time.Now here, so the grace boundary
+// is testable to the second and this package keeps its rule of holding no clock
+// (spec 0012, Value sourcing).
+//
+// The selector is the same one AppNamespaces uses: a namespace missing either
+// label is invisible here and so is never reaped, which is the safe direction of
+// that failure (AC-25).
+func (c *Client) AppNamespacesOlderThan(ctx context.Context, now time.Time, grace time.Duration) ([]string, error) {
+	list, err := c.cs.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+		LabelSelector: managedByDeployer,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("kube: listing app namespaces by age: %w", err)
+	}
+	cutoff := now.Add(-grace)
+	slugs := make([]string, 0, len(list.Items))
+	for _, ns := range list.Items {
+		slug := ns.Labels[appSlugLabel]
+		if slug == "" || !ns.CreationTimestamp.Time.Before(cutoff) {
+			continue
+		}
+		slugs = append(slugs, slug)
 	}
 	return slugs, nil
 }

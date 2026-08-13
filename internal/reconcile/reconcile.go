@@ -135,6 +135,10 @@ type Apps interface {
 	// what a rollback composes the Secret from instead of the current table, and
 	// therefore also what the rollback's own release records (spec 0011, AC-12).
 	ReleaseSnapshot(ctx context.Context, releaseID string) (map[string]domain.ConfigValue, error)
+	// LiveAppSlugs is the slug of every app that is not soft deleted, read as
+	// one query. The orphan reaper deletes namespaces against this answer, so a
+	// partial one would be a data loss bug (spec 0012, AC-24).
+	LiveAppSlugs(ctx context.Context) ([]string, error)
 }
 
 // Uploads is what the loop needs of the source tarball.
@@ -166,6 +170,13 @@ type Cluster interface {
 	EnsureNamespace(ctx context.Context, ns *corev1.Namespace, rb *rbacv1.RoleBinding, quota *corev1.ResourceQuota, limits *corev1.LimitRange) error
 	ApplyNetworkPolicies(ctx context.Context, policies ...*networkingv1.NetworkPolicy) error
 	AppNamespaces(ctx context.Context) ([]string, error)
+	// AppNamespacesOlderThan is the reaper's candidate list: the app namespaces
+	// the platform owns that are older than the grace, aged against a now the
+	// caller passes rather than one internal/kube reads (spec 0012, AC-26).
+	AppNamespacesOlderThan(ctx context.Context, now time.Time, grace time.Duration) ([]string, error)
+	// DeleteNamespace tears one app namespace down, cascading everything inside
+	// it. Gone and terminating are both success, decided at the edge.
+	DeleteNamespace(ctx context.Context, slug string) error
 	ApplyWorkload(ctx context.Context, d *appsv1.Deployment, s *corev1.Service, i *networkingv1.Ingress) error
 	WorkloadReady(ctx context.Context, namespace, name string) (bool, error)
 	DeleteJob(ctx context.Context, namespace, name string) error
@@ -207,6 +218,15 @@ type Options struct {
 	BuildTimeout      time.Duration
 	ReadyTimeout      time.Duration
 	ReconcileInterval time.Duration
+	// ReapInterval is the orphan reaper's own cadence, deliberately far slower
+	// than ReconcileInterval: the reconcile tick is a claim one deployment loop
+	// firing seconds apart, and a cluster wide namespace list has no business on
+	// it (spec 0012, AC-23).
+	ReapInterval time.Duration
+	// OrphanGrace is how old an app namespace must be before the reaper will
+	// consider it orphaned, so a namespace a deploy created seconds ago cannot
+	// be reaped by a pass that raced it (AC-26).
+	OrphanGrace time.Duration
 
 	MaxUploadFiles    int
 	MaxExtractedBytes int64
@@ -250,15 +270,22 @@ func (r *Reconciler) Run(ctx context.Context) {
 	// it (spec 0008, AC-12).
 	r.PolicySweep(ctx)
 	r.Sweep(ctx)
+	r.ReapOrphanNamespaces(ctx, time.Now().UTC())
 
 	ticker := time.NewTicker(r.opts.ReconcileInterval)
 	defer ticker.Stop()
+	// The reaper's own ticker, selected on in the same loop, so the pass stays
+	// on one goroutine with everything else this package does (AC-23).
+	reaper := time.NewTicker(r.opts.ReapInterval)
+	defer reaper.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			r.tick(ctx)
+		case <-reaper.C:
+			r.ReapOrphanNamespaces(ctx, time.Now().UTC())
 		}
 	}
 }

@@ -67,6 +67,16 @@ const (
 	// ActionReleases is one list_releases call, recorded only when it is
 	// refused. Like ActionStatus, a successful read is not an access decision.
 	ActionReleases = "releases"
+
+	// The app lifecycle actions, added by spec 0012 (AC-11, AC-29).
+
+	// ActionAppList is one list_apps call, recorded only when it is refused.
+	// Like ActionStatus, a successful read is not an access decision.
+	ActionAppList = "app_list"
+	// ActionAppDelete is one delete_app call. Both outcomes are recorded: a
+	// delete removed an app and everything it was serving, which is worth a row
+	// even when it was allowed.
+	ActionAppDelete = "app_delete"
 )
 
 // TargetAppConfig is the target type a configuration change is recorded against.

@@ -1,7 +1,7 @@
 # 0012. App lifecycle: what a listing reports, and how a delete tears an app down
 
 **Date**: 2026-08-13
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
@@ -161,10 +161,10 @@ Both tools are account scoped through the existing `resolveOwned` path, so an ap
 
 Tracer Bullet, as the project builds: each of the first two tasks is one tool end to end from SQL to a real MCP session, rather than a layer at a time across both. No migration: this feature adds no schema.
 
-1. `list_apps` end to end: the single statement query and its store method, `MaxAppListing`, the `Apps` port method, the tool, its output shape with the omissions, the `app_list` audit action, the description, and the wire test. Satisfies **AC-1**, **AC-2**, **AC-3**, **AC-4**, **AC-5**, **AC-6**, **AC-7**, **AC-8**, **AC-9**, **AC-10**, **AC-11**, **AC-12**
-2. `delete_app` end to end: the `deployment_in_flight` reason code, `kube.DeleteNamespace` tolerating `NotFound` and `Terminating`, a one method `Cluster` port on `internal/mcp`, the tool over the existing `SoftDeleteApp`, the `app_delete` audit rows, the description, and the wire test including all three refusals. Satisfies **AC-13**, **AC-14**, **AC-15**, **AC-16**, **AC-17**, **AC-18**, **AC-19**, **AC-20**, **AC-21**, **AC-22**, **AC-28**, **AC-29**, **AC-30**, **AC-31**
-3. The orphan reaper: both new variables in `internal/config`, `LiveAppSlugs` on the store, `AppNamespacesOlderThan(ctx, now, grace)` in `internal/kube`, `ReapOrphanNamespaces` on the reconciler, and its wiring into `Run` as a startup pass plus a second ticker in the existing select, with the abort, label, grace and logging guards each pinned by a test. Satisfies **AC-23**, **AC-24**, **AC-25**, **AC-26**, **AC-27**
-4. The behaviour after a delete: a test that `deployment_status`, `get_logs`, `get_config`, `list_releases` and `rollback_app` all answer `app_unknown` or `deployment_unknown` for a deleted app, pinning what the live app reads already give for free. Satisfies **AC-32**
+1. [x] `list_apps` end to end: the single statement query and its store method, `MaxAppListing`, the `Apps` port method, the tool, its output shape with the omissions, the `app_list` audit action, the description, and the wire test. Satisfies **AC-1**, **AC-2**, **AC-3**, **AC-4**, **AC-5**, **AC-6**, **AC-7**, **AC-8**, **AC-9**, **AC-10**, **AC-11**, **AC-12**
+2. [x] `delete_app` end to end: the `deployment_in_flight` reason code, `kube.DeleteNamespace` tolerating `NotFound` and `Terminating`, a one method `Cluster` port on `internal/mcp`, the tool over the existing `SoftDeleteApp`, the `app_delete` audit rows, the description, and the wire test including all three refusals. Satisfies **AC-13**, **AC-14**, **AC-15**, **AC-16**, **AC-17**, **AC-18**, **AC-19**, **AC-20**, **AC-21**, **AC-22**, **AC-28**, **AC-29**, **AC-30**, **AC-31**
+3. [x] The orphan reaper: both new variables in `internal/config`, `LiveAppSlugs` on the store, `AppNamespacesOlderThan(ctx, now, grace)` in `internal/kube`, `ReapOrphanNamespaces` on the reconciler, and its wiring into `Run` as a startup pass plus a second ticker in the existing select, with the abort, label, grace and logging guards each pinned by a test. Satisfies **AC-23**, **AC-24**, **AC-25**, **AC-26**, **AC-27**
+4. [x] The behaviour after a delete: a test that `deployment_status`, `get_logs`, `get_config`, `list_releases` and `rollback_app` all answer `app_unknown` or `deployment_unknown` for a deleted app, pinning what the live app reads already give for free. Satisfies **AC-32**
 
 ## Consequences
 

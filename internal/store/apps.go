@@ -102,6 +102,69 @@ func (s *Store) ListAppsByAccount(ctx context.Context, accountID string, page Pa
 	return apps, nil
 }
 
+// AppSummary is one row of the app listing: what the app is serving and how its
+// last deploy ended, read as two independent facts rather than one blurred
+// state (spec 0012, AC-5).
+//
+// The absent cases are carried as zero values, because that is what the query
+// projects: ServingRelease is zero for an app that has never been healthy,
+// LastDeploymentID is empty for one that has never been deployed, and
+// LastDeployedAt is empty until something has finished.
+type AppSummary struct {
+	ID                   string
+	Name                 string
+	Slug                 string
+	CreatedAt            string
+	ServingRelease       int64
+	LastDeploymentID     string
+	LastDeploymentState  string
+	LastDeploymentReason string
+	LastDeployedAt       string
+}
+
+// ListAppSummaries returns an account's live apps, newest first, at most limit
+// of them, in one statement. It reads no configuration: the query names neither
+// app_config nor a release's snapshot (AC-7, AC-8).
+func (s *Store) ListAppSummaries(ctx context.Context, accountID string, limit int64) ([]AppSummary, error) {
+	rows, err := s.q.ListAppSummariesByAccount(ctx, sqlcgen.ListAppSummariesByAccountParams{
+		AccountID: accountID,
+		PageLimit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: listing apps for account %s: %w", accountID, err)
+	}
+	out := make([]AppSummary, 0, len(rows))
+	for _, r := range rows {
+		summary := AppSummary{
+			ID:                   r.ID,
+			Name:                 r.Name,
+			Slug:                 r.Slug,
+			CreatedAt:            r.CreatedAt,
+			LastDeploymentID:     deref(r.LastDeploymentID),
+			LastDeploymentState:  deref(r.LastDeploymentState),
+			LastDeploymentReason: deref(r.LastDeploymentReason),
+			LastDeployedAt:       r.LastDeployedAt,
+		}
+		if r.ServingReleaseNumber != nil {
+			summary.ServingRelease = *r.ServingReleaseNumber
+		}
+		out = append(out, summary)
+	}
+	return out, nil
+}
+
+// LiveAppSlugs returns the slug of every app that is not soft deleted. It is one
+// query on purpose: the orphan reaper deletes namespaces against this answer, so
+// a partial one would be a data loss bug rather than a display bug
+// (spec 0012, AC-24).
+func (s *Store) LiveAppSlugs(ctx context.Context) ([]string, error) {
+	slugs, err := s.q.LiveAppSlugs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: listing live app slugs: %w", err)
+	}
+	return slugs, nil
+}
+
 // SoftDeleteApp retires an app without removing anything: its deployments,
 // events, and releases stay, and its slug stays reserved forever. A deployment
 // still in flight blocks the delete.

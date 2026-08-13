@@ -33,6 +33,14 @@ type stubApps struct {
 	// the suite without ever being made. Empty means unscoped, which is fine for
 	// a test about something else; a test about ownership has to set it.
 	owner string
+
+	// The app lifecycle surface spec 0012 added: what the listing reads, whether
+	// a delete is refused for a deployment in flight, a store fault on the
+	// delete path, and which apps were retired.
+	summaries []AppSummary
+	inFlight  bool
+	deleteErr error
+	deleted   []string
 }
 
 func (s *stubApps) ReleaseConfig(_ context.Context, _ string) (map[string]string, error) {
@@ -122,6 +130,35 @@ func (s *stubApps) Create(_ context.Context, _, name string) (App, error) {
 	}
 	s.existing[name] = app
 	return app, nil
+}
+
+// The app lifecycle surface spec 0012 added. summaries is what list_apps reads,
+// inFlight makes a delete refuse the way the store's transaction does, and
+// deleted records which apps were retired.
+func (s *stubApps) ListSummaries(_ context.Context, accountID string, limit int64) ([]AppSummary, error) {
+	if s.readErr != nil {
+		return nil, s.readErr
+	}
+	// The real query is scoped by account, so a stub that answered anyone would
+	// let an ownership leak pass the suite.
+	if s.owner != "" && accountID != s.owner {
+		return nil, nil
+	}
+	if int64(len(s.summaries)) > limit {
+		return s.summaries[:limit], nil
+	}
+	return s.summaries, nil
+}
+
+func (s *stubApps) Delete(_ context.Context, appID string) error {
+	if s.inFlight {
+		return ErrAppInFlight
+	}
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	s.deleted = append(s.deleted, appID)
+	return nil
 }
 
 // stubDeployments answers with fixed rows, so a test can say where a deployment

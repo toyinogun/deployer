@@ -191,7 +191,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	}
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
-		forTool{svc: uploadSvc}, podReader(cluster), mcp.Options{
+		forTool{svc: uploadSvc}, podReader(cluster), clusterPort(cluster), mcp.Options{
 			PublicURL: cfg.PublicURL,
 			AppDomain: cfg.AppDomain,
 			// The registry pull credential is the one secret the platform placed
@@ -225,6 +225,15 @@ func podReader(cluster *kube.Client) mcp.Pods {
 	return cluster
 }
 
+// clusterPort keeps a nil client nil through the interface, so delete_app sees
+// an absent cluster rather than a non nil interface holding a nil pointer.
+func clusterPort(cluster *kube.Client) mcp.Cluster {
+	if cluster == nil {
+		return nil
+	}
+	return cluster
+}
+
 // startReconciler starts the deployment loop. The caller skips it when there is
 // no cluster to drive, which is honest for a local run: an upload still works, a
 // deploy stays queued.
@@ -232,41 +241,51 @@ func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, up
 	rs := store.ForReconcile(st)
 	loop := reconcile.New(rs, rs, uploadSource{svc: uploadSvc},
 		registry.New(cfg.RegistryHost, cfg.RegistryUser, cfg.RegistryPass),
-		cluster, reconcile.Options{
-			PodName:               cfg.PodName,
-			ControlPlaneNamespace: cfg.Namespace,
-			BuildNamespace:        cfg.BuildNamespace,
-			BuildkitNamespace:     cfg.BuildkitNamespace,
-			AppDomain:             cfg.AppDomain,
-			IngressClassName:      cfg.IngressClassName,
-			SelfImage:             cfg.SelfImage,
-			BuilderImage:          cfg.BuilderImage,
-			BuildUID:              cfg.BuildUID,
-			BuildGID:              cfg.BuildGID,
-			BuildkitImage:         cfg.BuildkitImage,
-			BuildkitUID:           cfg.BuildkitUID,
-			BuildkitGID:           cfg.BuildkitGID,
-			InternalURL:           cfg.InternalURL,
-			RegistryHost:          cfg.RegistryHost,
-			RegistryUser:          cfg.RegistryUser,
-			RegistryPass:          cfg.RegistryPass,
-			DeployTimeout:         cfg.DeployTimeout,
-			BuildTimeout:          cfg.BuildTimeout,
-			ReadyTimeout:          cfg.ReadyTimeout,
-			ReconcileInterval:     cfg.ReconcileInterval,
-			MaxUploadFiles:        cfg.MaxUploadFiles,
-			MaxExtractedBytes:     cfg.MaxExtractedBytes,
-			CPU:                   cfg.AppCPU,
-			Memory:                cfg.AppMemory,
-			LimitCPU:              cfg.AppLimitCPU,
-			LimitMemory:           cfg.AppLimitMemory,
-			QuotaCPU:              cfg.AppQuotaCPU,
-			QuotaMemory:           cfg.AppQuotaMemory,
-			QuotaPods:             cfg.AppQuotaPods,
-			EgressBlockedCIDRs:    cfg.AppEgressBlockedCIDRs,
-		})
+		cluster, reconcileOptions(cfg))
 	go loop.Run(ctx)
 	slog.Info("reconcile loop started", "interval", cfg.ReconcileInterval, "build_namespace", cfg.BuildNamespace)
+}
+
+// reconcileOptions carries the validated configuration across to the reconcile
+// loop. It is its own function so a test can hold the seam: a field added to
+// Options and forgotten here arrives as a zero value, and the loop's own tests
+// build Options by hand, so nothing else in the suite crosses this line.
+func reconcileOptions(cfg config.Config) reconcile.Options {
+	return reconcile.Options{
+		PodName:               cfg.PodName,
+		ControlPlaneNamespace: cfg.Namespace,
+		BuildNamespace:        cfg.BuildNamespace,
+		BuildkitNamespace:     cfg.BuildkitNamespace,
+		AppDomain:             cfg.AppDomain,
+		IngressClassName:      cfg.IngressClassName,
+		SelfImage:             cfg.SelfImage,
+		BuilderImage:          cfg.BuilderImage,
+		BuildUID:              cfg.BuildUID,
+		BuildGID:              cfg.BuildGID,
+		BuildkitImage:         cfg.BuildkitImage,
+		BuildkitUID:           cfg.BuildkitUID,
+		BuildkitGID:           cfg.BuildkitGID,
+		InternalURL:           cfg.InternalURL,
+		RegistryHost:          cfg.RegistryHost,
+		RegistryUser:          cfg.RegistryUser,
+		RegistryPass:          cfg.RegistryPass,
+		DeployTimeout:         cfg.DeployTimeout,
+		BuildTimeout:          cfg.BuildTimeout,
+		ReadyTimeout:          cfg.ReadyTimeout,
+		ReconcileInterval:     cfg.ReconcileInterval,
+		ReapInterval:          cfg.ReapInterval,
+		OrphanGrace:           cfg.OrphanGrace,
+		MaxUploadFiles:        cfg.MaxUploadFiles,
+		MaxExtractedBytes:     cfg.MaxExtractedBytes,
+		CPU:                   cfg.AppCPU,
+		Memory:                cfg.AppMemory,
+		LimitCPU:              cfg.AppLimitCPU,
+		LimitMemory:           cfg.AppLimitMemory,
+		QuotaCPU:              cfg.AppQuotaCPU,
+		QuotaMemory:           cfg.AppQuotaMemory,
+		QuotaPods:             cfg.AppQuotaPods,
+		EgressBlockedCIDRs:    cfg.AppEgressBlockedCIDRs,
+	}
 }
 
 // open keeps trying to open and migrate the database until it succeeds or the

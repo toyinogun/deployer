@@ -139,6 +139,96 @@ func (q *Queries) GetAppBySlug(ctx context.Context, slug string) (App, error) {
 	return i, err
 }
 
+const listAppSummariesByAccount = `-- name: ListAppSummariesByAccount :many
+SELECT
+    a.id,
+    a.name,
+    a.slug,
+    a.created_at,
+    r.release_number AS serving_release_number,
+    d.id AS last_deployment_id,
+    d.state AS last_deployment_state,
+    d.failure_reason AS last_deployment_reason,
+    -- The newest finish, not the newest deployment's finish: a deploy running
+    -- right now has no finished_at, and that must not blank out when the app
+    -- last actually deployed (AC-6, Value sourcing).
+    -- Coalesced rather than cast: a NULL here is "nothing has finished", and an
+    -- empty string carries that without a nullable column to unwrap.
+    CAST(COALESCE(f.last_finished, '') AS TEXT) AS last_deployed_at
+FROM apps a
+LEFT JOIN releases r ON r.id = a.current_release_id
+LEFT JOIN deployments d ON d.id = (
+    SELECT n.id FROM deployments n
+    WHERE n.app_id = a.id
+    ORDER BY n.created_at DESC, n.id DESC
+    LIMIT 1
+)
+LEFT JOIN (
+    SELECT app_id, MAX(finished_at) AS last_finished FROM deployments GROUP BY app_id
+) f ON f.app_id = a.id
+WHERE a.account_id = ?1 AND a.deleted_at IS NULL
+ORDER BY a.id DESC
+LIMIT ?2
+`
+
+type ListAppSummariesByAccountParams struct {
+	AccountID string
+	PageLimit int64
+}
+
+type ListAppSummariesByAccountRow struct {
+	ID                   string
+	Name                 string
+	Slug                 string
+	CreatedAt            string
+	ServingReleaseNumber *int64
+	LastDeploymentID     *string
+	LastDeploymentState  *string
+	LastDeploymentReason *string
+	LastDeployedAt       string
+}
+
+// The whole app listing in one statement: no loop reading each app's newest
+// deployment, and no Kubernetes call anywhere near it (spec 0012, AC-8). The
+// projection is deliberate the way the release listing's is: no app_config and
+// no config_snapshot column is named, so no configuration value enters the
+// process at all (AC-7).
+//
+// serving and last_deployment are read independently, because an app whose last
+// deploy failed is usually still serving its previous release (AC-5).
+func (q *Queries) ListAppSummariesByAccount(ctx context.Context, arg ListAppSummariesByAccountParams) ([]ListAppSummariesByAccountRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAppSummariesByAccount, arg.AccountID, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAppSummariesByAccountRow{}
+	for rows.Next() {
+		var i ListAppSummariesByAccountRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.CreatedAt,
+			&i.ServingReleaseNumber,
+			&i.LastDeploymentID,
+			&i.LastDeploymentState,
+			&i.LastDeploymentReason,
+			&i.LastDeployedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAppsByAccount = `-- name: ListAppsByAccount :many
 SELECT id, account_id, name, slug, current_release_id, deleted_at, created_at, updated_at FROM apps
 WHERE account_id = ?1
@@ -251,6 +341,35 @@ func (q *Queries) ListConfigForResponse(ctx context.Context, appID string) ([]Li
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const liveAppSlugs = `-- name: LiveAppSlugs :many
+SELECT slug FROM apps WHERE deleted_at IS NULL
+`
+
+// Every live app's slug, which is the one read the orphan reaper trusts to
+// decide that a namespace owns nothing (spec 0012, AC-24).
+func (q *Queries) LiveAppSlugs(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, liveAppSlugs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var slug string
+		if err := rows.Scan(&slug); err != nil {
+			return nil, err
+		}
+		items = append(items, slug)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
