@@ -7,9 +7,9 @@ package domain
 // AC-16).
 type Reason string
 
-// The twelve codes. Nine are failures a deploy can end on; ReasonSuperseded
-// describes a cancellation, and ReasonDeploymentUnknown and ReasonAppUnknown a
-// refused readback.
+// The eighteen codes. Nine are failures a deploy can end on; ReasonSuperseded
+// describes a cancellation, ReasonDeploymentUnknown and ReasonAppUnknown a
+// refused readback, and the six config_ codes a refused configuration write.
 const (
 	ReasonUploadInvalid   Reason = "upload_invalid"
 	ReasonUploadExpired   Reason = "upload_expired"
@@ -32,6 +32,28 @@ const (
 	// ReasonSuperseded is why a deployment was cancelled: a later deploy of the
 	// same app replaced it. A cancellation, not a failure.
 	ReasonSuperseded Reason = "superseded"
+
+	// The configuration refusals, added by spec 0010. Every one of them is
+	// decided before any write happens, so a refused call changes nothing.
+
+	// ReasonConfigKeyInvalid is a key that is not an environment variable name,
+	// an empty call, or one naming the same key twice.
+	ReasonConfigKeyInvalid Reason = "config_key_invalid"
+	// ReasonConfigKeyReserved is PORT or APP_URL, which the platform injects
+	// itself and a caller may never store.
+	ReasonConfigKeyReserved Reason = "config_key_reserved"
+	// ReasonConfigKeyUnknown is an unset_config naming a key the app does not
+	// have. The whole call is refused and nothing is removed.
+	ReasonConfigKeyUnknown Reason = "config_key_unknown"
+	// ReasonConfigFlagMissing is a key sent without its secret flag, which is
+	// required on every write so a secret can never quietly become plain.
+	ReasonConfigFlagMissing Reason = "config_flag_missing"
+	// ReasonConfigTooManyKeys is a call that would take the app past
+	// MaxConfigKeys.
+	ReasonConfigTooManyKeys Reason = "config_too_many_keys"
+	// ReasonConfigTooLarge is a single value past MaxConfigValueBytes, or a
+	// whole configuration past MaxConfigTotalBytes.
+	ReasonConfigTooLarge Reason = "config_too_large"
 )
 
 // messages is the one short sanitized line each code carries. Written for the
@@ -51,9 +73,16 @@ var messages = map[Reason]string{
 	ReasonDeploymentUnknown: "no deployment matches that id or name",
 	ReasonAppUnknown:        "no app matches that name",
 	ReasonSuperseded:        "a later deploy of the same app replaced this one",
+
+	ReasonConfigKeyInvalid:  "a configuration key must be upper case letters, digits, and underscores, not start with a digit, and appear once per call",
+	ReasonConfigKeyReserved: "PORT and APP_URL are set by the platform and cannot be configured",
+	ReasonConfigKeyUnknown:  "one of those keys is not set on this app, so nothing was removed",
+	ReasonConfigFlagMissing: "every key needs its secret flag, so send secret true or false with each one",
+	ReasonConfigTooManyKeys: "that would take the app past 64 configuration keys",
+	ReasonConfigTooLarge:    "a value may be at most 4 KB and an app's whole configuration at most 32 KB",
 }
 
-// Valid reports whether r is one of the twelve codes.
+// Valid reports whether r is one of the eighteen codes.
 func (r Reason) Valid() bool {
 	_, ok := messages[r]
 	return ok
