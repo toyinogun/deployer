@@ -10,6 +10,7 @@ import (
 	"github.com/toyinogun/deployer/internal/logs"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -230,5 +231,44 @@ func TestWorkloadReadyMissingDeploymentIsNotAnError(t *testing.T) {
 	}
 	if got {
 		t.Error("WorkloadReady = true for a Deployment that does not exist")
+	}
+}
+
+// A ResourceQuota is charged when a create reaches admission, and the charge is
+// not returned when that create then fails with AlreadyExists. So a redeploy
+// must not create what is already there: on the real cluster three rollbacks in
+// a row walked an app's quota to its ceiling of 3 services and the fourth was
+// refused, failing a rollback on a healthy app with reason internal.
+func TestApplyingOverExistingObjectsIssuesNoCreate(t *testing.T) {
+	ns := deploy.NamespaceName("demo")
+	existingSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: ns}}
+	existingService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}}
+	cs := fake.NewSimpleClientset(existingSecret, existingService)
+	c := NewFor(cs)
+
+	if err := c.ApplySecret(context.Background(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: ns},
+		Data:       map[string][]byte{"KEY": []byte("value")},
+	}); err != nil {
+		t.Fatalf("ApplySecret: %v", err)
+	}
+
+	if err := c.ApplyWorkload(context.Background(),
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}},
+		&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}},
+	); err != nil {
+		t.Fatalf("ApplyWorkload: %v", err)
+	}
+
+	for _, action := range cs.Actions() {
+		if action.GetVerb() != "create" {
+			continue
+		}
+		// The Deployment and the Ingress are not quota tracked, so creating one
+		// that turns out to exist costs nothing and that path is left alone.
+		if r := action.GetResource().Resource; r == "secrets" || r == "services" {
+			t.Errorf("a create was issued for %s, which already exists", r)
+		}
 	}
 }

@@ -133,8 +133,17 @@ const (
 // namespace without anything being deleted.
 func (c *Client) ApplySecret(ctx context.Context, s *corev1.Secret) error {
 	api := c.cs.CoreV1().Secrets(s.Namespace)
-	_, err := api.Create(ctx, s, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
+	// Read before writing, rather than creating and falling back on
+	// AlreadyExists. A ResourceQuota is charged when a create reaches admission,
+	// and the charge is not returned when the create then fails, so a redeploy
+	// that creates what is already there walks the namespace quota upward until
+	// Kubernetes recalculates it. Rollbacks are cheap enough to run several in a
+	// row, which is how an app with a quota of 3 services started refusing them.
+	_, err := api.Get(ctx, s.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		_, err = api.Create(ctx, s, metav1.CreateOptions{})
+	case err == nil:
 		_, err = api.Update(ctx, s, metav1.UpdateOptions{})
 	}
 	if err != nil {
@@ -221,21 +230,26 @@ func (c *Client) ApplyWorkload(ctx context.Context, d *appsv1.Deployment, s *cor
 		return fmt.Errorf("kube: creating deployment %s/%s: %w", d.Namespace, d.Name, err)
 	}
 
+	// Read before writing, for the quota reason ApplySecret carries: a Service is
+	// quota tracked, and a create that fails with AlreadyExists has already been
+	// charged for.
 	services := c.cs.CoreV1().Services(s.Namespace)
-	if _, err := services.Create(ctx, s, metav1.CreateOptions{}); apierrors.IsAlreadyExists(err) {
+	current, err := services.Get(ctx, s.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		if _, err := services.Create(ctx, s, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("kube: creating service %s/%s: %w", s.Namespace, s.Name, err)
+		}
+	case err != nil:
+		return fmt.Errorf("kube: reading service %s/%s: %w", s.Namespace, s.Name, err)
+	default:
 		// A Service holds a cluster IP the API server assigned, so the existing
 		// spec is edited rather than replaced wholesale.
-		current, getErr := services.Get(ctx, s.Name, metav1.GetOptions{})
-		if getErr != nil {
-			return fmt.Errorf("kube: reading service %s/%s: %w", s.Namespace, s.Name, getErr)
-		}
 		current.Spec.Selector = s.Spec.Selector
 		current.Spec.Ports = s.Spec.Ports
 		if _, err := services.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("kube: updating service %s/%s: %w", s.Namespace, s.Name, err)
 		}
-	} else if err != nil {
-		return fmt.Errorf("kube: creating service %s/%s: %w", s.Namespace, s.Name, err)
 	}
 
 	ingresses := c.cs.NetworkingV1().Ingresses(i.Namespace)
