@@ -49,6 +49,25 @@ func TestADeployFencesTheNamespace(t *testing.T) {
 	if len(except) != 1 || except[0] != "10.0.0.0/8" {
 		t.Errorf("except = %v, want the configured [10.0.0.0/8]", except)
 	}
+
+	// Exactly two, no third. A stray policy in the namespace is an allow rule
+	// nobody reviewed, and NetworkPolicy is additive: any one of them can open
+	// a hole the other two close (AC-1).
+	all, err := api.List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("listing the namespace's policies: %v", err)
+	}
+	if len(all.Items) != 2 {
+		t.Fatalf("policies = %d, want exactly 2", len(all.Items))
+	}
+	for _, p := range all.Items {
+		if p.Name != deploy.DenyPolicyName && p.Name != deploy.AllowPolicyName {
+			t.Errorf("unexpected policy %q in the namespace", p.Name)
+		}
+		if got := p.Labels["app.kubernetes.io/managed-by"]; got != "deployer" {
+			t.Errorf("%s managed-by = %q, want deployer", p.Name, got)
+		}
+	}
 }
 
 // The order is the whole point: a Deployment that lands before its policies is

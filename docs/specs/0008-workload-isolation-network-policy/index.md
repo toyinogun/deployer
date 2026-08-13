@@ -1,7 +1,7 @@
 # 0008. Workload isolation and network policy
 
 **Date**: 2026-08-13
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

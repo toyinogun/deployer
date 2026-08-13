@@ -8,6 +8,11 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 )
 
+// The shape of the two composed app policies (spec 0008, AC-1 through AC-5).
+// The fake clientset enforces nothing, so these pin the objects rather than the
+// behaviour: whether the fence actually holds is AC-6 to AC-9, and only the live
+// cluster can answer that.
+//
 // policyInput is one app's composition with a blocked list distinct enough that
 // a rule picking up the wrong one is visible.
 func policyInput() deploy.Input {

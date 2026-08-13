@@ -48,8 +48,8 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 5 | First deploy end to end | Slice 1 | done |
 | 6 | Async deployment jobs & status | Slice 2 | done |
 | 7 | Application logs | Slice 3 | done |
-| 8 | Accounts, API tokens & app ownership | Slice 4 | in-progress |
-| 9 | Workload isolation & network policy | Slice 5 | in-progress |
+| 8 | Accounts, API tokens & app ownership | Slice 4 | done |
+| 9 | Workload isolation & network policy | Slice 5 | done |
 | 10 | Dockerfile build path | Slice 6 | planned |
 | 11 | App environment configuration | Slice 7 | planned |
 | 12 | Rollback & release history | Slice 8 | planned |
@@ -164,7 +164,7 @@ spec [0006](../specs/0006-application-logs/index.md)
 
 ## Slice 4: Accounts, API tokens & app ownership
 
-### 8. Accounts, API tokens & app ownership
+### 8. Accounts, API tokens & app ownership · done
 Thickens the auth segment from the single token of slice 1 into something real: people register with an email and a password, verify the address, sign in to a browser session, and mint API tokens from there for their agent to carry. Apps belong to an owner so one account cannot deploy over or read another's app. No pages here: every endpoint is JSON and drivable with curl, and the web interface is feature 14.
 **Done when:** a person can register, verify, sign in and mint a token, that token deploys, a second account cannot deploy to or read anything of the first's app, tokens can be revoked, and every denial and privileged action is recorded.
 spec [0007](../specs/0007-accounts-tokens-app-ownership/index.md)
@@ -183,21 +183,21 @@ spec [0007](../specs/0007-accounts-tokens-app-ownership/index.md)
 
 ## Slice 5: Workload isolation & network policy
 
-### 9. Workload isolation & network policy
+### 9. Workload isolation & network policy · done
 Thickens the runtime segment into a boundary you can trust with code an AI wrote. The platform owns the workload manifest completely and the user cannot inject privileged fields into it.
 **Done when:** every app runs non root with dropped capabilities and CPU and memory ceilings, privileged mode and host mounts and host networking are impossible to request, and network policy blocks an app from reaching another app or your cluster services while still serving traffic through ingress.
 spec [0008](../specs/0008-workload-isolation-network-policy/index.md) · code in `internal/deploy/networkpolicy.go`, `internal/reconcile/policysweep.go`, `deploy/builds-networkpolicy.yaml`
 - [x] Design it (spec): `/architect workload isolation & network policy`
-- [ ] Build it: `/develop workload isolation & network policy`
+- [x] Build it: `/develop workload isolation & network policy`
   - [x] The blocked CIDR config and the two composed policies — AC-1, AC-2, AC-3, AC-4, AC-5, AC-14
   - [x] The reconcile write, before the workload, failing closed — AC-11, AC-13
-  - [ ] The probe app and the fence proved live on the cluster — AC-6, AC-7, AC-8, AC-9, AC-10, AC-19 · probe written in `testdata/probe`, the live proof needs the change merged and synced
+  - [x] The probe app and the fence proved live on the cluster — AC-6, AC-7, AC-8, AC-9, AC-10, AC-19
   - [x] The startup policy sweep over existing app namespaces — AC-12
-  - [ ] The build namespace policy, its drift pin, and the structural tests — AC-15, AC-17, AC-18, AC-20 done; AC-16 (a real build under the policy) needs the cluster
-- [ ] Verify it: `/check verify workload isolation & network policy`
-- [ ] Test it: `/test workload isolation & network policy`
-- [ ] Review it (fresh model): `/check review workload isolation & network policy`
-- [ ] Document it: `/document workload isolation & network policy`
+  - [x] The build namespace policy, its drift pin, and the structural tests — AC-15, AC-16, AC-17, AC-18, AC-20
+- [x] Verify it: `/check verify workload isolation & network policy`
+- [x] Test it: `/test workload isolation & network policy`
+- [x] Review it (fresh model): `/check review workload isolation & network policy`
+- [x] Document it: `/document workload isolation & network policy` — PR #11 description, drafted from the branch commits and diff
 
 ## Slice 6: Dockerfile build path
 
