@@ -65,8 +65,15 @@ func assertContainerIsFenced(t *testing.T, c corev1.Container) {
 	if sc.SeccompProfile == nil || sc.SeccompProfile.Type != corev1.SeccompProfileTypeRuntimeDefault {
 		t.Errorf("container %q does not carry the runtime default seccomp profile", c.Name)
 	}
-	if sc.Capabilities == nil || len(sc.Capabilities.Add) != 0 {
-		t.Errorf("container %q adds capabilities: %+v", c.Name, sc.Capabilities)
+	// Reported and returned rather than dereferenced: this is the test that
+	// exists to catch a container losing its capability rules, so it has to say
+	// so plainly instead of panicking on the nil a few lines down.
+	if sc.Capabilities == nil {
+		t.Errorf("container %q carries no capability rules at all", c.Name)
+		return
+	}
+	if len(sc.Capabilities.Add) != 0 {
+		t.Errorf("container %q adds capabilities: %+v", c.Name, sc.Capabilities.Add)
 	}
 	dropsAll := false
 	for _, cap := range sc.Capabilities.Drop {
