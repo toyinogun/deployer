@@ -1,7 +1,7 @@
 # 0010. App environment configuration: values an app is given, and the ones it is never shown
 
 **Date**: 2026-08-13
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

@@ -225,14 +225,14 @@ Thickens the app contract so deployed apps can actually be configured. The platf
 **Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables through a Secret, a change lands on the next deploy and is snapshotted onto the release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
 From spec 0006: this is also where `get_logs` gains exact redaction, because the platform will finally know which values are secret because it injected them.
 From spec 0009: decide here whether a Dockerfile build receives build arguments or build secrets. Spec 0010 confirms the answer is none, deliberately, because a value that reaches a build layer is baked into a published image.
-spec [0010](../specs/0010-app-environment-configuration/index.md)
+spec [0010](../specs/0010-app-environment-configuration/index.md) · code in `internal/domain/config.go`, `internal/store/config.go`, `internal/deploy`, `internal/mcp/config.go`
 - [x] Design it (spec): `/architect app environment configuration`
-- [ ] Build it: `/develop app environment configuration`
-  - [ ] The domain rules and the transactional store batch: reason codes, key shape, reserved names, bounds, the required secret flag, and all or nothing writes — AC-1, AC-3, AC-4, AC-5, AC-6, AC-16
-  - [ ] The injection side: the app's Secret, `envFrom`, `APP_URL` beside `PORT`, the pod template checksum, and applying it from the reconcile loop — AC-7, AC-10, AC-15, AC-17
-  - [ ] The tools live: `set_config`, `get_config`, `unset_config`, ownership, audit rows, and the next deploy line in the response — AC-1, AC-2, AC-3, AC-8, AC-12, AC-13
-  - [ ] Exact log redaction, matched against the running release as well as current configuration — AC-11
-  - [ ] The first call path: the optional config map on `deploy_app`, the tool descriptions, and the test holding builds clear of configuration — AC-9, AC-14
+- [x] Build it: `/develop app environment configuration`
+  - [x] The domain rules and the transactional store batch: reason codes, key shape, reserved names, bounds, the required secret flag, and all or nothing writes — AC-1, AC-3, AC-4, AC-5, AC-6, AC-16
+  - [x] The injection side: the app's Secret, `envFrom`, `APP_URL` beside `PORT`, the pod template checksum, and applying it from the reconcile loop — AC-7, AC-10, AC-15, AC-17
+  - [x] The tools live: `set_config`, `get_config`, `unset_config`, ownership, audit rows, and the next deploy line in the response — AC-1, AC-2, AC-3, AC-8, AC-12, AC-13
+  - [x] Exact log redaction, matched against the running release as well as current configuration — AC-11
+  - [x] The first call path: the optional config map on `deploy_app`, the tool descriptions, and the test holding builds clear of configuration — AC-9, AC-14
 - [ ] Verify it: `/check verify app environment configuration`
 - [ ] Test it: `/test app environment configuration`
 - [ ] Review it (fresh model): `/check review app environment configuration`
