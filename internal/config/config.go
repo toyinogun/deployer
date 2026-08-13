@@ -93,6 +93,15 @@ type Config struct {
 	// ResendAPIKey is set, and validated together with it here rather than
 	// discovered to be empty by the first registration.
 	MailFrom string
+
+	// Added by spec 0008, workload isolation and network policy.
+
+	// AppEgressBlockedCIDRs are the ranges an app may not reach, which become the
+	// `except` list of its egress allow rule. App to app isolation rides on this
+	// list: another app's pod IP and Service IP are unreachable because both
+	// ranges sit inside it, so narrowing it for an unrelated reason weakens that
+	// isolation as a side effect (spec 0008, Key invariants).
+	AppEgressBlockedCIDRs []string
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -207,6 +216,7 @@ func Load(getenv func(string) string) (Config, error) {
 	missing = append(missing, deployMissing...)
 	errs = append(errs, deployErrs...)
 	errs = append(errs, loadIdentity(getenv, &c)...)
+	errs = append(errs, loadIsolation(getenv, &c)...)
 
 	if len(missing) > 0 {
 		errs = append(errs, "missing required environment: "+strings.Join(missing, ", "))

@@ -9,6 +9,7 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - builds-namespace.yaml
+  - builds-networkpolicy.yaml
   - rbac.yaml
   - admission-policy.yaml
   # Sealed to this cluster's key, so they are safe to commit and useless

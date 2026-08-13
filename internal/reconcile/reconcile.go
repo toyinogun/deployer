@@ -115,6 +115,8 @@ type Cluster interface {
 	JobState(ctx context.Context, namespace, name string) (build.JobState, error)
 	ApplySecret(ctx context.Context, s *corev1.Secret) error
 	EnsureNamespace(ctx context.Context, ns *corev1.Namespace, rb *rbacv1.RoleBinding, quota *corev1.ResourceQuota, limits *corev1.LimitRange) error
+	ApplyNetworkPolicies(ctx context.Context, policies ...*networkingv1.NetworkPolicy) error
+	AppNamespaces(ctx context.Context) ([]string, error)
 	ApplyWorkload(ctx context.Context, d *appsv1.Deployment, s *corev1.Service, i *networkingv1.Ingress) error
 	WorkloadReady(ctx context.Context, namespace, name string) (bool, error)
 	DeleteJob(ctx context.Context, namespace, name string) error
@@ -158,6 +160,10 @@ type Options struct {
 	QuotaCPU    string
 	QuotaMemory string
 	QuotaPods   int
+
+	// EgressBlockedCIDRs is what an app's egress rule carves out of the internet,
+	// already parsed at startup (spec 0008).
+	EgressBlockedCIDRs []string
 }
 
 // Reconciler drives deployments.
@@ -180,6 +186,10 @@ func New(d Deployments, a Apps, u Uploads, r Registry, c Cluster, opts Options) 
 // One goroutine, one deployment at a time. That is the whole concurrency model,
 // and it is what AC-6 asks for.
 func (r *Reconciler) Run(ctx context.Context) {
+	// The fence first, ahead of any deployment work: a namespace left unpoliced
+	// by an earlier release is closed before this process drives anything into
+	// it (spec 0008, AC-12).
+	r.PolicySweep(ctx)
 	r.Sweep(ctx)
 
 	ticker := time.NewTicker(r.opts.ReconcileInterval)
@@ -505,6 +515,11 @@ func (r *Reconciler) deployApp(ctx context.Context, dep *Deployment, app App) *f
 		deploy.Namespace(in), deploy.RoleBinding(in), deploy.ResourceQuota(in), deploy.LimitRange(in)); err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("preparing the app namespace: %w", err)}
 	}
+	// Before anything else in the namespace, and fatal if it fails: an app is
+	// never running while unpoliced (spec 0008, AC-13).
+	if err := r.cluster.ApplyNetworkPolicies(ctx, deploy.DefaultDenyPolicy(in), deploy.AllowPolicy(in)); err != nil {
+		return &failure{domain.ReasonInternal, fmt.Errorf("fencing the app namespace: %w", err)}
+	}
 	pull, err := build.PullSecret(deploy.PullSecretName, deploy.NamespaceName(app.Slug), r.credential())
 	if err != nil {
 		return &failure{domain.ReasonInternal, err}
@@ -581,6 +596,7 @@ func (r *Reconciler) appInput(app App, image string) deploy.Input {
 		QuotaMemory:           r.opts.QuotaMemory,
 		QuotaPods:             r.opts.QuotaPods,
 		ControlPlaneNamespace: r.opts.ControlPlaneNamespace,
+		EgressBlockedCIDRs:    r.opts.EgressBlockedCIDRs,
 	}
 }
 

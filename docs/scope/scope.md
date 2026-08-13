@@ -49,7 +49,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 6 | Async deployment jobs & status | Slice 2 | done |
 | 7 | Application logs | Slice 3 | done |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | in-progress |
-| 9 | Workload isolation & network policy | Slice 5 | planned |
+| 9 | Workload isolation & network policy | Slice 5 | in-progress |
 | 10 | Dockerfile build path | Slice 6 | planned |
 | 11 | App environment configuration | Slice 7 | planned |
 | 12 | Rollback & release history | Slice 8 | planned |
@@ -183,10 +183,21 @@ spec [0007](../specs/0007-accounts-tokens-app-ownership/index.md)
 
 ## Slice 5: Workload isolation & network policy
 
-### 9. Workload isolation & network policy · needs a decision
+### 9. Workload isolation & network policy
 Thickens the runtime segment into a boundary you can trust with code an AI wrote. The platform owns the workload manifest completely and the user cannot inject privileged fields into it.
 **Done when:** every app runs non root with dropped capabilities and CPU and memory ceilings, privileged mode and host mounts and host networking are impossible to request, and network policy blocks an app from reaching another app or your cluster services while still serving traffic through ingress.
-- [ ] Design it (spec): `/architect workload isolation & network policy`
+spec [0008](../specs/0008-workload-isolation-network-policy/index.md) · code in `internal/deploy/networkpolicy.go`, `internal/reconcile/policysweep.go`, `deploy/builds-networkpolicy.yaml`
+- [x] Design it (spec): `/architect workload isolation & network policy`
+- [ ] Build it: `/develop workload isolation & network policy`
+  - [x] The blocked CIDR config and the two composed policies — AC-1, AC-2, AC-3, AC-4, AC-5, AC-14
+  - [x] The reconcile write, before the workload, failing closed — AC-11, AC-13
+  - [ ] The probe app and the fence proved live on the cluster — AC-6, AC-7, AC-8, AC-9, AC-10, AC-19 · probe written in `testdata/probe`, the live proof needs the change merged and synced
+  - [x] The startup policy sweep over existing app namespaces — AC-12
+  - [ ] The build namespace policy, its drift pin, and the structural tests — AC-15, AC-17, AC-18, AC-20 done; AC-16 (a real build under the policy) needs the cluster
+- [ ] Verify it: `/check verify workload isolation & network policy`
+- [ ] Test it: `/test workload isolation & network policy`
+- [ ] Review it (fresh model): `/check review workload isolation & network policy`
+- [ ] Document it: `/document workload isolation & network policy`
 
 ## Slice 6: Dockerfile build path
 
@@ -238,6 +249,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision
 - **Kubernetes events for an app that prints nothing**: surfacing image pull failures, out of memory kills, and probe failures, which explain a failed app that produced no output of its own. From spec 0006, only worth building if `state: failed` with an empty log turns out to be a common dead end · needs a decision
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
+- **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · needs a decision
+- **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 

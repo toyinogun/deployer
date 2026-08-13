@@ -53,6 +53,7 @@ type world struct {
 	uploads    *uploads.Service
 	deployment store.Deployment
 	app        store.App
+	accountID  string
 	uploadPath string
 }
 
@@ -108,6 +109,7 @@ func setup(t *testing.T) *world {
 		uploads:    svc,
 		deployment: dep,
 		app:        app,
+		accountID:  account.ID,
 		uploadPath: up.Path,
 	}
 }
@@ -183,6 +185,7 @@ func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Opt
 		QuotaCPU:              "1",
 		QuotaMemory:           "1Gi",
 		QuotaPods:             5,
+		EgressBlockedCIDRs:    []string{"10.0.0.0/8"},
 	}
 	for _, tweak := range tweaks {
 		tweak(&opts)
