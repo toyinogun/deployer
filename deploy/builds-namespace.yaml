@@ -1,11 +1,26 @@
 # Where build Jobs run (spec 0004, AC-7). This namespace executes code the
 # platform did not author, over a tarball the platform did not author, so it
 # holds no cluster credentials beyond the one registry credential a build needs
-# to push, and it enforces `restricted` pod security like everything else here.
+# to push.
 #
-# Whether the Buildpacks lifecycle actually fits inside `restricted` is not
-# proven until a build runs here. If it does not, that is a finding and a spec
-# update, never a right granted in advance (spec 0004, Consequences).
+# It enforces `baseline` rather than `restricted`, which is the one place in this
+# repo that is true (spec 0009, AC-10). Rootless BuildKit cannot fit inside
+# `restricted`: it was run against the pinned image on this cluster and needs an
+# unconfined seccomp profile, an unconfined AppArmor profile,
+# allowPrivilegeEscalation true, and SETUID plus SETGID added back on top of
+# dropping all capabilities. Those four are exactly what `baseline` permits, so
+# none of them needs a further exception, and the fifth one does not exist: if it
+# is ever needed, the agreed answer is to split this namespace in two rather than
+# widen it again (spec 0009, Follow-up).
+#
+# The Buildpacks pod is unchanged and still composes every field `restricted`
+# asks for, including allowPrivilegeEscalation false and all capabilities
+# dropped. What used to be enforced here is now pinned by a test over the
+# composer instead, which is a weaker guarantee and was priced as such.
+#
+# The audit and warn levels stay at `restricted` on purpose: the API server then
+# still says which pods deviate, so the four expected deviations are visible and
+# a fifth is noisy rather than silent.
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -13,7 +28,7 @@ metadata:
   labels:
     app.kubernetes.io/name: deployer
     app.kubernetes.io/managed-by: argocd
-    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce: baseline
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted

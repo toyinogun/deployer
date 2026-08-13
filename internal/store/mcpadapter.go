@@ -89,6 +89,7 @@ func mcpDeploymentRow(d Deployment) mcp.Deployment {
 		AccountID: d.AccountID,
 		State:     domain.State(d.State),
 		Reason:    domain.Reason(deref(d.FailureReason)),
+		BuildPath: deref(d.BuildPath),
 	}
 }
 

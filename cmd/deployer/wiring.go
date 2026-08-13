@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"io"
 
 	"github.com/toyinogun/deployer/internal/mcp"
 	"github.com/toyinogun/deployer/internal/reconcile"
@@ -29,6 +30,9 @@ func (u uploadSource) Get(ctx context.Context, id string) (reconcile.Upload, err
 	}
 	return reconcile.Upload{ID: up.ID, Path: up.Path, SHA256: up.SHA256}, nil
 }
+
+// Open hands the loop the stored tarball, whose tar headers choose the engine.
+func (u uploadSource) Open(path string) (io.ReadCloser, error) { return u.svc.Open(path) }
 
 // MintFetchToken generates the single use token one build presents.
 func (u uploadSource) MintFetchToken(ctx context.Context, id string) (string, error) {

@@ -50,7 +50,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 7 | Application logs | Slice 3 | done |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | done |
 | 9 | Workload isolation & network policy | Slice 5 | done |
-| 10 | Dockerfile build path | Slice 6 | planned |
+| 10 | Dockerfile build path | Slice 6 | in-progress |
 | 11 | App environment configuration | Slice 7 | planned |
 | 12 | Rollback & release history | Slice 8 | planned |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
@@ -201,10 +201,21 @@ spec [0008](../specs/0008-workload-isolation-network-policy/index.md) · code in
 
 ## Slice 6: Dockerfile build path
 
-### 10. Dockerfile build path
+### 10. Dockerfile build path · in-progress
 Thickens the build segment with the escape hatch: when the project ships a Dockerfile, build that instead of running Buildpack detection, so apps Buildpacks cannot handle still deploy.
 **Done when:** a project with a Dockerfile builds through it, a project without one still builds through Buildpacks, and which path ran is recorded on the deployment.
+spec [0009](../specs/0009-dockerfile-build-path/index.md)
+- [x] Design it (spec): `/architect dockerfile build path`
 - [ ] Build it: `/develop dockerfile build path`
+  - [x] The pinned BuildKit image, its own uid pair, and CI's drift check over both build images — AC-8, AC-9
+  - [x] Detection as a bounded, header only walk of the stored archive, regular files only — AC-3, AC-6, AC-7a
+  - [x] The BuildKit Job composed beside the Paketo one, and `deployer-builds` relaxed to baseline ahead of it — AC-7, AC-10, AC-15, AC-18
+  - [ ] The thin thread live: selection wired into startBuild and both samples in place, but not yet proved on the cluster — AC-1, AC-2, AC-4, AC-5, AC-17
+  - [ ] The refusals and the guards: the reworded failure message, the composed context test and the tool description are in, the root image refusal still needs a live rootful Dockerfile — AC-11, AC-12, AC-13, AC-14, AC-16
+- [ ] Verify it: `/check verify dockerfile build path`
+- [ ] Test it: `/test dockerfile build path`
+- [ ] Review it (fresh model): `/check review dockerfile build path`
+- [ ] Document it: `/document dockerfile build path`
 
 ## Slice 7: App environment configuration
 
@@ -212,6 +223,7 @@ Thickens the build segment with the escape hatch: when the project ships a Docke
 Thickens the app contract so deployed apps can actually be configured. The platform injects `PORT` and any values set for the app, and decides what happens to values that are sensitive.
 **Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables, a change triggers a new release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
 From spec 0006: this is also where `get_logs` gains exact redaction, because the platform will finally know which values are secret because it injected them.
+From spec 0009: decide here whether a Dockerfile build receives build arguments or build secrets. The answer today is none, deliberately, because a value that reaches a build layer is baked into a published image.
 - [ ] Design it (spec): `/architect app environment configuration`
 
 ## Slice 8: Rollback & release history
@@ -241,12 +253,13 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **App databases**: a provisioned Postgres database and role per app · needs a decision
 - **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
 - **Public exposure**: real public hostnames with certificates, chosen per app · needs a decision
-- **Image and dependency scanning**: block a release on a critical finding · needs a decision
+- **Image and dependency scanning**: block a release on a critical finding. From spec 0009, base image allowlisting for Dockerfile builds belongs with this rather than on its own · needs a decision
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
 - **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned · needs a decision
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
 - **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision
+- **Layer cache for Dockerfile builds**: a registry backed cache, so a rebuild is not cold every time. From spec 0009, left out because it would put unbounded cache images on the same registry that has no garbage collection, so it is only worth deciding together with the item above · needs a decision
 - **Kubernetes events for an app that prints nothing**: surfacing image pull failures, out of memory kills, and probe failures, which explain a failed app that produced no output of its own. From spec 0006, only worth building if `state: failed` with an empty log turns out to be a common dead end · needs a decision
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
 - **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · needs a decision

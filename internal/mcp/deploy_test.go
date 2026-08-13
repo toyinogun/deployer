@@ -242,6 +242,11 @@ func TestTheToolDescriptionCarriesTheUploadContract(t *testing.T) {
 		// (spec 0005, AC-4).
 		"straight away",
 		"does not wait",
+		// The detection rule, which is the only place an agent learns that a
+		// root Dockerfile changes how its app is built (spec 0009, AC-16).
+		"Dockerfile at the root",
+		"Buildpacks",
+		"build_path",
 	} {
 		if !strings.Contains(description, want) {
 			t.Errorf("the description does not mention %q", want)

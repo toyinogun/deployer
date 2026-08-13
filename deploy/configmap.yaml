@@ -50,6 +50,20 @@ data:
   DEPLOYER_BUILD_UID: "1001"
   DEPLOYER_BUILD_GID: "1000"
 
+  # The other engine: rootless BuildKit, which builds a project that ships its
+  # own Dockerfile. Pinned by digest for the same reason the builder above is.
+  # This is `v0.32.2-rootless` as it resolved on 2026-08-13:
+  #   crane digest moby/buildkit:v0.32.2-rootless
+  DEPLOYER_BUILDKIT_IMAGE: moby/buildkit@sha256:504731e577c20559c00f968f33219f30115e70be29ab96728d1d06e963fc494b
+
+  # The pair that image declares in its own OCI config `User` field, which is
+  # where a BuildKit image says it, since it follows no CNB_ convention. They
+  # belong to the digest directly above and are repinned with it; the same
+  # `builder uid` CI step checks this pair too. To re-read them by hand:
+  #   crane config moby/buildkit@sha256:5047... | jq -r '.config.User'
+  DEPLOYER_BUILDKIT_UID: "1000"
+  DEPLOYER_BUILDKIT_GID: "1000"
+
   # The app container's own ceilings, inside the LimitRange maxima spec 0003 sets.
   DEPLOYER_APP_DEFAULT_CPU: 100m
   DEPLOYER_APP_DEFAULT_MEMORY: 128Mi

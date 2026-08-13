@@ -65,6 +65,17 @@ type Config struct {
 	BuildUID int64
 	BuildGID int64
 
+	// Added by spec 0009, the Dockerfile build path.
+
+	// BuildkitImage is the digest pinned rootless BuildKit image the Dockerfile
+	// path builds with. Pinned exactly as BuilderImage is, for the same reason.
+	BuildkitImage string
+	// BuildkitUID and BuildkitGID are the pair BuildkitImage declares in its own
+	// OCI config User field. They belong to that image, never to the Paketo one,
+	// and CI checks them against the pinned digest the same way.
+	BuildkitUID int64
+	BuildkitGID int64
+
 	// DeployTimeout is one deployment's whole budget, measured from created_at to
 	// a terminal state and enforced by the reconcile loop. It does not bound an
 	// MCP call: deploy_app returns straight away (spec 0005, AC-17).

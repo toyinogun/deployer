@@ -2,7 +2,6 @@ package reconcile_test
 
 import (
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -125,7 +124,7 @@ func (w *world) queuedDeploymentFor(t *testing.T, name string) store.Deployment 
 		t.Fatalf("creating the app %s: %v", name, err)
 	}
 	up, err := w.uploads.Accept(ctx, w.app.AccountID,
-		strings.NewReader("\x1f\x8b"+strings.Repeat("x", 64)))
+		tarball(t, "main.go"))
 	if err != nil {
 		t.Fatalf("accepting the upload for %s: %v", name, err)
 	}

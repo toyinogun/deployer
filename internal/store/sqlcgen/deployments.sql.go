@@ -539,10 +539,10 @@ func (q *Queries) NextReleaseNumber(ctx context.Context, appID string) (int64, e
 
 const recordBuildResult = `-- name: RecordBuildResult :execrows
 UPDATE deployments
-SET build_path = ?1,
-    build_job_name = ?2,
-    image_repo = ?3,
-    image_digest = ?4,
+SET build_path = COALESCE(?1, build_path),
+    build_job_name = COALESCE(?2, build_job_name),
+    image_repo = COALESCE(?3, image_repo),
+    image_digest = COALESCE(?4, image_digest),
     updated_at = ?5
 WHERE id = ?6
 `
@@ -556,6 +556,13 @@ type RecordBuildResultParams struct {
 	ID           string
 }
 
+// A field the caller left empty keeps whatever the row already holds, which is
+// what the Go wrapper always meant by only setting the fields it was given. It
+// matters because this statement runs twice for one deployment: once when the
+// build starts, carrying the path and the Job name, and once when the image is
+// resolved, carrying the digest. Without the coalesce the second call erases what
+// the first wrote, and the build path a failed deployment reports is exactly the
+// field that would go missing (spec 0009, AC-4).
 func (q *Queries) RecordBuildResult(ctx context.Context, arg RecordBuildResultParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, recordBuildResult,
 		arg.BuildPath,

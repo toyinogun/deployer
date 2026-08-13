@@ -41,7 +41,7 @@ var messages = map[Reason]string{
 	ReasonUploadInvalid:   "the upload id is unknown, already used, or belongs to another account",
 	ReasonUploadExpired:   "the upload expired, so upload the source again and retry",
 	ReasonSourceRejected:  "the source archive was refused: it is too large, holds too many files, or contains an unsafe entry",
-	ReasonBuildFailed:     "the build did not complete, so check that the app builds with Cloud Native Buildpacks",
+	ReasonBuildFailed:     "the build did not complete, so check that the app builds with the engine that ran, which deployment_status reports as build_path",
 	ReasonBuildNoDigest:   "the build reported success but pushed no image",
 	ReasonImageRunsAsRoot: "the built image runs as root, so add a non root USER to the app",
 	ReasonAppNeverReady:   "the app never accepted a connection on the port given in PORT",

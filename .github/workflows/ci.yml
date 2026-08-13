@@ -51,41 +51,56 @@ jobs:
         run: |
           set -euo pipefail
           value() { grep -E "^  $1:" deploy/configmap.yaml | sed -E 's/^[^:]+: *"?([^"]*)"?$/\1/'; }
-          image=$(value DEPLOYER_BUILDER_IMAGE)
-          repo=${image%@*}
-          digest=${image#*@}
-          echo "reading $repo@$digest"
-
-          token=$(curl -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" | jq -r .token)
-          accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
-          fetch() { curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $accept" "https://registry-1.docker.io/v2/${repo}/manifests/$1"; }
-
-          manifest=$(fetch "$digest")
-          # A multi platform index names no config of its own, so follow it to the
-          # linux/amd64 manifest, which is what the cluster runs.
-          if [ "$(jq -r 'has("manifests")' <<<"$manifest")" = true ]; then
-            child=$(jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest' <<<"$manifest" | head -1)
-            [ -n "$child" ] || { echo "no linux/amd64 manifest in the index" >&2; exit 1; }
-            manifest=$(fetch "$child")
-          fi
-
-          config=$(jq -r .config.digest <<<"$manifest")
-          env_json=$(curl -fsSL -H "Authorization: Bearer $token" "https://registry-1.docker.io/v2/${repo}/blobs/${config}" | jq -c '.config.Env')
-          from_image() { jq -r --arg k "$1" '.[] | select(startswith($k + "=")) | sub("^[^=]+="; "")' <<<"$env_json"; }
-
           status=0
-          for pair in "CNB_USER_ID DEPLOYER_BUILD_UID" "CNB_GROUP_ID DEPLOYER_BUILD_GID"; do
-            set -- $pair
-            want=$(value "$2")
-            got=$(from_image "$1")
-            [ -n "$got" ] || { echo "the builder image declares no $1" >&2; status=1; continue; }
-            if [ "$want" != "$got" ]; then
-              echo "$2 is $want but the pinned builder declares $1=$got" >&2
+
+          # config prints the linux/amd64 OCI config blob of a pinned image.
+          config() {
+            local repo=$1 digest=$2 token accept manifest child cfg
+            token=$(curl -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${repo}:pull" | jq -r .token)
+            accept='application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.v2+json'
+            manifest=$(curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $accept" "https://registry-1.docker.io/v2/${repo}/manifests/${digest}")
+            # A multi platform index names no config of its own, so follow it to
+            # the linux/amd64 manifest, which is what the cluster runs.
+            if [ "$(jq -r 'has("manifests")' <<<"$manifest")" = true ]; then
+              child=$(jq -r '.manifests[] | select(.platform.os=="linux" and .platform.architecture=="amd64") | .digest' <<<"$manifest" | head -1)
+              [ -n "$child" ] || { echo "no linux/amd64 manifest in the index" >&2; return 1; }
+              manifest=$(curl -fsSL -H "Authorization: Bearer $token" -H "Accept: $accept" "https://registry-1.docker.io/v2/${repo}/manifests/${child}")
+            fi
+            cfg=$(jq -r .config.digest <<<"$manifest")
+            curl -fsSL -H "Authorization: Bearer $token" "https://registry-1.docker.io/v2/${repo}/blobs/${cfg}"
+          }
+
+          # compare checks one configmap key against what the image declares.
+          compare() {
+            local key=$1 got=$2 source=$3 want
+            want=$(value "$key")
+            if [ -z "$got" ]; then
+              echo "the image declares no $source" >&2
+              status=1
+            elif [ "$want" != "$got" ]; then
+              echo "$key is $want but the pinned image declares $source=$got" >&2
               status=1
             else
-              echo "$2=$want matches the image's $1"
+              echo "$key=$want matches the image's $source"
             fi
-          done
+          }
+
+          # The Paketo builder says its pair in CNB_USER_ID and CNB_GROUP_ID.
+          image=$(value DEPLOYER_BUILDER_IMAGE)
+          echo "reading ${image%@*}@${image#*@}"
+          env_json=$(config "${image%@*}" "${image#*@}" | jq -c '.config.Env')
+          from_env() { jq -r --arg k "$1" '.[] | select(startswith($k + "=")) | sub("^[^=]+="; "")' <<<"$env_json"; }
+          compare DEPLOYER_BUILD_UID "$(from_env CNB_USER_ID)" CNB_USER_ID
+          compare DEPLOYER_BUILD_GID "$(from_env CNB_GROUP_ID)" CNB_GROUP_ID
+
+          # BuildKit follows no CNB_ convention, so its pair is the OCI config's
+          # own User field, "uid:gid", the same field registry.ImageUser parses.
+          image=$(value DEPLOYER_BUILDKIT_IMAGE)
+          echo "reading ${image%@*}@${image#*@}"
+          user=$(config "${image%@*}" "${image#*@}" | jq -r '.config.User // ""')
+          compare DEPLOYER_BUILDKIT_UID "${user%%:*}" "Config.User uid"
+          compare DEPLOYER_BUILDKIT_GID "${user##*:}" "Config.User gid"
+
           exit $status
 
       # ko builds the image straight from the module, no Dockerfile. On a pull

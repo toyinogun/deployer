@@ -128,7 +128,7 @@ func TestADriveStopsWhenItIsSupersededWhileTheAppComesUp(t *testing.T) {
 func supersede(t *testing.T, w *world) {
 	t.Helper()
 	ctx := context.Background()
-	body := strings.NewReader("\x1f\x8b" + strings.Repeat("x", 64))
+	body := tarball(t, "main.go")
 	up, err := w.uploads.Accept(ctx, w.deployment.AccountID, body)
 	if err != nil {
 		t.Fatalf("accepting the second upload: %v", err)

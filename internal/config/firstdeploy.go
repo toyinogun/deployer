@@ -88,6 +88,13 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 	// the pinned image's config rather than trusting what is set here.
 	c.BuildUID = id("BUILD_UID")
 	c.BuildGID = id("BUILD_GID")
+	// The Dockerfile path's own engine, and its own uid pair. A BuildKit image
+	// follows no CNB_ convention, so the pair comes from the OCI config's User
+	// field. Reading either one off the wrong image is the failure this split
+	// exists to prevent (spec 0009, AC-8).
+	c.BuildkitImage = required("BUILDKIT_IMAGE")
+	c.BuildkitUID = id("BUILDKIT_UID")
+	c.BuildkitGID = id("BUILDKIT_GID")
 
 	for _, addr := range []struct {
 		key   string
@@ -110,6 +117,7 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 	// it pinned. Catch it at boot instead.
 	for _, img := range []struct{ key, value string }{
 		{"DEPLOYER_BUILDER_IMAGE", c.BuilderImage},
+		{"DEPLOYER_BUILDKIT_IMAGE", c.BuildkitImage},
 		{"DEPLOYER_SELF_IMAGE", c.SelfImage},
 	} {
 		if img.value != "" && !strings.Contains(img.value, "@sha256:") {
