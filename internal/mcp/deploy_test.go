@@ -28,6 +28,11 @@ type stubApps struct {
 	// released is what the app's current release ran with, which is the second
 	// half of what get_logs redacts against.
 	released map[string]string
+	// owner is the account these apps belong to. The real store scopes ByName by
+	// account, so a stub that answers anyone would let an ownership refusal pass
+	// the suite without ever being made. Empty means unscoped, which is fine for
+	// a test about something else; a test about ownership has to set it.
+	owner string
 }
 
 func (s *stubApps) ReleaseConfig(_ context.Context, _ string) (map[string]string, error) {
@@ -85,9 +90,14 @@ func (s *stubApps) UnsetConfig(_ context.Context, appID string, keys []string) e
 	return nil
 }
 
-func (s *stubApps) ByName(_ context.Context, _, name string) (App, error) {
+func (s *stubApps) ByName(_ context.Context, accountID, name string) (App, error) {
 	if s.readErr != nil {
 		return App{}, s.readErr
+	}
+	if s.owner != "" && accountID != s.owner {
+		// Indistinguishable from a name that never existed, which is the whole
+		// point of the refusal.
+		return App{}, ErrNoApp
 	}
 	if app, ok := s.existing[name]; ok {
 		return app, nil
@@ -127,6 +137,11 @@ type stubDeployments struct {
 	lastFile string
 	// readErr stands in for a store fault rather than a missing row.
 	readErr error
+
+	// The release surface spec 0011 added. summaries is what the listing reads,
+	// and lastRelease records which release a rollback was written against.
+	summaries   []ReleaseSummary
+	lastRelease string
 }
 
 func (s *stubDeployments) Create(_ context.Context, appID, _, uploadID string) (string, error) {
@@ -162,6 +177,36 @@ func (s *stubDeployments) NextForApp(context.Context, string, string) (string, e
 
 func (s *stubDeployments) Events(context.Context, string) ([]Event, error)  { return s.events, nil }
 func (s *stubDeployments) Release(context.Context, string) (Release, error) { return s.release, nil }
+
+func (s *stubDeployments) CreateRollback(_ context.Context, appID, _, releaseID string) (string, error) {
+	s.created++
+	s.lastApp, s.lastRelease = appID, releaseID
+	return "dep_rollback_1", nil
+}
+
+// ReleaseIDByNumber answers from summaries, so a test declares which release
+// numbers exist by declaring the listing.
+func (s *stubDeployments) ReleaseIDByNumber(_ context.Context, _ string, number int64) (string, error) {
+	if s.readErr != nil {
+		return "", s.readErr
+	}
+	for _, r := range s.summaries {
+		if r.Number == number {
+			return r.ID, nil
+		}
+	}
+	return "", ErrNoRelease
+}
+
+func (s *stubDeployments) ListReleases(_ context.Context, _ string, limit int64) ([]ReleaseSummary, error) {
+	if s.readErr != nil {
+		return nil, s.readErr
+	}
+	if int64(len(s.summaries)) > limit {
+		return s.summaries[:limit], nil
+	}
+	return s.summaries, nil
+}
 
 // stubUploads holds the one upload a test offers.
 type stubUploads struct{ up Upload }

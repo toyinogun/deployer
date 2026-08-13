@@ -13,6 +13,24 @@ import (
 	"github.com/toyinogun/deployer/internal/store"
 )
 
+// decodeSnapshot reads a release's config_snapshot the way the store writes it
+// from spec 0011 onwards: a value and its secret flag per key.
+func decodeSnapshot(t *testing.T, snapshot string) map[string]domain.ConfigValue {
+	t.Helper()
+	var raw map[string]struct {
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
+	}
+	if err := json.Unmarshal([]byte(snapshot), &raw); err != nil {
+		t.Fatalf("reading the release's configuration snapshot %q: %v", snapshot, err)
+	}
+	out := make(map[string]domain.ConfigValue, len(raw))
+	for k, v := range raw {
+		out[k] = domain.ConfigValue{Value: v.Value, Secret: v.Secret}
+	}
+	return out
+}
+
 func TestADeployGivesTheContainerItsConfigurationAndTheTwoPlatformValues(t *testing.T) {
 	// covers: spec 0010 AC-7, AC-10, AC-15
 	w := setup(t)
@@ -81,12 +99,14 @@ func TestADeployGivesTheContainerItsConfigurationAndTheTwoPlatformValues(t *test
 	if err != nil {
 		t.Fatalf("reading the release: %v", err)
 	}
-	var snapshot map[string]string
-	if err := json.Unmarshal([]byte(rel.ConfigSnapshot), &snapshot); err != nil {
-		t.Fatalf("reading the release's configuration snapshot %q: %v", rel.ConfigSnapshot, err)
-	}
-	if snapshot["DATABASE_URL"] != "postgres://db/app" || snapshot["LOG_LEVEL"] != "debug" {
+	snapshot := decodeSnapshot(t, rel.ConfigSnapshot)
+	if snapshot["DATABASE_URL"].Value != "postgres://db/app" || snapshot["LOG_LEVEL"].Value != "debug" {
 		t.Errorf("the release snapshot holds %+v", snapshot)
+	}
+	// The flag rides along with the value, which is what makes a rollback able to
+	// restore it (spec 0011, AC-15).
+	if !snapshot["DATABASE_URL"].Secret || snapshot["LOG_LEVEL"].Secret {
+		t.Errorf("the release snapshot lost the secret flags: %+v", snapshot)
 	}
 }
 

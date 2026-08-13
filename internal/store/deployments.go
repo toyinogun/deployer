@@ -274,7 +274,14 @@ func (s *Store) RecordBuildResult(ctx context.Context, deploymentID string, r Bu
 // container's Secret from one read minutes earlier, and re reading here would
 // snapshot a set_config that landed during the readiness wait onto a release
 // that never ran it (spec 0010, AC-10).
-func (s *Store) MarkHealthy(ctx context.Context, deploymentID string, config map[string]string) (Deployment, Release, error) {
+//
+// On a rollback it does one thing more: app_config is replaced wholesale by the
+// configuration that was actually deployed, in this same transaction, so stored
+// configuration and the running app cannot disagree because a rollback failed
+// halfway. A set_config that committed during the readiness wait is reverted by
+// that replacement, which is specified behaviour rather than a race to close
+// (spec 0011, AC-13, AC-25).
+func (s *Store) MarkHealthy(ctx context.Context, deploymentID string, config map[string]domain.ConfigValue) (Deployment, Release, error) {
 	var dep Deployment
 	var rel Release
 	now := s.now()
@@ -336,6 +343,12 @@ func (s *Store) MarkHealthy(ctx context.Context, deploymentID string, config map
 		}); err != nil {
 			return fmt.Errorf("store: pointing app %s at release %s: %w", current.AppID, rel.ID, err)
 		}
+
+		if current.SourceReleaseID != nil {
+			if err := replaceConfig(ctx, q, current.AppID, config, now); err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	if err != nil {
@@ -344,19 +357,87 @@ func (s *Store) MarkHealthy(ctx context.Context, deploymentID string, config map
 	return dep, rel, nil
 }
 
+// snapshotValue is one key inside a release's config_snapshot, in the shape
+// written from spec 0011 onwards.
+type snapshotValue struct {
+	Value  string `json:"value"`
+	Secret bool   `json:"secret"`
+}
+
 // configSnapshot encodes the configuration a deploy composed with, secret values
-// included, as the JSON a release stores. It takes the values rather than reading
-// them, because the snapshot has to describe what the running pod was given, not
-// what the table holds at the moment the release is cut.
-func configSnapshot(values map[string]string) (string, error) {
-	if values == nil {
-		values = map[string]string{}
+// and their flags included, as the JSON a release stores. It takes the values
+// rather than reading them, because the snapshot has to describe what the
+// running pod was given, not what the table holds at the moment the release is
+// cut.
+func configSnapshot(values map[string]domain.ConfigValue) (string, error) {
+	out := make(map[string]snapshotValue, len(values))
+	for k, v := range values {
+		out[k] = snapshotValue{Value: v.Value, Secret: v.Secret}
 	}
-	encoded, err := json.Marshal(values)
+	encoded, err := json.Marshal(out)
 	if err != nil {
 		return "", fmt.Errorf("store: encoding the configuration snapshot: %w", err)
 	}
 	return string(encoded), nil
+}
+
+// decodeSnapshot reads a release's config_snapshot, whichever of the two shapes
+// it is in. The choice is made per key, not per document: a bare string is a
+// snapshot written before spec 0011, which carries no flag, and every such key
+// is restored as secret. A key wrongly marked secret hides a value get_config
+// used to show; the reverse leaks one, so the safe direction is the one that
+// does not leak (AC-14).
+//
+// Everything that reads a snapshot goes through here rather than unmarshalling
+// the column, which is what keeps the two shapes in one place.
+func decodeSnapshot(snapshot string) (map[string]domain.ConfigValue, error) {
+	out := map[string]domain.ConfigValue{}
+	if snapshot == "" {
+		return out, nil
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(snapshot), &raw); err != nil {
+		return nil, fmt.Errorf("store: decoding the configuration snapshot: %w", err)
+	}
+	for k, v := range raw {
+		var bare string
+		if err := json.Unmarshal(v, &bare); err == nil {
+			out[k] = domain.ConfigValue{Value: bare, Secret: true}
+			continue
+		}
+		var sv snapshotValue
+		if err := json.Unmarshal(v, &sv); err != nil {
+			return nil, fmt.Errorf("store: decoding the configuration snapshot at key %q: %w", k, err)
+		}
+		out[k] = domain.ConfigValue{Value: sv.Value, Secret: sv.Secret}
+	}
+	return out, nil
+}
+
+// replaceConfig makes app_config exactly the given set: a key in it takes its
+// value and flag, and a key not in it is gone. It runs inside MarkHealthy's
+// transaction, so a rollback that fails leaves the table untouched (AC-13,
+// AC-17).
+func replaceConfig(ctx context.Context, q *sqlcgen.Queries, appID string, config map[string]domain.ConfigValue, now string) error {
+	if err := q.ClearConfig(ctx, appID); err != nil {
+		return fmt.Errorf("store: clearing configuration for app %s: %w", appID, err)
+	}
+	for k, v := range config {
+		secret := int64(0)
+		if v.Secret {
+			secret = 1
+		}
+		if err := q.SetConfig(ctx, sqlcgen.SetConfigParams{
+			AppID:    appID,
+			Key:      k,
+			Value:    v.Value,
+			IsSecret: secret,
+			Now:      now,
+		}); err != nil {
+			return fmt.Errorf("store: restoring %q on app %s: %w", k, appID, err)
+		}
+	}
+	return nil
 }
 
 // ClaimNext hands the oldest unclaimed queued deployment to one caller and only
@@ -459,6 +540,74 @@ func (s *Store) GetRelease(ctx context.Context, id string) (Release, error) {
 		return Release{}, fmt.Errorf("store: reading release %s: %w", id, err)
 	}
 	return rel, nil
+}
+
+// GetReleaseByNumber reads the release a caller named by its per app number.
+// ErrNotFound means that app has no such release, which is the whole of what a
+// rollback needs to refuse one (spec 0011, AC-7).
+func (s *Store) GetReleaseByNumber(ctx context.Context, appID string, number int64) (Release, error) {
+	rel, err := s.q.GetReleaseByNumber(ctx, sqlcgen.GetReleaseByNumberParams{
+		AppID:         appID,
+		ReleaseNumber: number,
+	})
+	if errors.Is(err, sql.ErrNoRows) {
+		return Release{}, ErrNotFound
+	}
+	if err != nil {
+		return Release{}, fmt.Errorf("store: reading release %d of app %s: %w", number, appID, err)
+	}
+	return rel, nil
+}
+
+// ReleaseConfigSnapshot returns the configuration a release actually ran with,
+// secret values included, decoded from whichever snapshot shape it was written
+// in. Only the deploy path calls it: a rollback composes the app's Secret from
+// this and nothing else.
+func (s *Store) ReleaseConfigSnapshot(ctx context.Context, releaseID string) (map[string]domain.ConfigValue, error) {
+	rel, err := s.GetRelease(ctx, releaseID)
+	if err != nil {
+		return nil, err
+	}
+	values, err := decodeSnapshot(rel.ConfigSnapshot)
+	if err != nil {
+		return nil, fmt.Errorf("store: release %s: %w", releaseID, err)
+	}
+	return values, nil
+}
+
+// ReleaseSummary is one release as the listing reports it. It deliberately has
+// no configuration field: the query behind it never selects config_snapshot, so
+// the snapshot cannot reach a caller even by mistake (spec 0011, AC-4).
+type ReleaseSummary struct {
+	ID            string
+	ReleaseNumber int64
+	ImageDigest   string
+	DeploymentID  string
+	CreatedAt     string
+}
+
+// ListReleaseSummariesByApp returns an app's newest releases, newest first, at
+// most limit of them. Unlike ListReleasesByApp it is not paged and reads five
+// named columns rather than the whole row.
+func (s *Store) ListReleaseSummariesByApp(ctx context.Context, appID string, limit int64) ([]ReleaseSummary, error) {
+	rows, err := s.q.ListReleaseSummariesByApp(ctx, sqlcgen.ListReleaseSummariesByAppParams{
+		AppID:     appID,
+		PageLimit: limit,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: listing releases for app %s: %w", appID, err)
+	}
+	out := make([]ReleaseSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ReleaseSummary{
+			ID:            r.ID,
+			ReleaseNumber: r.ReleaseNumber,
+			ImageDigest:   r.ImageDigest,
+			DeploymentID:  r.DeploymentID,
+			CreatedAt:     r.CreatedAt,
+		})
+	}
+	return out, nil
 }
 
 // ListReleasesByApp returns one page of an app's releases, newest first.

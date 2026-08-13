@@ -277,6 +277,32 @@ func (q *Queries) GetReleaseByDeployment(ctx context.Context, deploymentID strin
 	return i, err
 }
 
+const getReleaseByNumber = `-- name: GetReleaseByNumber :one
+SELECT id, app_id, deployment_id, release_number, image_digest, config_snapshot, created_at FROM releases WHERE app_id = ?1 AND release_number = ?2
+`
+
+type GetReleaseByNumberParams struct {
+	AppID         string
+	ReleaseNumber int64
+}
+
+// The release a rollback names, addressed the way a caller addresses it: by the
+// per app number, never by an id the caller has no way to know.
+func (q *Queries) GetReleaseByNumber(ctx context.Context, arg GetReleaseByNumberParams) (Release, error) {
+	row := q.db.QueryRowContext(ctx, getReleaseByNumber, arg.AppID, arg.ReleaseNumber)
+	var i Release
+	err := row.Scan(
+		&i.ID,
+		&i.AppID,
+		&i.DeploymentID,
+		&i.ReleaseNumber,
+		&i.ImageDigest,
+		&i.ConfigSnapshot,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertDeploymentEvent = `-- name: InsertDeploymentEvent :exec
 INSERT INTO deployment_events (id, deployment_id, from_state, to_state, reason, detail, occurred_at)
 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -468,6 +494,60 @@ func (q *Queries) ListNonTerminalDeployments(ctx context.Context) ([]Deployment,
 			&i.FinishedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listReleaseSummariesByApp = `-- name: ListReleaseSummariesByApp :many
+SELECT id, release_number, image_digest, deployment_id, created_at
+FROM releases
+WHERE app_id = ?1
+ORDER BY id DESC
+LIMIT ?2
+`
+
+type ListReleaseSummariesByAppParams struct {
+	AppID     string
+	PageLimit int64
+}
+
+type ListReleaseSummariesByAppRow struct {
+	ID            string
+	ReleaseNumber int64
+	ImageDigest   string
+	DeploymentID  string
+	CreatedAt     string
+}
+
+// The listing's own read, projecting five named columns so config_snapshot never
+// enters the process at all. Not reusing ListReleasesByApp is the point: a query
+// that cannot load the snapshot is a stronger guarantee than a handler that
+// remembers not to serialize it (spec 0011, AC-4).
+func (q *Queries) ListReleaseSummariesByApp(ctx context.Context, arg ListReleaseSummariesByAppParams) ([]ListReleaseSummariesByAppRow, error) {
+	rows, err := q.db.QueryContext(ctx, listReleaseSummariesByApp, arg.AppID, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListReleaseSummariesByAppRow{}
+	for rows.Next() {
+		var i ListReleaseSummariesByAppRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ReleaseNumber,
+			&i.ImageDigest,
+			&i.DeploymentID,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

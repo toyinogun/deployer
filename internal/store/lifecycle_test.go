@@ -34,15 +34,15 @@ func deployToHealthy(t *testing.T, s *store.Store, f fixture, uploadID, digest s
 
 // configForDeploy stands in for the read the reconciler does when it composes
 // the workload, which is the config MarkHealthy is then handed.
-func configForDeploy(t *testing.T, s *store.Store, appID string) map[string]string {
+func configForDeploy(t *testing.T, s *store.Store, appID string) map[string]domain.ConfigValue {
 	t.Helper()
 	entries, err := s.ListConfigForDeploy(t.Context(), appID)
 	if err != nil {
 		t.Fatalf("reading the app's configuration: %v", err)
 	}
-	values := make(map[string]string, len(entries))
+	values := make(map[string]domain.ConfigValue, len(entries))
 	for _, e := range entries {
-		values[e.Key] = e.Value
+		values[e.Key] = domain.ConfigValue{Value: e.Value, Secret: e.IsSecret}
 	}
 	return values
 }
@@ -193,11 +193,14 @@ func TestRollbackFidelity(t *testing.T) {
 
 func snapshotValue(t *testing.T, snapshot, key string) string {
 	t.Helper()
-	var values map[string]string
+	var values map[string]struct {
+		Value  string `json:"value"`
+		Secret bool   `json:"secret"`
+	}
 	if err := json.Unmarshal([]byte(snapshot), &values); err != nil {
 		t.Fatalf("decoding the configuration snapshot: %v", err)
 	}
-	return values[key]
+	return values[key].Value
 }
 
 // TestSnapshotIncludesSecrets records the tradeoff the spec accepted explicitly:

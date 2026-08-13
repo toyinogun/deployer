@@ -8,7 +8,9 @@ import (
 
 	"github.com/toyinogun/deployer/internal/deploy"
 	"github.com/toyinogun/deployer/internal/logs"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -164,5 +166,109 @@ func TestPodsForAppWhileTheNamespaceIsNotThereYet(t *testing.T) {
 				t.Fatalf("got %d pods, want none", len(got))
 			}
 		})
+	}
+}
+
+// workload builds a Deployment whose status says what the rollout is doing, so
+// the readiness check under test reads the same counts Kubernetes reports.
+func workload(generation, observed, replicas, updated, available int32) *appsv1.Deployment {
+	one := int32(1)
+	return &appsv1.Deployment{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:       deploy.WorkloadName,
+			Namespace:  deploy.NamespaceName("demo"),
+			Generation: int64(generation),
+		},
+		Spec: appsv1.DeploymentSpec{Replicas: &one},
+		Status: appsv1.DeploymentStatus{
+			ObservedGeneration: int64(observed),
+			Replicas:           replicas,
+			UpdatedReplicas:    updated,
+			AvailableReplicas:  available,
+		},
+	}
+}
+
+// A rolling update keeps the old pod serving while the new one starts, so the
+// old pod's availability must never read as the new one's. Rolling back to a
+// release whose image cannot be pulled reached healthy in milliseconds on the
+// real cluster because of exactly this, and the failed rollback was recorded as
+// the app's current release (spec 0011, AC-17).
+func TestWorkloadReady(t *testing.T) {
+	cases := []struct {
+		name                                        string
+		generation, observed, replicas, updated, av int32
+		want                                        bool
+	}{
+		{"a finished rollout is ready", 2, 2, 1, 1, 1, true},
+		{"the new pod exists but the old one supplies the available replica", 2, 2, 2, 1, 1, false},
+		{"the new pod is up and the old one is still terminating", 2, 2, 2, 1, 2, false},
+		{"the new pod exists and nothing is available", 2, 2, 1, 1, 0, false},
+		{"the controller has not seen this spec yet", 3, 2, 1, 1, 1, false},
+		{"no new pod has been created", 2, 2, 1, 0, 1, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := NewFor(fake.NewSimpleClientset(workload(tc.generation, tc.observed, tc.replicas, tc.updated, tc.av)))
+			got, err := c.WorkloadReady(context.Background(), deploy.NamespaceName("demo"), deploy.WorkloadName)
+			if err != nil {
+				t.Fatalf("WorkloadReady: %v", err)
+			}
+			if got != tc.want {
+				t.Errorf("WorkloadReady = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A Deployment that is not there yet is not a fault: the deploy step creates it,
+// and the wait starts before the controller has caught up.
+func TestWorkloadReadyMissingDeploymentIsNotAnError(t *testing.T) {
+	c := NewFor(fake.NewSimpleClientset())
+	got, err := c.WorkloadReady(context.Background(), deploy.NamespaceName("demo"), deploy.WorkloadName)
+	if err != nil {
+		t.Fatalf("WorkloadReady: %v", err)
+	}
+	if got {
+		t.Error("WorkloadReady = true for a Deployment that does not exist")
+	}
+}
+
+// A ResourceQuota is charged when a create reaches admission, and the charge is
+// not returned when that create then fails with AlreadyExists. So a redeploy
+// must not create what is already there: on the real cluster three rollbacks in
+// a row walked an app's quota to its ceiling of 3 services and the fourth was
+// refused, failing a rollback on a healthy app with reason internal.
+func TestApplyingOverExistingObjectsIssuesNoCreate(t *testing.T) {
+	ns := deploy.NamespaceName("demo")
+	existingSecret := &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: ns}}
+	existingService := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}}
+	cs := fake.NewSimpleClientset(existingSecret, existingService)
+	c := NewFor(cs)
+
+	if err := c.ApplySecret(context.Background(), &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "config", Namespace: ns},
+		Data:       map[string][]byte{"KEY": []byte("value")},
+	}); err != nil {
+		t.Fatalf("ApplySecret: %v", err)
+	}
+
+	if err := c.ApplyWorkload(context.Background(),
+		&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}},
+		&corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}},
+		&networkingv1.Ingress{ObjectMeta: metav1.ObjectMeta{Name: deploy.WorkloadName, Namespace: ns}},
+	); err != nil {
+		t.Fatalf("ApplyWorkload: %v", err)
+	}
+
+	for _, action := range cs.Actions() {
+		if action.GetVerb() != "create" {
+			continue
+		}
+		// The Deployment and the Ingress are not quota tracked, so creating one
+		// that turns out to exist costs nothing and that path is left alone.
+		if r := action.GetResource().Resource; r == "secrets" || r == "services" {
+			t.Errorf("a create was issued for %s, which already exists", r)
+		}
 	}
 }

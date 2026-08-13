@@ -133,8 +133,17 @@ const (
 // namespace without anything being deleted.
 func (c *Client) ApplySecret(ctx context.Context, s *corev1.Secret) error {
 	api := c.cs.CoreV1().Secrets(s.Namespace)
-	_, err := api.Create(ctx, s, metav1.CreateOptions{})
-	if apierrors.IsAlreadyExists(err) {
+	// Read before writing, rather than creating and falling back on
+	// AlreadyExists. A ResourceQuota is charged when a create reaches admission,
+	// and the charge is not returned when the create then fails, so a redeploy
+	// that creates what is already there walks the namespace quota upward until
+	// Kubernetes recalculates it. Rollbacks are cheap enough to run several in a
+	// row, which is how an app with a quota of 3 services started refusing them.
+	_, err := api.Get(ctx, s.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		_, err = api.Create(ctx, s, metav1.CreateOptions{})
+	case err == nil:
 		_, err = api.Update(ctx, s, metav1.UpdateOptions{})
 	}
 	if err != nil {
@@ -221,21 +230,26 @@ func (c *Client) ApplyWorkload(ctx context.Context, d *appsv1.Deployment, s *cor
 		return fmt.Errorf("kube: creating deployment %s/%s: %w", d.Namespace, d.Name, err)
 	}
 
+	// Read before writing, for the quota reason ApplySecret carries: a Service is
+	// quota tracked, and a create that fails with AlreadyExists has already been
+	// charged for.
 	services := c.cs.CoreV1().Services(s.Namespace)
-	if _, err := services.Create(ctx, s, metav1.CreateOptions{}); apierrors.IsAlreadyExists(err) {
+	current, err := services.Get(ctx, s.Name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		if _, err := services.Create(ctx, s, metav1.CreateOptions{}); err != nil {
+			return fmt.Errorf("kube: creating service %s/%s: %w", s.Namespace, s.Name, err)
+		}
+	case err != nil:
+		return fmt.Errorf("kube: reading service %s/%s: %w", s.Namespace, s.Name, err)
+	default:
 		// A Service holds a cluster IP the API server assigned, so the existing
 		// spec is edited rather than replaced wholesale.
-		current, getErr := services.Get(ctx, s.Name, metav1.GetOptions{})
-		if getErr != nil {
-			return fmt.Errorf("kube: reading service %s/%s: %w", s.Namespace, s.Name, getErr)
-		}
 		current.Spec.Selector = s.Spec.Selector
 		current.Spec.Ports = s.Spec.Ports
 		if _, err := services.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
 			return fmt.Errorf("kube: updating service %s/%s: %w", s.Namespace, s.Name, err)
 		}
-	} else if err != nil {
-		return fmt.Errorf("kube: creating service %s/%s: %w", s.Namespace, s.Name, err)
 	}
 
 	ingresses := c.cs.NetworkingV1().Ingresses(i.Namespace)
@@ -270,8 +284,15 @@ func (c *Client) updateDeployment(ctx context.Context, d *appsv1.Deployment) err
 	return nil
 }
 
-// WorkloadReady reports whether a Deployment has an updated replica that is
-// available, which is the platform's whole definition of an app being up.
+// WorkloadReady reports whether a Deployment's new pods are serving, which is
+// the platform's whole definition of an app being up.
+//
+// Every clause carries weight, because a rolling update keeps the previous pods
+// serving while the new ones start. AvailableReplicas on its own is satisfied by
+// a pod from the old ReplicaSet, so a rollout that can never succeed, an image
+// that does not pull being the plain case, reads as ready within milliseconds
+// and a failed deploy is recorded healthy. This is the same set of comparisons
+// `kubectl rollout status` makes.
 func (c *Client) WorkloadReady(ctx context.Context, namespace, name string) (bool, error) {
 	d, err := c.cs.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -280,8 +301,18 @@ func (c *Client) WorkloadReady(ctx context.Context, namespace, name string) (boo
 		}
 		return false, fmt.Errorf("kube: reading deployment %s/%s: %w", namespace, name, err)
 	}
-	return d.Status.UpdatedReplicas > 0 && d.Status.AvailableReplicas > 0 &&
-		d.Status.ObservedGeneration >= d.Generation, nil
+	// The controller has not looked at this spec yet, so every count below still
+	// describes the previous one.
+	if d.Status.ObservedGeneration < d.Generation {
+		return false, nil
+	}
+	want := int32(1)
+	if d.Spec.Replicas != nil {
+		want = *d.Spec.Replicas
+	}
+	return d.Status.UpdatedReplicas >= want && // every new pod exists
+		d.Status.Replicas == d.Status.UpdatedReplicas && // no old pod is left
+		d.Status.AvailableReplicas >= d.Status.UpdatedReplicas, nil // and the new ones are available
 }
 
 // PodsForApp lists an app's own pods, newest first, with just enough status for

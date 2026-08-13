@@ -22,6 +22,15 @@ const (
 	ReservedKeyAppURL = "APP_URL"
 )
 
+// ConfigValue is one configuration key's value together with whether it is
+// secret. It is what the deploy path carries and what a release snapshot
+// records, because a bare value has no flag to record and a snapshot written
+// from one could never restore it (spec 0011, AC-15).
+type ConfigValue struct {
+	Value  string
+	Secret bool
+}
+
 // ConfigWrite is one key a caller asked to set. Secret is a pointer because its
 // absence is a refusal rather than a default: a key that reached the platform
 // without it would otherwise quietly turn a secret into a plain value (AC-16).

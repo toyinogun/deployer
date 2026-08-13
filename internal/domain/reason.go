@@ -7,9 +7,10 @@ package domain
 // AC-16).
 type Reason string
 
-// The eighteen codes. Nine are failures a deploy can end on; ReasonSuperseded
-// describes a cancellation, ReasonDeploymentUnknown and ReasonAppUnknown a
-// refused readback, and the six config_ codes a refused configuration write.
+// The nineteen codes. Nine are failures a deploy can end on; ReasonSuperseded
+// describes a cancellation, ReasonDeploymentUnknown, ReasonAppUnknown and
+// ReasonReleaseUnknown a refused readback, and the six config_ codes a refused
+// configuration write.
 const (
 	ReasonUploadInvalid   Reason = "upload_invalid"
 	ReasonUploadExpired   Reason = "upload_expired"
@@ -32,6 +33,11 @@ const (
 	// ReasonSuperseded is why a deployment was cancelled: a later deploy of the
 	// same app replaced it. A cancellation, not a failure.
 	ReasonSuperseded Reason = "superseded"
+	// ReasonReleaseUnknown is the one answer a rollback gives for a release
+	// number the app does not have and for one that is not a positive integer.
+	// Ownership of the app is decided first, so this code is only ever reached
+	// on an app the caller owns (spec 0011, AC-7).
+	ReasonReleaseUnknown Reason = "release_unknown"
 
 	// The configuration refusals, added by spec 0010. Every one of them is
 	// decided before any write happens, so a refused call changes nothing.
@@ -73,6 +79,7 @@ var messages = map[Reason]string{
 	ReasonDeploymentUnknown: "no deployment matches that id or name",
 	ReasonAppUnknown:        "no app matches that name",
 	ReasonSuperseded:        "a later deploy of the same app replaced this one",
+	ReasonReleaseUnknown:    "that app has no release with that number, so call list_releases to see which numbers exist",
 
 	ReasonConfigKeyInvalid:  "a configuration key must be upper case letters, digits, and underscores, not start with a digit, and appear once per call",
 	ReasonConfigKeyReserved: "PORT and APP_URL are set by the platform and cannot be configured",
@@ -82,7 +89,7 @@ var messages = map[Reason]string{
 	ReasonConfigTooLarge:    "a value may be at most 4 KB and an app's whole configuration at most 32 KB",
 }
 
-// Valid reports whether r is one of the eighteen codes.
+// Valid reports whether r is one of the nineteen codes.
 func (r Reason) Valid() bool {
 	_, ok := messages[r]
 	return ok

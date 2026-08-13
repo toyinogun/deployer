@@ -32,7 +32,12 @@ var (
 
 // appRow maps a stored app onto the fields a tool response reads.
 func appRow(a App) mcp.App {
-	return mcp.App{ID: a.ID, Slug: a.Slug, Name: a.Name}
+	return mcp.App{
+		ID:               a.ID,
+		Slug:             a.Slug,
+		Name:             a.Name,
+		CurrentReleaseID: deref(a.CurrentReleaseID),
+	}
 }
 
 // ByName returns the account's app under that name, or mcp.ErrNoApp.
@@ -136,6 +141,54 @@ func (a MCPDeployments) Create(ctx context.Context, appID, accountID, uploadID s
 		return "", err
 	}
 	return dep.ID, nil
+}
+
+// CreateRollback writes a queued rollback, going through exactly the same store
+// path a build deploy does: the supersession, the events, and the digest copied
+// off the source release all belong to CreateDeployment, not to this adapter.
+func (a MCPDeployments) CreateRollback(ctx context.Context, appID, accountID, releaseID string) (string, error) {
+	dep, _, err := a.s.CreateDeployment(ctx, CreateDeploymentInput{
+		AppID:           appID,
+		AccountID:       accountID,
+		SourceReleaseID: &releaseID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return dep.ID, nil
+}
+
+// ReleaseIDByNumber resolves the number a caller named, mapping a number that
+// app does not have onto the tool surface's own sentinel.
+func (a MCPDeployments) ReleaseIDByNumber(ctx context.Context, appID string, number int64) (string, error) {
+	rel, err := a.s.GetReleaseByNumber(ctx, appID, number)
+	if errors.Is(err, ErrNotFound) {
+		return "", mcp.ErrNoRelease
+	}
+	if err != nil {
+		return "", err
+	}
+	return rel.ID, nil
+}
+
+// ListReleases reads the app's newest releases through the narrow query, so the
+// configuration snapshot is never loaded here at all (spec 0011, AC-4).
+func (a MCPDeployments) ListReleases(ctx context.Context, appID string, limit int64) ([]mcp.ReleaseSummary, error) {
+	rows, err := a.s.ListReleaseSummariesByApp(ctx, appID, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]mcp.ReleaseSummary, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, mcp.ReleaseSummary{
+			ID:           r.ID,
+			Number:       r.ReleaseNumber,
+			Digest:       r.ImageDigest,
+			DeploymentID: r.DeploymentID,
+			CreatedAt:    r.CreatedAt,
+		})
+	}
+	return out, nil
 }
 
 // mcpDeploymentRow maps a stored deployment onto what a status read projects.
