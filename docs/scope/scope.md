@@ -215,7 +215,7 @@ spec [0009](../specs/0009-dockerfile-build-path/index.md)
   - [x] The refusals and the guards: the reworded failure message, the composed context test, the tool description, and both live refusals proved — AC-11, AC-12, AC-13, AC-14, AC-16
 - [x] Verify it: `/check verify dockerfile build path`
 - [x] Test it: `/test dockerfile build path`
-- [ ] Review it (fresh model): `/check review dockerfile build path`
+- [x] Review it (fresh model): `/check review dockerfile build path` — reviewed on sonnet over the whole feature range, not just the branch. One major, an unbounded decompression in `HasRootDockerfile`, fixed in the same session; the CI `Config.User` minor fixed with it
 - [ ] Document it: `/document dockerfile build path`
 
 ## Slice 7: App environment configuration
