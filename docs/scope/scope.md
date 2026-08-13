@@ -53,7 +53,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 10 | Dockerfile build path | Slice 6 | done |
 | 11 | App environment configuration | Slice 7 | done |
 | 12 | Rollback & release history | Slice 8 | done |
-| 13 | App lifecycle: list & decommission | Slice 9 | planned |
+| 13 | App lifecycle: list & decommission | Slice 9 | in-progress |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
 
 ## Foundations
@@ -259,10 +259,21 @@ spec [0011](../specs/0011-rollback-and-release-history/index.md) · code in `int
 
 ## Slice 9: App lifecycle: list & decommission
 
-### 13. App lifecycle: list & decommission
+### 13. App lifecycle: list & decommission · in-progress
 Closes the loop. An agent can see what it has deployed and tear an app down cleanly, which matters most when the agent is generating throwaway apps.
 **Done when:** a caller can list their apps with current state and hostname, and delete an app so its workload, route, namespace resources, and hostname are all released, with the delete recorded.
+From spec 0012: an app's state is two facts, not one, because an app whose last deploy failed is usually still serving its previous release; and the delete gets an orphan reaper behind it, the platform's first unattended destructive loop.
+spec [0012](../specs/0012-app-lifecycle-list-delete/index.md) · code in `internal/mcp`, `internal/store/apps.go`, `internal/kube`, `internal/reconcile`, `internal/domain/reason.go`, `internal/config`
+- [x] Design it (spec): `/architect app lifecycle`
 - [ ] Build it: `/develop app lifecycle`
+  - [ ] `list_apps` end to end: the single statement query, the 50 row bound, the serving and last deployment pair, the audit and the description, driven through a real MCP session — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-7, AC-8, AC-9, AC-10, AC-11, AC-12
+  - [ ] `delete_app` end to end: the `deployment_in_flight` code, `kube.DeleteNamespace` tolerating gone and terminating, the one method cluster port on `internal/mcp`, the audit rows, the description, and every refusal over the wire — AC-13, AC-14, AC-15, AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22, AC-28, AC-29, AC-30, AC-31
+  - [ ] The orphan reaper: both new variables, `LiveAppSlugs`, `AppNamespacesOlderThan`, and the pass on its own ticker plus one at startup, with the abort, label and grace guards each pinned — AC-23, AC-24, AC-25, AC-26, AC-27
+  - [ ] What a deleted app answers: the existing tools all refuse it, pinned rather than assumed — AC-32
+- [ ] Verify it: `/check verify app lifecycle`
+- [ ] Test it: `/test app lifecycle`
+- [ ] Review it (fresh model): `/check review app lifecycle`
+- [ ] Document it: `/document app lifecycle`
 
 ## Slice 10: Web interface
 
@@ -270,6 +281,7 @@ Closes the loop. An agent can see what it has deployed and tear an app down clea
 From spec 0007. The pages on top of the identity surface feature 8 builds: register, verify, sign in, mint and revoke tokens, and see your apps, releases and logs without an agent. Feature 8 deliberately builds no pages, so every endpoint they need is already there and drivable with curl.
 **Done when:** a person can register, verify, sign in, mint a token, and see their apps and logs in a browser, on the tailnet, with no curl and no agent.
 From spec 0011: `list_releases` is capped at the newest twenty with no paging, on purpose, so this is where full release history gets a paged view over the same store method.
+From spec 0012: `list_apps` is capped at the newest fifty the same way, so a paged app list belongs here too, over the store's existing cursor.
 - [ ] Design it (spec): `/architect web interface`
 
 ## Deferred
@@ -282,9 +294,9 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
 - **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned. From spec 0010: once apps carry configuration, those are live third party credentials, not hypothetical ones · needs a decision
 - **Build secrets for Dockerfile builds**: BuildKit can mount a secret for one build step without leaving it in a layer, which is what a private package registry needs. From spec 0010, deliberately not built: it exists only on the Dockerfile path, so it would make the two builders behave differently before anyone has asked for it · needs a decision
-- **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
+- **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003. Spec 0012 raises this: the namespace delete right stops being a right nothing uses and becomes an unattended loop, so the fence being a name prefix rather than an ownership label now matters more · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
-- **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision
+- **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004. Spec 0012 widens it: a deleted app's images are the clearest case of an image nothing will ever pull again, and deleting an app now frees cluster resources but not registry disk · needs a decision
 - **Layer cache for Dockerfile builds**: a registry backed cache, so a rebuild is not cold every time. From spec 0009, left out because it would put unbounded cache images on the same registry that has no garbage collection, so it is only worth deciding together with the item above · needs a decision
 - **Kubernetes events for an app that prints nothing**: surfacing image pull failures, out of memory kills, and probe failures, which explain a failed app that produced no output of its own. From spec 0006, only worth building if `state: failed` with an empty log turns out to be a common dead end · needs a decision
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
