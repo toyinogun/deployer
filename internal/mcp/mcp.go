@@ -58,6 +58,10 @@ type Deployment struct {
 	AccountID string
 	State     domain.State
 	Reason    domain.Reason
+	// BuildPath is which engine built this deployment, "buildpacks" or
+	// "dockerfile". Empty until the build starts, since the row has no path
+	// before one was chosen (spec 0009, AC-5).
+	BuildPath string
 }
 
 // Event is one entry of a deployment's timeline, already projected: the events
@@ -178,9 +182,15 @@ Upload the source first, from the app's root directory:
 
 Pass the upload_id it returns here. This call returns straight away with a
 deployment_id and the state "queued"; it does not wait for the build. Call
-deployment_status with that deployment_id to learn how the deploy ended. A
-first build takes a few minutes, because the source is built with Cloud Native
-Buildpacks from cold; a later build of the same app is faster.
+deployment_status with that deployment_id to learn how the deploy ended.
+
+A Dockerfile at the root of the upload is built as written. With no Dockerfile
+there, the source is built with Cloud Native Buildpacks, which need no
+configuration. Nothing here selects between them: remove the Dockerfile to get
+Buildpacks. deployment_status reports which one ran as build_path.
+
+A first build takes a few minutes, because both engines start cold and neither
+caches layers; a Buildpacks build of the same app again is faster.
 
 The URL in this response is the app's permanent hostname, but it does not serve
 anything until deployment_status reports "healthy".

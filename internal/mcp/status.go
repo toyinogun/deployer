@@ -24,6 +24,10 @@ few seconds until the state is healthy, failed, or cancelled. A first build
 takes a few minutes; nothing is being missed while the state stays queued,
 which only means another build is ahead of it.
 
+build_path appears once the build starts, saying which engine ran: dockerfile
+when the project shipped a Dockerfile at its root, buildpacks otherwise. It is
+reported on a failed deployment too, so a build failure says which one to fix.
+
 healthy carries the release_number and image_digest that are now serving.
 failed carries a reason code and one line saying what to change.
 cancelled means a later deploy of the same app replaced this one, and
@@ -52,6 +56,7 @@ type statusOutput struct {
 	Slug          string          `json:"slug"`
 	URL           string          `json:"url"`
 	State         string          `json:"state"`
+	BuildPath     string          `json:"build_path,omitempty"`
 	ReleaseNumber int64           `json:"release_number,omitempty"`
 	ImageDigest   string          `json:"image_digest,omitempty"`
 	Reason        string          `json:"reason,omitempty"`
@@ -141,7 +146,11 @@ func (s *Server) project(ctx context.Context, dep Deployment, app App) (statusOu
 		Slug:         app.Slug,
 		URL:          s.appURL(app.Slug),
 		State:        string(dep.State),
-		Timeline:     timeline,
+		// Omitted while the row holds none, which is every deployment that has
+		// not reached building yet: there is no engine to report before one was
+		// chosen (AC-5).
+		BuildPath: dep.BuildPath,
+		Timeline:  timeline,
 	}
 
 	switch dep.State {

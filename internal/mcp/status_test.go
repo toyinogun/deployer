@@ -243,3 +243,48 @@ func TestTheStatusDescriptionCarriesThePollingContract(t *testing.T) {
 		}
 	}
 }
+
+// covers spec 0009 AC-5: the engine that ran is reported from the moment the
+// build starts, on a failed deployment as much as a healthy one, and omitted
+// before there is one to report.
+func TestStatusReportsTheBuildPathOnceThereIsOne(t *testing.T) {
+	t.Parallel()
+	account := auth.Account{ID: "acc_1"}
+
+	for name, row := range map[string]struct {
+		dep  Deployment
+		want string
+	}{
+		"queued has no engine yet": {
+			dep:  Deployment{ID: "dep_1", AppID: "app_1", AccountID: "acc_1", State: domain.StateQueued},
+			want: "",
+		},
+		"building reports it": {
+			dep:  Deployment{ID: "dep_1", AppID: "app_1", AccountID: "acc_1", State: domain.StateBuilding, BuildPath: "dockerfile"},
+			want: "dockerfile",
+		},
+		"a failed build still reports it": {
+			dep: Deployment{
+				ID: "dep_1", AppID: "app_1", AccountID: "acc_1",
+				State: domain.StateFailed, Reason: domain.ReasonBuildFailed, BuildPath: "dockerfile",
+			},
+			want: "dockerfile",
+		},
+		"a healthy buildpacks deploy reports it": {
+			dep:  Deployment{ID: "dep_1", AppID: "app_1", AccountID: "acc_1", State: domain.StateHealthy, BuildPath: "buildpacks"},
+			want: "buildpacks",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, _ := statusServer(&stubDeployments{rows: map[string]Deployment{"dep_1": row.dep}})
+
+			_, out, err := s.status(t.Context(), account, statusInput{DeploymentID: "dep_1"})
+			if err != nil {
+				t.Fatalf("status: %v", err)
+			}
+			if out.BuildPath != row.want {
+				t.Errorf("build_path = %q, want %q", out.BuildPath, row.want)
+			}
+		})
+	}
+}
