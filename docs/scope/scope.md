@@ -52,7 +52,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 9 | Workload isolation & network policy | Slice 5 | done |
 | 10 | Dockerfile build path | Slice 6 | done |
 | 11 | App environment configuration | Slice 7 | done |
-| 12 | Rollback & release history | Slice 8 | in-progress |
+| 12 | Rollback & release history | Slice 8 | done |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
 
@@ -240,7 +240,7 @@ spec [0010](../specs/0010-app-environment-configuration/index.md) · code in `in
 
 ## Slice 8: Rollback & release history
 
-### 12. Rollback & release history · in-progress
+### 12. Rollback & release history · done
 Thickens the release segment. Every healthy deploy is a known good release, and going back to one re promotes the exact prior image rather than rebuilding from source.
 **Done when:** an agent can list an app's recent releases and roll back to one, the rollback re promotes the stored image digest without a build, health is re verified, and a failed new release never replaces a healthy current one.
 From spec 0010: a rollback must also rewrite the app's configuration Secret from the release snapshot, not only the image digest, and the pod template checksum spec 0010 adds is what makes that roll the pods.
@@ -252,7 +252,7 @@ spec [0011](../specs/0011-rollback-and-release-history/index.md) · code in `int
   - [x] Configuration fidelity: the Secret composed from the source snapshot, the `{value, secret}` snapshot format with both contracts widened, and the `app_config` rewrite inside `MarkHealthy` — AC-12, AC-13, AC-14, AC-15, AC-16, AC-17, AC-25
   - [x] The listing: the narrow five column query, `CurrentReleaseID` on the app, `list_releases` bounded at twenty, and the empty and refused cases — AC-1, AC-2, AC-3, AC-4, AC-5
   - [x] The contract surface: both tool descriptions, and both tools driven through a real MCP session including the refusals — AC-22, AC-23
-- [ ] Verify it: `/check verify rollback & release history`
+- [x] Verify it: `/check verify rollback & release history`
 - [x] Test it: `/test rollback & release history`
 - [x] Review it (fresh model): `/check review rollback & release history`
 - [x] Document it: `/document rollback & release history` — PR [#28](https://github.com/toyinogun/deployer/pull/28)

@@ -19,14 +19,14 @@ releases with genuinely different configuration.
 - [x] the same listing → every row carries `release_number`, `image_digest`, `created_at`, `deployment_id`, and no key or value from the app's configuration anywhere in the payload → AC-1, AC-4
 - [x] `list_releases` on a freshly created app that has never been healthy → an empty list, returned successfully, not a refusal → AC-3
 - [x] `list_releases` on an app name that does not exist → `app_unknown` → AC-5
-- [ ] `list_releases` from a second account's token, naming the first account's app → `app_unknown`, word for word the same message the missing name got → AC-5
+- [x] `list_releases` from a second account's token, naming the first account's app → `app_unknown`, word for word the same message the missing name got → AC-5
 - [x] `rollback_app` with `release_number` 1 → returns within a second or two with `deployment_id`, `state` `"queued"`, `name`, `slug`, `url`; it does not block on the rollout → AC-6
 - [x] `deployment_status` on that deployment id → the timeline is exactly `queued`, `deploying`, `healthy`, with no `building` and no `pushing` → AC-11
 - [x] `get_config` after that rollback reports healthy → `LOG_LEVEL` is `info`, `API_KEY` is present and secret, `FEATURE_X` is gone → AC-13, AC-14
 - [x] `list_releases` again → release 3 exists, carries release 1's `image_digest`, and is the only `current` row; release 1's own row is unchanged → AC-16
 - [x] `rollback_app` with `release_number` 99 → `release_unknown`, and `list_releases` shows no new release and `deployment_status` finds no new deployment → AC-7
 - [x] `rollback_app` with `release_number` 0, and again with a negative number → `release_unknown`, the same message both times → AC-7
-- [ ] `rollback_app` from a second account's token naming the first account's app, with a `release_number` that really exists → `app_unknown`, not `release_unknown`: ownership is decided before the number is looked at → AC-8
+- [x] `rollback_app` from a second account's token naming the first account's app, with a `release_number` that really exists → `app_unknown`, not `release_unknown`: ownership is decided before the number is looked at → AC-8
 - [x] `rollback_app` naming the release that is already current → accepted, runs as an ordinary rollback, reaches healthy → AC-18
 - [x] start a `deploy_app`, then immediately `rollback_app` on the same app → `deployment_status` on the deploy reports `cancelled` with reason `superseded` → AC-10
 - [x] start a `rollback_app`, then immediately `deploy_app` on the same app → the rollback reports `cancelled` with reason `superseded` → AC-10
@@ -59,7 +59,7 @@ caught behaviourally and not only at design time.
 - [x] the twenty row bound is the Go constant: an app with more than twenty releases returns exactly twenty and no `limit` argument is accepted → AC-1
 - [x] the empty list comes from a query with no rows: a never healthy app returns success, not `app_unknown` → AC-3
 - [x] `source_release_id` is resolved from (`app_id`, `release_number`): with two apps that each have a release 1, roll back app A to release 1 and confirm the deployment names A's release, not B's → AC-7
-- [ ] `image_digest` on the rollback is copied from the source release at creation: read `deployments.image_digest` while it is still `queued`, before anything ran → AC-9
+- [x] `image_digest` on the rollback is copied from the source release at creation: read `deployments.image_digest` while it is still `queued`, before anything ran → AC-9
 - [x] `url` comes from `DEPLOYER_APP_DOMAIN`: the rollback's url matches `deploy_app`'s for the same app, character for character → AC-6
 - [x] `state` is always the literal `queued`: it reads `queued` even when the app already has a healthy deployment → AC-6
 - [x] the deployment's kind comes from `source_release_id` and not from its state: a queued rollback and a queued build deploy are the same state, and only the rollback skips the build → AC-24

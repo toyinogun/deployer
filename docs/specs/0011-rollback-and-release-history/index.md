@@ -1,7 +1,7 @@
 # 0011. Rollback and release history
 
 **Date**: 2026-08-13
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
