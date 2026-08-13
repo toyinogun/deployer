@@ -37,7 +37,7 @@ spec:
           # this file as written, so it must always hold a digest a kubelet can
           # pull. Never a `ko://` reference (nothing resolves it in the ArgoCD
           # path) and never a mutable tag (spec 0001 invariant).
-          image: ghcr.io/toyinogun/deployer@sha256:0e0fd19d7c224a16ad513032558558948cda9e6f3175b5cbcdb1db289a4843ca
+          image: ghcr.io/toyinogun/deployer@sha256:e329fcd07627a676b845d89aed20ac34558418f07616931ffa75134abef56483
           ports:
             - name: http
               containerPort: 8080
@@ -81,7 +81,7 @@ spec:
             # this line from the same value. Keep them identical: a stale one
             # means builds run an old extractor against a new control plane.
             - name: DEPLOYER_SELF_IMAGE
-              value: ghcr.io/toyinogun/deployer@sha256:0e0fd19d7c224a16ad513032558558948cda9e6f3175b5cbcdb1db289a4843ca
+              value: ghcr.io/toyinogun/deployer@sha256:e329fcd07627a676b845d89aed20ac34558418f07616931ffa75134abef56483
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
