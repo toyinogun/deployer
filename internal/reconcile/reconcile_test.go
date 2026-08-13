@@ -171,14 +171,17 @@ func (w *world) buildNeverEnds() {
 	})
 }
 
-// appComesUp makes every app Deployment read back with an available replica.
+// appComesUp makes every app Deployment read back as a finished rollout: the
+// new pods exist, none of the old ones are left, and the new ones are available.
+// Replicas has to equal UpdatedReplicas, because a status where they differ is a
+// rollout still in progress and the readiness check refuses it (spec 0011, AC-17).
 func (w *world) appComesUp() {
 	w.clientset.PrependReactor("get", "deployments", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		name := action.(k8stesting.GetAction).GetName()
 		return true, &appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: action.GetNamespace()},
 			Status: appsv1.DeploymentStatus{
-				UpdatedReplicas: 1, AvailableReplicas: 1, ReadyReplicas: 1,
+				Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1, ReadyReplicas: 1,
 			},
 		}, nil
 	})

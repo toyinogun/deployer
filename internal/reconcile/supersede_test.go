@@ -99,7 +99,7 @@ func TestADriveStopsWhenItIsSupersededWhileTheAppComesUp(t *testing.T) {
 		return true, &appsv1.Deployment{
 			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: action.GetNamespace()},
 			Status: appsv1.DeploymentStatus{
-				UpdatedReplicas: 1, AvailableReplicas: 1, ReadyReplicas: 1,
+				Replicas: 1, UpdatedReplicas: 1, AvailableReplicas: 1, ReadyReplicas: 1,
 			},
 		}, nil
 	})

@@ -270,8 +270,15 @@ func (c *Client) updateDeployment(ctx context.Context, d *appsv1.Deployment) err
 	return nil
 }
 
-// WorkloadReady reports whether a Deployment has an updated replica that is
-// available, which is the platform's whole definition of an app being up.
+// WorkloadReady reports whether a Deployment's new pods are serving, which is
+// the platform's whole definition of an app being up.
+//
+// Every clause carries weight, because a rolling update keeps the previous pods
+// serving while the new ones start. AvailableReplicas on its own is satisfied by
+// a pod from the old ReplicaSet, so a rollout that can never succeed, an image
+// that does not pull being the plain case, reads as ready within milliseconds
+// and a failed deploy is recorded healthy. This is the same set of comparisons
+// `kubectl rollout status` makes.
 func (c *Client) WorkloadReady(ctx context.Context, namespace, name string) (bool, error) {
 	d, err := c.cs.AppsV1().Deployments(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -280,8 +287,18 @@ func (c *Client) WorkloadReady(ctx context.Context, namespace, name string) (boo
 		}
 		return false, fmt.Errorf("kube: reading deployment %s/%s: %w", namespace, name, err)
 	}
-	return d.Status.UpdatedReplicas > 0 && d.Status.AvailableReplicas > 0 &&
-		d.Status.ObservedGeneration >= d.Generation, nil
+	// The controller has not looked at this spec yet, so every count below still
+	// describes the previous one.
+	if d.Status.ObservedGeneration < d.Generation {
+		return false, nil
+	}
+	want := int32(1)
+	if d.Spec.Replicas != nil {
+		want = *d.Spec.Replicas
+	}
+	return d.Status.UpdatedReplicas >= want && // every new pod exists
+		d.Status.Replicas == d.Status.UpdatedReplicas && // no old pod is left
+		d.Status.AvailableReplicas >= d.Status.UpdatedReplicas, nil // and the new ones are available
 }
 
 // PodsForApp lists an app's own pods, newest first, with just enough status for
