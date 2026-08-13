@@ -50,7 +50,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 7 | Application logs | Slice 3 | done |
 | 8 | Accounts, API tokens & app ownership | Slice 4 | done |
 | 9 | Workload isolation & network policy | Slice 5 | done |
-| 10 | Dockerfile build path | Slice 6 | in-progress |
+| 10 | Dockerfile build path | Slice 6 | done |
 | 11 | App environment configuration | Slice 7 | done |
 | 12 | Rollback & release history | Slice 8 | in-progress |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
@@ -201,7 +201,7 @@ spec [0008](../specs/0008-workload-isolation-network-policy/index.md) · code in
 
 ## Slice 6: Dockerfile build path
 
-### 10. Dockerfile build path · in-progress
+### 10. Dockerfile build path · done
 Thickens the build segment with the escape hatch: when the project ships a Dockerfile, build that instead of running Buildpack detection, so apps Buildpacks cannot handle still deploy.
 **Done when:** a project with a Dockerfile builds through it, a project without one still builds through Buildpacks, and which path ran is recorded on the deployment.
 spec [0009](../specs/0009-dockerfile-build-path/index.md)
