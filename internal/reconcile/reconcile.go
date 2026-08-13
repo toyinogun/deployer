@@ -97,8 +97,10 @@ type Deployments interface {
 	// fails still says which engine ran it (spec 0009, AC-4).
 	RecordBuild(ctx context.Context, id, buildPath, jobName, imageRepo, imageDigest string) error
 	// MarkHealthy writes the transition, the release, and the app's current
-	// release pointer in one transaction.
-	MarkHealthy(ctx context.Context, id string) (Release, error)
+	// release pointer in one transaction. The config is the one the deploy
+	// composed the container's Secret from, so the release snapshots what
+	// actually ran rather than whatever is current now (spec 0010, AC-10).
+	MarkHealthy(ctx context.Context, id string, config map[string]string) (Release, error)
 }
 
 // Apps reads the app a deployment is for.
@@ -644,7 +646,7 @@ func (r *Reconciler) deployApp(ctx context.Context, dep *Deployment, app App) *f
 	if fail := r.awaitReady(ctx, app); fail != nil {
 		return fail
 	}
-	release, err := r.deployments.MarkHealthy(ctx, dep.ID)
+	release, err := r.deployments.MarkHealthy(ctx, dep.ID, config)
 	if err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("marking the deployment healthy: %w", err)}
 	}

@@ -84,7 +84,7 @@ func TestMissingRowsReadAsNotFound(t *testing.T) {
 	if err := s.RecordBuildResult(ctx, "dep_nobody", store.BuildResult{ImageDigest: "x"}); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("RecordBuildResult returned %v, want ErrNotFound", err)
 	}
-	if _, _, err := s.MarkHealthy(ctx, "dep_nobody"); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := s.MarkHealthy(ctx, "dep_nobody", nil); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("MarkHealthy returned %v, want ErrNotFound", err)
 	}
 	if err := s.SoftDeleteApp(ctx, "app_nobody"); !errors.Is(err, store.ErrNotFound) {

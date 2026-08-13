@@ -110,8 +110,8 @@ func (a ReconcileStore) RecordBuild(ctx context.Context, id, buildPath, jobName,
 }
 
 // MarkHealthy runs the one transaction that mints a release.
-func (a ReconcileStore) MarkHealthy(ctx context.Context, id string) (reconcile.Release, error) {
-	_, rel, err := a.s.MarkHealthy(ctx, id)
+func (a ReconcileStore) MarkHealthy(ctx context.Context, id string, config map[string]string) (reconcile.Release, error) {
+	_, rel, err := a.s.MarkHealthy(ctx, id, config)
 	if errors.Is(err, ErrTerminal) {
 		return reconcile.Release{}, fmt.Errorf("%w: %w", reconcile.ErrNotInFlight, err)
 	}

@@ -130,7 +130,7 @@ func TestHappyPath(t *testing.T) {
 	}
 	mustTransition(t, s, dep.ID, domain.StateDeploying)
 
-	healthy, rel, err := s.MarkHealthy(ctx, dep.ID)
+	healthy, rel, err := s.MarkHealthy(ctx, dep.ID, nil)
 	if err != nil {
 		t.Fatalf("marking healthy: %v", err)
 	}
