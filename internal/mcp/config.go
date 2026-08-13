@@ -73,9 +73,17 @@ type ConfigEntry struct {
 
 // configValue is one entry of a caller's config map. Secret is a pointer so an
 // omitted flag is a refusal rather than a default (AC-16).
+//
+// The json tag carries omitempty so the generated schema does not mark the flag
+// required. That reads backwards, because the flag is required: it is what keeps
+// the refusal ours. A field the schema marks required is rejected by the sdk
+// before any handler runs, so the caller is handed a validation string instead
+// of config_flag_missing and the refusal is never audited. Left optional in the
+// schema, ValidateConfig decides it, which is where every other configuration
+// rule is decided.
 type configValue struct {
 	Value  string `json:"value" jsonschema:"the value the app receives, which may be an empty string"`
-	Secret *bool  `json:"secret" jsonschema:"required on every key; true keeps the value out of every response and blanks it from the logs"`
+	Secret *bool  `json:"secret,omitempty" jsonschema:"required on every key, and a key sent without it is refused with config_flag_missing; true keeps the value out of every response and blanks it from the logs"`
 }
 
 // setConfigInput is set_config's whole argument surface.
