@@ -124,6 +124,13 @@ type Apps interface {
 	// ReleaseConfig is the configuration the app's current release actually ran
 	// with. An app that has never run has an empty one rather than an error.
 	ReleaseConfig(ctx context.Context, appID string) (map[string]string, error)
+	// ListSummaries reads the account's live apps, newest first, at most limit
+	// of them, in one statement. What it returns carries no configuration, and
+	// the query behind it names no configuration column (spec 0012, AC-7, AC-8).
+	ListSummaries(ctx context.Context, accountID string, limit int64) ([]AppSummary, error)
+	// Delete retires the app, answering ErrAppInFlight when a deployment is
+	// still running for it and ErrNoApp when no live row was updated.
+	Delete(ctx context.Context, appID string) error
 }
 
 // Deployments is the slice of persistence this package needs.
@@ -190,14 +197,16 @@ type Server struct {
 	deployments Deployments
 	uploads     Uploads
 	pods        Pods
+	cluster     Cluster
 	opts        Options
 }
 
-// New returns the MCP surface. pods may be nil, which is a local run with no
-// cluster to read: get_logs then fails as internal rather than pretending an app
-// printed nothing.
-func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, u Uploads, pods Pods, opts Options) *Server {
-	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u, pods: pods, opts: opts}
+// New returns the MCP surface. pods and cluster may both be nil, which is a
+// local run with no cluster: get_logs then fails as internal rather than
+// pretending an app printed nothing, and delete_app fails the same way rather
+// than reporting a teardown that did not happen.
+func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, u Uploads, pods Pods, cluster Cluster, opts Options) *Server {
+	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u, pods: pods, cluster: cluster, opts: opts}
 }
 
 // deployInput is the tool's whole argument surface.
@@ -328,6 +337,20 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 		Description: listReleasesDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listReleasesInput) (*mcp.CallToolResult, listReleasesOutput, error) {
 		return s.listReleases(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_apps",
+		Title:       "List your apps",
+		Description: listAppsDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listAppsInput) (*mcp.CallToolResult, listAppsOutput, error) {
+		return s.listApps(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "delete_app",
+		Title:       "Delete an app",
+		Description: deleteAppDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deleteAppInput) (*mcp.CallToolResult, deleteAppOutput, error) {
+		return s.deleteApp(ctx, account, in)
 	})
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "rollback_app",

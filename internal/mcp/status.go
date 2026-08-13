@@ -86,7 +86,13 @@ func (s *Server) status(ctx context.Context, account auth.Account, in statusInpu
 		return nil, statusOutput{}, toolError(auth.ActionStatus, domain.ReasonInternal, err)
 	}
 	app, err := s.apps.Get(ctx, dep.AppID)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrNoApp):
+		// The app was deleted out from under this deployment, so its whole
+		// history is unreachable now. That is an access decision and reads like
+		// any other unknown id, never a fault (spec 0012, AC-32).
+		return nil, statusOutput{}, s.denyStatus(ctx, account.ID, err)
+	case err != nil:
 		return nil, statusOutput{}, toolError(auth.ActionStatus, domain.ReasonInternal,
 			fmt.Errorf("reading the app of deployment %s: %w", dep.ID, err))
 	}

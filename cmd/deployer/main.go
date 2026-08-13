@@ -191,7 +191,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	}
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
-		forTool{svc: uploadSvc}, podReader(cluster), mcp.Options{
+		forTool{svc: uploadSvc}, podReader(cluster), clusterPort(cluster), mcp.Options{
 			PublicURL: cfg.PublicURL,
 			AppDomain: cfg.AppDomain,
 			// The registry pull credential is the one secret the platform placed
@@ -219,6 +219,15 @@ func mailerOrNil(s *mail.Sender) identity.Mailer {
 // podReader keeps a nil client nil through the interface, so the tool sees an
 // absent cluster rather than a non nil interface holding a nil pointer.
 func podReader(cluster *kube.Client) mcp.Pods {
+	if cluster == nil {
+		return nil
+	}
+	return cluster
+}
+
+// clusterPort keeps a nil client nil through the interface, so delete_app sees
+// an absent cluster rather than a non nil interface holding a nil pointer.
+func clusterPort(cluster *kube.Client) mcp.Cluster {
 	if cluster == nil {
 		return nil
 	}

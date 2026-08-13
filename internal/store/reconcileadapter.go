@@ -183,3 +183,10 @@ func (s *Store) GetReleaseByDeployment(ctx context.Context, deploymentID string)
 	}
 	return rel, nil
 }
+
+// LiveAppSlugs reads the slug of every app that is not soft deleted, which is
+// the one answer the orphan reaper deletes namespaces against (spec 0012,
+// AC-24).
+func (r ReconcileStore) LiveAppSlugs(ctx context.Context) ([]string, error) {
+	return r.s.LiveAppSlugs(ctx)
+}
