@@ -29,7 +29,7 @@ Deploy the probe app twice, under two slugs, so each is the other's sibling. Rea
 - [x] Pick an app namespace created before this slice, confirm it has no policies, restart the control plane pod, then `kubectl get netpol -n app-<old-slug>` → both present, with no redeploy of that app → AC-12
 - [x] `kubectl get netpol -A -l app.kubernetes.io/managed-by=deployer` after the restart → one pair per app namespace, all seven pre-existing namespaces covered → AC-12
 - [x] Force a policy write failure (temporarily drop `networkpolicies` from `ClusterRole/deployer-app`, or point at a namespace the binding does not cover) and deploy → the deployment ends `failed` with reason `internal`, and `kubectl get deploy -n app-<slug>` shows no workload was created → AC-13
-- [ ] Set `DEPLOYER_APP_EGRESS_BLOCKED_CIDRS` to `not-a-cidr`, then to the empty string, then to a valid IPv6 CIDR, and restart → the pod fails to start all three times with a config error naming the variable, not a later deploy failure → AC-14
+- [x] Set `DEPLOYER_APP_EGRESS_BLOCKED_CIDRS` to `not-a-cidr`, then to a valid IPv6 CIDR, then to `,  ,`, and restart → the pod fails to start all three times with a config error naming the variable, not a later deploy failure. Set it to the empty string → it boots on the default list, because an unset variable and an empty one are the same string to `os.Getenv` → AC-14
 - [ ] `kubectl get netpol -A -l app.kubernetes.io/managed-by=deployer` before and after `PolicySweep` runs, with the deployment sweep's own log lines interleaved → the policy sweep completes first, and one namespace failing does not stop the others → AC-12
 
 ## The build namespace
