@@ -23,7 +23,7 @@ The control plane walks the stored archive's tar headers, picks the engine, reco
 - One Job, one engine, one attempt. The Job stays the same shape it is today, with one field varying.
 - The path is known before the Job exists, so `build_path` is a database write before it is an action, and a failed build still reports its engine.
 - Detection is a pure function over tar headers, which is cheap to test exhaustively without a cluster.
-- One namespace, one network policy, one RBAC surface, one deviation to document.
+- One namespace, one network policy, one RBAC surface, one set of deviations to document.
 
 **Cons**:
 
@@ -82,7 +82,34 @@ The Job shape decides this. A Job's image is fixed at creation and the archive i
 
 Relaxing `deployer-builds` to `baseline` rather than forking a second namespace rests on what is actually protecting these pods. Every field of both build pods is composed in Go, field by field, and the project rule that no caller supplied value reaches a pod spec means the composer, not admission, is the primary control here. Pod security is defence in depth behind it. Given that, a second namespace buys a stronger guarantee on the path that was never the risk, and charges a second network policy, a second RBAC surface, and a fork in the composer for it. The honest move is one namespace, two named deviations, written down, plus a test to replace the guarantee that was lost. Option 3 was tempting for exactly one reason, the empty diff, and it heads straight at the failure spec 0003 predicted in writing.
 
-The remaining choices all follow from the same instinct, which is to keep this slice one decision wide. The native snapshotter over `fuse-overlayfs` costs speed and saves a device mount, so the pod security deviation stays two named fields rather than a list. No cache, no build arguments and no secrets keeps a build a pure function of the archive, and keeps values out of published image layers until slice 7 decides what configuration means. Reusing `build_failed` rather than adding a thirteenth reason code holds the closed set closed: the caller already learns which engine ran from `build_path`, so the code carries no information the caller lacks, and only its message needed fixing, since it currently tells every failed build to check that the app builds with Cloud Native Buildpacks. Option 4's cache is genuinely the biggest win available and is still wrong now, because it trades the platform's tenancy story for speed on a cluster deploying throwaway apps.
+The remaining choices all follow from the same instinct, which is to keep this slice one decision wide. The native snapshotter over `fuse-overlayfs` costs speed and saves a device mount, so the pod security deviation stays a short named list rather than a growing one (four fields, as the correction below records, not the two first claimed here). No cache, no build arguments and no secrets keeps a build a pure function of the archive, and keeps values out of published image layers until slice 7 decides what configuration means. Reusing `build_failed` rather than adding a thirteenth reason code holds the closed set closed: the caller already learns which engine ran from `build_path`, so the code carries no information the caller lacks, and only its message needed fixing, since it currently tells every failed build to check that the app builds with Cloud Native Buildpacks. Option 4's cache is genuinely the biggest win available and is still wrong now, because it trades the platform's tenancy story for speed on a cluster deploying throwaway apps.
+
+## The deviation correction
+
+_Added 2026-08-13, during the build, after build step 3 ran against the pinned image on the cluster._
+
+This spec first claimed the BuildKit pod deviates from `restricted` in exactly two fields, seccomp and AppArmor, and held `allowPrivilegeEscalation` false as a field to prove rather than assume. It said in writing that a third deviation would be a decision to reopen, not a field to flip. Build step 3 reopened it.
+
+Four probe pods ran the pinned image `moby/buildkit@sha256:5047…` on the cluster, each changing one thing:
+
+| Pod security | Result |
+|---|---|
+| escalation false, drop `ALL`, seccomp and AppArmor unconfined (this spec's original shape) | `rootlesskit: newuidmap … operation not permitted` |
+| the same, plus `ROOTLESSKIT=""` to skip the remapper entirely | `buildkitd: rootless mode requires to be executed as the mapped root in a user namespace` |
+| escalation **true**, drop `ALL` | `newuidmap … operation not permitted` |
+| escalation **true**, drop `ALL`, add `SETUID` and `SETGID` | the build completed: base image pulled, `RUN` executed |
+
+A fifth probe tested the escape route worth testing before accepting a widening: Kubernetes pod user namespaces (`hostUsers: false`, available here on k8s 1.35, containerd 2.2, kernel 6.8). It did not help. `newuidmap` still could not set caps with escalation disabled, because a pod user namespace does not put the two capabilities into the exec'd helper's set.
+
+The third probe is the interesting one, and it is what turns this from "the spec was wrong" into a better statement of the same risk. Allowing escalation on its own changed nothing. The build only worked once the two capabilities were in the bounding set. So the bounding set, not the escalation flag, is what bounds this pod, and `SETUID` plus `SETGID` is a far more precise ceiling than "escalation allowed" sounds like. The spec now pins the bounding set narrowly (AC-10a) instead of pinning a flag that was never the control.
+
+Three shapes were weighed on that evidence:
+
+- **Accept four deviations, one namespace** (chosen). The Buildpacks pod is unchanged and still composes every `restricted` field; only the BuildKit pod widens, and it widens to a ceiling that can be written down exactly and pinned in a test.
+- **Split the namespaces**, keeping `deployer-builds` at enforced `restricted` for Paketo and giving BuildKit its own `baseline` namespace. This buys an admission enforced guarantee on the path that was never the risk, and charges a second network policy, a second RBAC binding, a new configuration variable, and a namespace fork through job create, job watch, log read and the per Job credential. It is the fallback if the deviation ever grows past four.
+- **Build a BuildKit image with no subuid entries**, so RootlessKit maps a single uid and needs no setuid helper at all, keeping the strict context. Rejected for the reason this spec already rejected Option 2: a third artifact to build, pin and patch. It also fails quietly, since a single mapped uid cannot unpack a base image whose files are owned by more than one user, so common base images would break in a way the agent could not read.
+
+Two operational findings came out of the same probes and are now in the design section rather than left to be rediscovered. RootlessKit stats its state directory under `TMPDIR`, and the pinned image points `TMPDIR` inside the home directory, so the state volume mounted there makes it disappear; `TMPDIR` has to be set to something that survives the mount. And `buildctl-daemonless.sh` calls `mktemp` in `/tmp` directly, so that container's root filesystem cannot be read only.
 
 ## References
 
@@ -99,7 +126,10 @@ The remaining choices all follow from the same instinct, which is to keep this s
 
 **Practices & standards**:
 
-- Kubernetes Pod Security Standards, the `restricted` and `baseline` levels and what each permits for seccomp
+- Kubernetes Pod Security Standards, the `restricted` and `baseline` levels, and what each permits for seccomp, AppArmor, privilege escalation and capabilities
+- Linux capability bounding sets and the no new privileges bit, and why the bounding set rather than the escalation flag is what bounds a setuid binary
+- RootlessKit's uid mapping, which uses the setuid `newuidmap` and `newgidmap` helpers when subuid entries exist and a single uid map otherwise
+- Kubernetes pod user namespaces (`hostUsers: false`), tested here and found not to remove the need for those capabilities
 - Rootless container builds without a daemon or a privileged pod, the reason this path exists at all rather than mounting a Docker socket
 - Defence in depth: admission policy as a second guard behind a composer that is the real control, and a test where an enforced guarantee is given up
 - Deploy by immutable digest, and repin an image together with the identity it declares
