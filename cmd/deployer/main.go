@@ -259,6 +259,7 @@ func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, up
 			QuotaCPU:              cfg.AppQuotaCPU,
 			QuotaMemory:           cfg.AppQuotaMemory,
 			QuotaPods:             cfg.AppQuotaPods,
+			EgressBlockedCIDRs:    cfg.AppEgressBlockedCIDRs,
 		})
 	go loop.Run(ctx)
 	slog.Info("reconcile loop started", "interval", cfg.ReconcileInterval, "build_namespace", cfg.BuildNamespace)

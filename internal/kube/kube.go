@@ -70,6 +70,64 @@ func (c *Client) EnsureNamespace(ctx context.Context, ns *corev1.Namespace, rb *
 	return nil
 }
 
+// ApplyNetworkPolicies writes an app's fence over whatever is already there.
+//
+// Applied rather than created if absent, which is the one place this package
+// departs from the leave it alone rule above, and it departs on purpose: the
+// quota and the limits were left alone so the platform could not move a fence
+// someone had tightened, and these are rewritten so a fence someone loosened
+// comes back on the next deploy. Overwriting can only restore the platform's own
+// policy, because none of its content is caller derived (spec 0008, AC-11).
+func (c *Client) ApplyNetworkPolicies(ctx context.Context, policies ...*networkingv1.NetworkPolicy) error {
+	for _, p := range policies {
+		api := c.cs.NetworkingV1().NetworkPolicies(p.Namespace)
+		_, err := api.Create(ctx, p, metav1.CreateOptions{})
+		if apierrors.IsAlreadyExists(err) {
+			var current *networkingv1.NetworkPolicy
+			current, err = api.Get(ctx, p.Name, metav1.GetOptions{})
+			if err == nil {
+				current.Labels = p.Labels
+				current.Spec = p.Spec
+				_, err = api.Update(ctx, current, metav1.UpdateOptions{})
+			}
+		}
+		if err != nil {
+			return fmt.Errorf("kube: writing network policy %s/%s: %w", p.Namespace, p.Name, err)
+		}
+	}
+	return nil
+}
+
+// AppNamespaces lists the slug of every app namespace the platform owns, read
+// off the cluster rather than the database: the startup sweep polices what is
+// actually there, including a namespace whose row was since removed
+// (spec 0008, AC-12).
+func (c *Client) AppNamespaces(ctx context.Context) ([]string, error) {
+	list, err := c.cs.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+		LabelSelector: managedByDeployer,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("kube: listing app namespaces: %w", err)
+	}
+	slugs := make([]string, 0, len(list.Items))
+	for _, ns := range list.Items {
+		// The control plane's own namespace and the build namespace are labelled
+		// by ArgoCD, not by the platform, so this selector already excludes them.
+		// The slug label is what makes a namespace one this package composes for;
+		// anything without it is not something to police blind.
+		if slug := ns.Labels[appSlugLabel]; slug != "" {
+			slugs = append(slugs, slug)
+		}
+	}
+	return slugs, nil
+}
+
+// The labels an app namespace carries, set in internal/deploy when it is created.
+const (
+	managedByDeployer = "app.kubernetes.io/managed-by=deployer"
+	appSlugLabel      = "deployer.internal/app-slug"
+)
+
 // ApplySecret creates or updates one secret. The pull secret is refreshed on
 // every deploy through this, so a rotated registry credential reaches an app
 // namespace without anything being deleted.
