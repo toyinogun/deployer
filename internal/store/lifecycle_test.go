@@ -25,11 +25,26 @@ func deployToHealthy(t *testing.T, s *store.Store, f fixture, uploadID, digest s
 		t.Fatalf("recording the build result: %v", err)
 	}
 	mustTransition(t, s, dep.ID, domain.StateDeploying)
-	healthy, rel, err := s.MarkHealthy(ctx, dep.ID)
+	healthy, rel, err := s.MarkHealthy(ctx, dep.ID, configForDeploy(t, s, f.app.ID))
 	if err != nil {
 		t.Fatalf("marking healthy: %v", err)
 	}
 	return healthy, rel
+}
+
+// configForDeploy stands in for the read the reconciler does when it composes
+// the workload, which is the config MarkHealthy is then handed.
+func configForDeploy(t *testing.T, s *store.Store, appID string) map[string]string {
+	t.Helper()
+	entries, err := s.ListConfigForDeploy(t.Context(), appID)
+	if err != nil {
+		t.Fatalf("reading the app's configuration: %v", err)
+	}
+	values := make(map[string]string, len(entries))
+	for _, e := range entries {
+		values[e.Key] = e.Value
+	}
+	return values
 }
 
 // TestMarkHealthyIsAllOrNothing forces the release insert to fail and checks
@@ -61,7 +76,7 @@ func TestMarkHealthyIsAllOrNothing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading the event log: %v", err)
 	}
-	if _, _, err := s.MarkHealthy(ctx, dep.ID); !errors.Is(err, store.ErrReleaseExists) {
+	if _, _, err := s.MarkHealthy(ctx, dep.ID, nil); !errors.Is(err, store.ErrReleaseExists) {
 		t.Fatalf("MarkHealthy returned %v, want ErrReleaseExists", err)
 	}
 
@@ -98,7 +113,7 @@ func TestMarkHealthyNeedsADigest(t *testing.T) {
 	mustTransition(t, s, dep.ID, domain.StatePushing)
 	mustTransition(t, s, dep.ID, domain.StateDeploying)
 
-	if _, _, err := s.MarkHealthy(t.Context(), dep.ID); !errors.Is(err, store.ErrNoDigest) {
+	if _, _, err := s.MarkHealthy(t.Context(), dep.ID, nil); !errors.Is(err, store.ErrNoDigest) {
 		t.Fatalf("got %v, want ErrNoDigest", err)
 	}
 }
@@ -139,7 +154,7 @@ func TestRollbackFidelity(t *testing.T) {
 
 	// The short path: queued straight to deploying, no build and no push.
 	mustTransition(t, s, rollback.ID, domain.StateDeploying)
-	_, rel, err := s.MarkHealthy(ctx, rollback.ID)
+	_, rel, err := s.MarkHealthy(ctx, rollback.ID, configForDeploy(t, s, f.app.ID))
 	if err != nil {
 		t.Fatalf("marking the rollback healthy: %v", err)
 	}
@@ -199,6 +214,46 @@ func TestSnapshotIncludesSecrets(t *testing.T) {
 	_, rel := deployToHealthy(t, s, f, f.upload.ID, "sha256:aaa")
 	if got := snapshotValue(t, rel.ConfigSnapshot, "API_KEY"); got != "s3cret" {
 		t.Errorf("the snapshot holds %q for API_KEY, want the real value", got)
+	}
+}
+
+// TestSnapshotIsTheConfigTheDeployComposedWith pins the window the reconciler
+// waits through: the deploy reads configuration once to build the container's
+// Secret, then waits for readiness, which can take minutes. A set_config landing
+// in that window must not reach the release, because the pod it describes is
+// running the earlier values. Verifies AC-10.
+func TestSnapshotIsTheConfigTheDeployComposedWith(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newStore(t)
+	f := newFixture(t, s)
+
+	if err := s.SetConfig(ctx, f.app.ID, "LOG_LEVEL", "info", false); err != nil {
+		t.Fatalf("setting configuration: %v", err)
+	}
+	dep := mustCreateDeployment(t, s, f, f.upload.ID)
+	mustTransition(t, s, dep.ID, domain.StateBuilding)
+	mustTransition(t, s, dep.ID, domain.StatePushing)
+	if err := s.RecordBuildResult(ctx, dep.ID, store.BuildResult{ImageDigest: "sha256:aaa"}); err != nil {
+		t.Fatalf("recording the build result: %v", err)
+	}
+	mustTransition(t, s, dep.ID, domain.StateDeploying)
+
+	// What the workload was actually composed from, read before the wait.
+	composed := configForDeploy(t, s, f.app.ID)
+
+	// The caller changes configuration while the deployment is still coming up.
+	if err := s.SetConfig(ctx, f.app.ID, "LOG_LEVEL", "debug", false); err != nil {
+		t.Fatalf("changing configuration mid deploy: %v", err)
+	}
+
+	_, rel, err := s.MarkHealthy(ctx, dep.ID, composed)
+	if err != nil {
+		t.Fatalf("marking healthy: %v", err)
+	}
+	if got := snapshotValue(t, rel.ConfigSnapshot, "LOG_LEVEL"); got != "info" {
+		t.Errorf("the release snapshotted LOG_LEVEL=%q, want info: the pod was given info, "+
+			"and debug only reaches the next deploy", got)
 	}
 }
 

@@ -235,7 +235,7 @@ spec [0010](../specs/0010-app-environment-configuration/index.md) · code in `in
   - [x] The first call path: the optional config map on `deploy_app`, the tool descriptions, and the test holding builds clear of configuration — AC-9, AC-14
 - [x] Verify it: `/check verify app environment configuration`
 - [x] Test it: `/test app environment configuration`
-- [ ] Review it (fresh model): `/check review app environment configuration`
+- [x] Review it (fresh model): `/check review app environment configuration`
 - [ ] Document it: `/document app environment configuration`
 
 ## Slice 8: Rollback & release history

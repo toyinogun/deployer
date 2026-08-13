@@ -269,7 +269,12 @@ func (s *Store) RecordBuildResult(ctx context.Context, deploymentID string, r Bu
 // the app's current release pointer. There is deliberately no other way to make a
 // release, because any other way reopens the window where a healthy deployment
 // has none.
-func (s *Store) MarkHealthy(ctx context.Context, deploymentID string) (Deployment, Release, error) {
+//
+// The config is the caller's, not a fresh read: the deploy composed the
+// container's Secret from one read minutes earlier, and re reading here would
+// snapshot a set_config that landed during the readiness wait onto a release
+// that never ran it (spec 0010, AC-10).
+func (s *Store) MarkHealthy(ctx context.Context, deploymentID string, config map[string]string) (Deployment, Release, error) {
 	var dep Deployment
 	var rel Release
 	now := s.now()
@@ -299,7 +304,7 @@ func (s *Store) MarkHealthy(ctx context.Context, deploymentID string) (Deploymen
 			return err
 		}
 
-		snapshot, err := configSnapshot(ctx, q, current.AppID)
+		snapshot, err := configSnapshot(config)
 		if err != nil {
 			return err
 		}
@@ -339,17 +344,13 @@ func (s *Store) MarkHealthy(ctx context.Context, deploymentID string) (Deploymen
 	return dep, rel, nil
 }
 
-// configSnapshot encodes an app's whole configuration, secret values included,
-// as the JSON a release stores. Read inside the caller's transaction so the
-// snapshot matches the moment the release was cut.
-func configSnapshot(ctx context.Context, q *sqlcgen.Queries, appID string) (string, error) {
-	rows, err := q.ListConfigForDeploy(ctx, appID)
-	if err != nil {
-		return "", fmt.Errorf("store: reading configuration for app %s: %w", appID, err)
-	}
-	values := make(map[string]string, len(rows))
-	for _, r := range rows {
-		values[r.Key] = r.Value
+// configSnapshot encodes the configuration a deploy composed with, secret values
+// included, as the JSON a release stores. It takes the values rather than reading
+// them, because the snapshot has to describe what the running pod was given, not
+// what the table holds at the moment the release is cut.
+func configSnapshot(values map[string]string) (string, error) {
+	if values == nil {
+		values = map[string]string{}
 	}
 	encoded, err := json.Marshal(values)
 	if err != nil {
