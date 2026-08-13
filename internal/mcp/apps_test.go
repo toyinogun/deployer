@@ -148,6 +148,33 @@ func TestAnAccountWithNoAppsListsEmptyRatherThanRefusing(t *testing.T) {
 	}
 }
 
+// TestAListingThatFailsIsAuditedAsDenied is the other half of AC-11: a
+// successful read leaves no row, and a refused one leaves exactly one, matching
+// how every other read tool audits.
+func TestAListingThatFailsIsAuditedAsDenied(t *testing.T) {
+	// covers: AC-11
+	s, auditor, apps, _, account := lifecycleServer()
+	apps.readErr = errors.New("the database went away")
+
+	_, _, err := s.listApps(t.Context(), account, listAppsInput{})
+	if err == nil {
+		t.Fatal("the listing reported success, want internal after the read failed")
+	}
+	if !strings.HasPrefix(err.Error(), string(domain.ReasonInternal)) {
+		t.Errorf("the refusal reads %q, want it to start with internal", err)
+	}
+	if strings.Contains(err.Error(), "database went away") {
+		t.Errorf("the store error reached the caller: %q", err)
+	}
+	if len(auditor.rows) != 1 {
+		t.Fatalf("audit rows = %+v, want exactly one for the refusal", auditor.rows)
+	}
+	row := auditor.rows[0]
+	if row.Allowed || row.Action != auth.ActionAppList || row.Reason != string(domain.ReasonInternal) {
+		t.Errorf("audit row = %+v, want one denied app_list carrying internal", row)
+	}
+}
+
 // TestTheListingIsScopedToTheCallersAccount pins that the account comes from the
 // token, never from an argument, and that admin widens nothing.
 func TestTheListingIsScopedToTheCallersAccount(t *testing.T) {
@@ -186,7 +213,7 @@ func TestTheAppListingAsksForNoMoreThanTheBound(t *testing.T) {
 // TestADeleteRetiresTheRowThenTheNamespace is the whole accepted path, including
 // the order the two writes happen in.
 func TestADeleteRetiresTheRowThenTheNamespace(t *testing.T) {
-	// covers: AC-13, AC-14, AC-16, AC-29
+	// covers: AC-13, AC-14, AC-16, AC-17, AC-29
 	s, auditor, apps, cluster, account := lifecycleServer()
 
 	_, out, err := s.deleteApp(t.Context(), account, deleteAppInput{Name: "notes"})
@@ -256,6 +283,38 @@ func TestANamespaceDeleteThatFailsStillLeavesTheRowDeleted(t *testing.T) {
 	}
 }
 
+// TestADeleteWithNoClusterAccessReadsAsAFailedTeardown pins the local run, where
+// the server holds no cluster at all. It has to read exactly like a namespace
+// delete that failed, because for the caller it is one: the row is retired, the
+// teardown did not happen, and nothing tells them it did.
+func TestADeleteWithNoClusterAccessReadsAsAFailedTeardown(t *testing.T) {
+	// covers: AC-19
+	s, auditor, apps, _, account := lifecycleServer()
+	s.cluster = nil
+
+	_, out, err := s.deleteApp(t.Context(), account, deleteAppInput{Name: "notes"})
+	if err == nil {
+		t.Fatal("the delete reported success with no cluster to tear the namespace down on")
+	}
+	if !strings.HasPrefix(err.Error(), string(domain.ReasonInternal)) {
+		t.Errorf("the refusal reads %q, want it to start with internal", err)
+	}
+	if out.Deleted {
+		t.Error("the output claims the app was deleted, want the zero value on a refusal")
+	}
+	if len(apps.deleted) != 1 {
+		t.Errorf("retired %v, want the row deleted regardless, the same as a failed namespace delete", apps.deleted)
+	}
+	if len(auditor.rows) != 1 {
+		t.Fatalf("audit rows = %+v, want exactly one for the refusal", auditor.rows)
+	}
+	row := auditor.rows[0]
+	if row.Allowed || row.Action != auth.ActionAppDelete ||
+		row.Reason != string(domain.ReasonInternal) || row.TargetID != "app_1" {
+		t.Errorf("audit row = %+v, want one denied app_delete carrying internal and the app", row)
+	}
+}
+
 // TestEveryUnknownAppRefusalReadsTheSame pins that a name that never existed,
 // another account's app, and an already deleted one are indistinguishable.
 func TestEveryUnknownAppRefusalReadsTheSame(t *testing.T) {
@@ -309,7 +368,7 @@ func TestListAppsAndDeleteAppOverTheWire(t *testing.T) {
 	}
 
 	unknown := callOverTheWire(t, s, account, "delete_app", map[string]any{"name": "nothing-here"})
-	if got := resultText(unknown); !refused.IsError || !strings.HasPrefix(got, string(domain.ReasonAppUnknown)) {
+	if got := resultText(unknown); !unknown.IsError || !strings.HasPrefix(got, string(domain.ReasonAppUnknown)) {
 		t.Errorf("the refusal reads %q, want app_unknown", got)
 	}
 }

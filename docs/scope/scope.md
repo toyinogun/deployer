@@ -271,8 +271,8 @@ spec [0012](../specs/0012-app-lifecycle-list-delete/index.md) · code in `intern
   - [x] The orphan reaper: both new variables, `LiveAppSlugs`, `AppNamespacesOlderThan`, and the pass on its own ticker plus one at startup, with the abort, label and grace guards each pinned — AC-23, AC-24, AC-25, AC-26, AC-27
   - [x] What a deleted app answers: the existing tools all refuse it, pinned rather than assumed — AC-32
 - [x] Verify it: `/check verify app lifecycle`
-- [ ] Test it: `/test app lifecycle`
-- [ ] Review it (fresh model): `/check review app lifecycle`
+- [x] Test it: `/test app lifecycle` — the four criteria the build left untested (AC-7, AC-11's denied row, AC-17, AC-22's freed name) now have tests behind them
+- [x] Review it (fresh model): `/check review app lifecycle` — reviewed on sonnet, approve with nits
 - [ ] Document it: `/document app lifecycle`
 
 ## Slice 10: Web interface

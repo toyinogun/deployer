@@ -2,6 +2,8 @@ package store_test
 
 import (
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,6 +107,64 @@ func TestADeletedAppNeverAppearsInTheListing(t *testing.T) {
 	}
 	if !taken {
 		t.Error("the slug came free after a delete, want it reserved for good")
+	}
+}
+
+// TestTheAppListingCarriesNoConfiguration pins the projection rather than the
+// handler above it: the listing's query never reads app_config or a release's
+// config_snapshot, so no key and no value enters the process at all.
+func TestTheAppListingCarriesNoConfiguration(t *testing.T) {
+	// covers: AC-7
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newStore(t)
+	f := newFixture(t, s)
+	if err := s.SetConfig(ctx, f.app.ID, "PLAIN_KEY", "plain-value", false); err != nil {
+		t.Fatalf("setting the plain key: %v", err)
+	}
+	if err := s.SetConfig(ctx, f.app.ID, "SECRET_KEY", "secret-value", true); err != nil {
+		t.Fatalf("setting the secret key: %v", err)
+	}
+
+	rows, err := s.ListAppSummaries(ctx, f.account.ID, 50)
+	if err != nil {
+		t.Fatalf("listing app summaries: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("the listing holds %d rows, want 1", len(rows))
+	}
+	// Every field of the row at once, so a configuration field added later fails
+	// here rather than leaking.
+	whole := fmt.Sprintf("%+v", rows[0])
+	for _, forbidden := range []string{"PLAIN_KEY", "plain-value", "SECRET_KEY", "secret-value"} {
+		if strings.Contains(whole, forbidden) {
+			t.Errorf("the listing row carries %q: %s", forbidden, whole)
+		}
+	}
+}
+
+// TestADeletedAppsNameIsFreeButItsSlugIsNot pins both halves of AC-22 together,
+// because they pull opposite ways: the name has to come back so the account can
+// reuse it, and the slug must not, so the old hostname stays dead.
+func TestADeletedAppsNameIsFreeButItsSlugIsNot(t *testing.T) {
+	// covers: AC-22
+	t.Parallel()
+	ctx := t.Context()
+	s, _ := newStore(t)
+	f := newFixture(t, s)
+
+	if err := s.SoftDeleteApp(ctx, f.app.ID); err != nil {
+		t.Fatalf("deleting the app: %v", err)
+	}
+	again, err := s.CreateApp(ctx, f.account.ID, f.app.Name)
+	if err != nil {
+		t.Fatalf("creating an app under the deleted app's name: %v", err)
+	}
+	if again.ID == f.app.ID {
+		t.Fatal("the deleted app came back, want a new app")
+	}
+	if again.Slug == f.app.Slug {
+		t.Errorf("the new app took the slug %q back, want a new one so the old hostname stays dead", again.Slug)
 	}
 }
 
