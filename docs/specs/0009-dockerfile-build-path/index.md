@@ -1,7 +1,7 @@
 # 0009. Dockerfile build path: the escape hatch for apps Buildpacks cannot handle
 
 **Date**: 2026-08-13
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
