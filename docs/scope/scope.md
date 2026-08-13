@@ -233,7 +233,7 @@ spec [0010](../specs/0010-app-environment-configuration/index.md) · code in `in
   - [x] The tools live: `set_config`, `get_config`, `unset_config`, ownership, audit rows, and the next deploy line in the response — AC-1, AC-2, AC-3, AC-8, AC-12, AC-13
   - [x] Exact log redaction, matched against the running release as well as current configuration — AC-11
   - [x] The first call path: the optional config map on `deploy_app`, the tool descriptions, and the test holding builds clear of configuration — AC-9, AC-14
-- [ ] Verify it: `/check verify app environment configuration`
+- [x] Verify it: `/check verify app environment configuration`
 - [ ] Test it: `/test app environment configuration`
 - [ ] Review it (fresh model): `/check review app environment configuration`
 - [ ] Document it: `/document app environment configuration`
