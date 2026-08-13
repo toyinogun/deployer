@@ -139,3 +139,32 @@ func TestHasRootDockerfileStopsAtTheEntryLimit(t *testing.T) {
 		t.Fatalf("error %q should name the limit it stopped at", err)
 	}
 }
+
+// TestHasRootDockerfileStopsAtTheByteLimit pins the bound the entry count does
+// not cover. Detection reads no body itself, but tar.Reader discards the
+// previous entry on the way to the next header, so the bodies are decompressed
+// either way: a handful of entries of highly compressible zeroes is tiny on the
+// wire and unbounded coming out of gzip, inside the control plane pod. It stops
+// at the same MaxBytes the extractor enforces (AC-3).
+func TestHasRootDockerfileStopsAtTheByteLimit(t *testing.T) {
+	const limit = 64 << 10
+	// Well inside MaxFiles, so only the byte bound can stop this one.
+	entries := []entry{
+		{name: "zeroes", body: strings.Repeat("\x00", limit*4)},
+		{name: "Dockerfile", body: "FROM scratch\n"},
+	}
+
+	got, err := source.HasRootDockerfile(
+		bytes.NewReader(archive(t, entries...)),
+		source.Limits{MaxFiles: 100, MaxBytes: limit},
+	)
+	if !errors.Is(err, source.ErrRejected) {
+		t.Fatalf("error = %v, want it to wrap ErrRejected", err)
+	}
+	if got {
+		t.Fatal("a refused archive must not also report a Dockerfile")
+	}
+	if !strings.Contains(err.Error(), fmt.Sprint(limit)) {
+		t.Fatalf("error %q should name the limit it stopped at", err)
+	}
+}

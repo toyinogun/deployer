@@ -216,3 +216,81 @@ func TestAnArchiveOverTheEntryLimitIsRefused(t *testing.T) {
 		t.Errorf("build jobs = %d, want none", len(jobs))
 	}
 }
+
+// covers AC-12: an image a Dockerfile build produced that declares no non root
+// user is refused, and refused before a single object for the app is composed.
+// Spec 0004 wrote this refusal and could never reach it, because a Buildpacks
+// image always declares a user. The Dockerfile path is the first thing that can
+// actually push a root image, so this is the case that closes it, and the row
+// still says which engine got it there.
+func TestARootImageFromADockerfileBuildIsRefusedBeforeAnyAppObject(t *testing.T) {
+	w := setup(t)
+	w.buildEnds(batchv1.JobComplete)
+	ctx := t.Context()
+	dep := w.queueWith(t, "Dockerfile", "main.go")
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "0"}).Drive(ctx, dep)
+
+	row, err := w.store.GetDeployment(ctx, dep.ID)
+	if err != nil {
+		t.Fatalf("reading the deployment back: %v", err)
+	}
+	if row.FailureReason == nil || *row.FailureReason != string(domain.ReasonImageRunsAsRoot) {
+		t.Fatalf("failure reason = %v, want image_runs_as_root", row.FailureReason)
+	}
+	if got := w.buildPathOf(t, dep.ID); got != "dockerfile" {
+		t.Errorf("build_path = %q on a refused root image, want dockerfile", got)
+	}
+
+	// Nothing for this app reached the cluster, which is the half of the
+	// criterion that matters: the refusal is the platform's, not admission's.
+	list, err := w.clientset.AppsV1().Deployments("app-"+w.app.Slug).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("listing deployments: %v", err)
+	}
+	if len(list.Items) != 0 {
+		t.Errorf("app deployments = %d, want none for an image the platform refused", len(list.Items))
+	}
+}
+
+// covers AC-14: build output stays in the Job's pod logs on both paths. The
+// strongest thing this suite can say about that is that the platform never asks
+// for them at all: a failed build is ended from the Job's own condition, so
+// there is no read for output to escape from, and the row carries the closed
+// code rather than anything the build printed. The fake clientset serves no
+// real logs, so the response and log half of this is proved live, not here.
+func TestNoBuildOutputIsEverReadOnEitherPath(t *testing.T) {
+	for name, names := range map[string][]string{
+		"dockerfile": {"Dockerfile", "main.go"},
+		"buildpacks": {"main.go", "go.mod"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			w := setup(t)
+			w.buildEnds(batchv1.JobFailed)
+			ctx := t.Context()
+			dep := w.queueWith(t, names...)
+
+			w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}).Drive(ctx, dep)
+
+			row, err := w.store.GetDeployment(ctx, dep.ID)
+			if err != nil {
+				t.Fatalf("reading the deployment back: %v", err)
+			}
+			if row.FailureReason == nil || *row.FailureReason != string(domain.ReasonBuildFailed) {
+				t.Fatalf("failure reason = %v, want build_failed", row.FailureReason)
+			}
+			// The stored reason is the code alone. A row carrying a wrapped
+			// error string is build detail that reached the database.
+			if !domain.Reason(*row.FailureReason).Valid() {
+				t.Errorf("failure reason %q is outside the closed set", *row.FailureReason)
+			}
+
+			for _, a := range w.clientset.Actions() {
+				if a.GetSubresource() == "log" {
+					t.Errorf("the platform read pod logs (%s %s/%s) during a failed build",
+						a.GetVerb(), a.GetResource().Resource, a.GetSubresource())
+				}
+			}
+		})
+	}
+}

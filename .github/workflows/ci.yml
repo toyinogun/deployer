@@ -98,8 +98,15 @@ jobs:
           image=$(value DEPLOYER_BUILDKIT_IMAGE)
           echo "reading ${image%@*}@${image#*@}"
           user=$(config "${image%@*}" "${image#*@}" | jq -r '.config.User // ""')
-          compare DEPLOYER_BUILDKIT_UID "${user%%:*}" "Config.User uid"
-          compare DEPLOYER_BUILDKIT_GID "${user##*:}" "Config.User gid"
+          # A uid alone is a legal Config.User, and both a %%:* and a ##*: strip
+          # of it answer the uid, so the gid would silently compare against the
+          # uid and pass. This pair has to come from a value that carries both.
+          case "$user" in
+            *:*) compare DEPLOYER_BUILDKIT_UID "${user%%:*}" "Config.User uid"
+                 compare DEPLOYER_BUILDKIT_GID "${user##*:}" "Config.User gid" ;;
+            *)   echo "the pinned BuildKit image declares Config.User=\"$user\", not a uid:gid pair" >&2
+                 status=1 ;;
+          esac
 
           exit $status
 

@@ -206,17 +206,17 @@ Thickens the build segment with the escape hatch: when the project ships a Docke
 **Done when:** a project with a Dockerfile builds through it, a project without one still builds through Buildpacks, and which path ran is recorded on the deployment.
 spec [0009](../specs/0009-dockerfile-build-path/index.md)
 - [x] Design it (spec): `/architect dockerfile build path`
-- [ ] Build it: `/develop dockerfile build path`
+- [x] Build it: `/develop dockerfile build path`
   - [x] The pinned BuildKit image, its own uid pair, and CI's drift check over both build images — AC-8, AC-9
   - [x] Detection as a bounded, header only walk of the stored archive, regular files only — AC-3, AC-6, AC-7a
   - [x] The BuildKit Job composed beside the Paketo one — AC-7, AC-15, AC-18
   - [x] The namespace split: `deployer-builds-dockerfile` at privileged with its own policy pair and binding, `deployer-builds` back to restricted, the config value, and the routing by a build path the deployment now carries into the loop. `baseline` was tried and refuses the pod outright — AC-10, AC-19, AC-19a, AC-20, AC-21, AC-22
-  - [ ] The thin thread live: selection wired into startBuild and both samples in place, Buildpacks proved on the cluster, BuildKit blocked until the split lands — AC-1, AC-2, AC-4, AC-5, AC-17
-  - [ ] The refusals and the guards: the reworded failure message, the composed context test and the tool description are in, the root image refusal still needs a live rootful Dockerfile — AC-11, AC-12, AC-13, AC-14, AC-16
-- [ ] Verify it: `/check verify dockerfile build path`
-- [ ] Test it: `/test dockerfile build path`
-- [ ] Review it (fresh model): `/check review dockerfile build path`
-- [ ] Document it: `/document dockerfile build path`
+  - [x] The thin thread live: both samples deploy on the cluster, BuildKit for the Dockerfile one and Buildpacks for the other — AC-1, AC-2, AC-4, AC-5, AC-17
+  - [x] The refusals and the guards: the reworded failure message, the composed context test, the tool description, and both live refusals proved — AC-11, AC-12, AC-13, AC-14, AC-16
+- [x] Verify it: `/check verify dockerfile build path`
+- [x] Test it: `/test dockerfile build path`
+- [x] Review it (fresh model): `/check review dockerfile build path` — reviewed on sonnet over the whole feature range, not just the branch. One major, an unbounded decompression in `HasRootDockerfile`, fixed in the same session; the CI `Config.User` minor fixed with it
+- [x] Document it: `/document dockerfile build path` — PR [#19](https://github.com/toyinogun/deployer/pull/19)
 
 ## Slice 7: App environment configuration
 

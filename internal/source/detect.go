@@ -18,11 +18,14 @@ const rootDockerfile = "Dockerfile"
 // HasRootDockerfile reports whether a gzipped tar stream carries a regular file
 // that unpacks to Dockerfile at the root of the tree.
 //
-// It reads headers only and never a body, writes nothing anywhere, and stops at
-// the same entry limit Extract enforces, so an archive of nothing but headers
-// cannot make the control plane walk without bound. A stream it cannot read is
-// refused with ErrRejected rather than answered, because the alternative is
-// detecting one thing here and being refused for something else at extraction.
+// It keeps no body and writes nothing anywhere, and stops at both limits Extract
+// enforces, so neither an archive of nothing but headers nor one whose bodies
+// decompress without bound can run away with the control plane. The byte bound
+// is not redundant with the entry one: tar.Reader discards the entry it is
+// leaving on the way to the next header, so the bodies are decompressed here
+// even though this never reads one. A stream it cannot read is refused with
+// ErrRejected rather than answered, because the alternative is detecting one
+// thing here and being refused for something else at extraction.
 func HasRootDockerfile(r io.Reader, lim Limits) (bool, error) {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
@@ -30,7 +33,7 @@ func HasRootDockerfile(r io.Reader, lim Limits) (bool, error) {
 	}
 	defer func() { _ = gz.Close() }()
 
-	tr := tar.NewReader(gz)
+	tr := tar.NewReader(&boundedReader{r: gz, left: lim.MaxBytes, max: lim.MaxBytes})
 	var files int
 	// Not an early return: the whole stream still has to prove it is readable
 	// and inside the limit, or an archive that is refused at extraction would
@@ -59,4 +62,26 @@ func HasRootDockerfile(r io.Reader, lim Limits) (bool, error) {
 			found = true
 		}
 	}
+}
+
+// boundedReader fails the read once more than max uncompressed bytes have come
+// out of it. It sits between the gzip reader and the tar reader so the bound is
+// on what was decompressed, not on what arrived, which is the whole point.
+type boundedReader struct {
+	r    io.Reader
+	left int64
+	max  int64
+}
+
+// Read reads from the underlying reader, refusing once the bound is spent.
+func (b *boundedReader) Read(p []byte) (int, error) {
+	if b.left <= 0 {
+		return 0, fmt.Errorf("source: more than %d uncompressed bytes: %w", b.max, ErrRejected)
+	}
+	if int64(len(p)) > b.left {
+		p = p[:b.left]
+	}
+	n, err := b.r.Read(p)
+	b.left -= int64(n)
+	return n, err
 }
