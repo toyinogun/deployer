@@ -216,7 +216,7 @@ spec [0009](../specs/0009-dockerfile-build-path/index.md)
 - [x] Verify it: `/check verify dockerfile build path`
 - [x] Test it: `/test dockerfile build path`
 - [x] Review it (fresh model): `/check review dockerfile build path` — reviewed on sonnet over the whole feature range, not just the branch. One major, an unbounded decompression in `HasRootDockerfile`, fixed in the same session; the CI `Config.User` minor fixed with it
-- [ ] Document it: `/document dockerfile build path`
+- [x] Document it: `/document dockerfile build path` — PR [#19](https://github.com/toyinogun/deployer/pull/19)
 
 ## Slice 7: App environment configuration
 
