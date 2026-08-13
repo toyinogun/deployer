@@ -254,7 +254,7 @@ spec [0011](../specs/0011-rollback-and-release-history/index.md) · code in `int
   - [x] The contract surface: both tool descriptions, and both tools driven through a real MCP session including the refusals — AC-22, AC-23
 - [ ] Verify it: `/check verify rollback & release history`
 - [x] Test it: `/test rollback & release history`
-- [ ] Review it (fresh model): `/check review rollback & release history`
+- [x] Review it (fresh model): `/check review rollback & release history`
 - [x] Document it: `/document rollback & release history` — PR [#28](https://github.com/toyinogun/deployer/pull/28)
 
 ## Slice 9: App lifecycle: list & decommission
