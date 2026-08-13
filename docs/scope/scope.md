@@ -209,9 +209,9 @@ spec [0009](../specs/0009-dockerfile-build-path/index.md)
 - [ ] Build it: `/develop dockerfile build path`
   - [x] The pinned BuildKit image, its own uid pair, and CI's drift check over both build images — AC-8, AC-9
   - [x] Detection as a bounded, header only walk of the stored archive, regular files only — AC-3, AC-6, AC-7a
-  - [ ] The BuildKit Job composed beside the Paketo one, and `deployer-builds` relaxed to baseline ahead of it — AC-7, AC-10, AC-15, AC-18
-  - [ ] The thin thread live: selection wired into startBuild, both samples deploying their own way, the path reported — AC-1, AC-2, AC-4, AC-5, AC-17
-  - [ ] The refusals and the guards: the root image refusal spec 0004 deferred here, the reworded failure message, the composed context test, the tool description — AC-11, AC-12, AC-13, AC-14, AC-16
+  - [x] The BuildKit Job composed beside the Paketo one, and `deployer-builds` relaxed to baseline ahead of it — AC-7, AC-10, AC-15, AC-18
+  - [ ] The thin thread live: selection wired into startBuild and both samples in place, but not yet proved on the cluster — AC-1, AC-2, AC-4, AC-5, AC-17
+  - [ ] The refusals and the guards: the reworded failure message, the composed context test and the tool description are in, the root image refusal still needs a live rootful Dockerfile — AC-11, AC-12, AC-13, AC-14, AC-16
 - [ ] Verify it: `/check verify dockerfile build path`
 - [ ] Test it: `/test dockerfile build path`
 - [ ] Review it (fresh model): `/check review dockerfile build path`
