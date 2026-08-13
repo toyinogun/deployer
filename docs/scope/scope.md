@@ -270,7 +270,7 @@ spec [0012](../specs/0012-app-lifecycle-list-delete/index.md) · code in `intern
   - [x] `delete_app` end to end: the `deployment_in_flight` code, `kube.DeleteNamespace` tolerating gone and terminating, the one method cluster port on `internal/mcp`, the audit rows, the description, and every refusal over the wire — AC-13, AC-14, AC-15, AC-16, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22, AC-28, AC-29, AC-30, AC-31
   - [x] The orphan reaper: both new variables, `LiveAppSlugs`, `AppNamespacesOlderThan`, and the pass on its own ticker plus one at startup, with the abort, label and grace guards each pinned — AC-23, AC-24, AC-25, AC-26, AC-27
   - [x] What a deleted app answers: the existing tools all refuse it, pinned rather than assumed — AC-32
-- [ ] Verify it: `/check verify app lifecycle`
+- [x] Verify it: `/check verify app lifecycle`
 - [ ] Test it: `/test app lifecycle`
 - [ ] Review it (fresh model): `/check review app lifecycle`
 - [ ] Document it: `/document app lifecycle`
