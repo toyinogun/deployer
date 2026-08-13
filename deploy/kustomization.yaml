@@ -10,6 +10,13 @@ resources:
   - namespace.yaml
   - builds-namespace.yaml
   - builds-networkpolicy.yaml
+  # The Dockerfile path's own namespace, at `privileged`, holding rootless
+  # BuildKit Jobs and nothing else, with the same fence copied into it. Separate
+  # files rather than a second document in the pair above, for the same reason
+  # the comment at the top of this file gives: a Namespace object is not
+  # something to bury beside another one.
+  - builds-dockerfile-namespace.yaml
+  - builds-dockerfile-networkpolicy.yaml
   - rbac.yaml
   - admission-policy.yaml
   # Sealed to this cluster's key, so they are safe to commit and useless

@@ -53,6 +53,16 @@ type Deployment struct {
 	ImageDigest  string
 	CreatedAt    time.Time
 	BuildJobName string
+	// BuildPath is which engine this deployment's build runs, as the row records
+	// it. It is on the deployment rather than a local inside startBuild because
+	// every later cluster call about the Job has to resolve to the namespace it
+	// was created in, including on a row a restart picked up rather than started:
+	// Sweep rebuilds a deployment from the store, and a Job deleted from the wrong
+	// namespace is a Job that keeps running (spec 0009, AC-19a).
+	//
+	// Empty on a row whose build has not started yet, which reads as the
+	// Buildpacks path, the same answer every archive got before this feature.
+	BuildPath string
 }
 
 // App is the app a deployment belongs to.
@@ -135,8 +145,12 @@ type Options struct {
 	PodName               string
 	ControlPlaneNamespace string
 	BuildNamespace        string
-	AppDomain             string
-	IngressClassName      string
+	// BuildkitNamespace is where Dockerfile build Jobs go. A second namespace
+	// rather than a second Job shape in the first one, because BuildKit is
+	// admitted only at `privileged` and BuildNamespace enforces `restricted`.
+	BuildkitNamespace string
+	AppDomain         string
+	IngressClassName  string
 
 	SelfImage    string
 	BuilderImage string
@@ -298,13 +312,27 @@ func (r *Reconciler) expire(ctx context.Context, dep Deployment) {
 	}
 }
 
+// buildNamespace is where this deployment's build lives, derived from the path
+// the row already records and from nothing else.
+//
+// One derivation, read by the Job create, the credential, the state poll and the
+// delete, so a Job is never addressed in a namespace it is not in. The archive is
+// never walked a second time to answer this: the row is the single source, which
+// is why startBuild writes the path before the Job exists (AC-19).
+func (r *Reconciler) buildNamespace(dep Deployment) string {
+	if build.Path(dep.BuildPath) == build.PathDockerfile {
+		return r.opts.BuildkitNamespace
+	}
+	return r.opts.BuildNamespace
+}
+
 // deleteBuildJob removes the build behind a deployment the watchdog is giving up
 // on. A row with no Job name never had one, so there is nothing to delete.
 func (r *Reconciler) deleteBuildJob(ctx context.Context, dep Deployment) {
 	if dep.BuildJobName == "" {
 		return
 	}
-	if err := r.cluster.DeleteJob(ctx, r.opts.BuildNamespace, dep.BuildJobName); err != nil {
+	if err := r.cluster.DeleteJob(ctx, r.buildNamespace(dep), dep.BuildJobName); err != nil {
 		// Logged and carried on: a Job that would not delete must not leave the
 		// row in flight forever, which is the one thing the watchdog is for.
 		slog.ErrorContext(ctx, "deleting the build job of an overdue deployment failed",
@@ -420,6 +448,11 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 	if fail != nil {
 		return fail
 	}
+	// Onto the row before anything is created with it, so the Job create, the
+	// credential, the poll and the delete all read the same one answer, and a
+	// restart between here and the create finds it too.
+	dep.BuildPath = path.String()
+	namespace := r.buildNamespace(*dep)
 
 	token, err := r.uploads.MintFetchToken(ctx, upload.ID)
 	if err != nil {
@@ -428,7 +461,7 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 	target := build.TargetImage(r.opts.RegistryHost, app.Slug, dep.ID)
 	job := build.Job(build.Input{
 		DeploymentID:    dep.ID,
-		Namespace:       r.opts.BuildNamespace,
+		Namespace:       namespace,
 		AppSlug:         app.Slug,
 		Path:            path,
 		SelfImage:       r.opts.SelfImage,
@@ -454,7 +487,7 @@ func (r *Reconciler) startBuild(ctx context.Context, dep *Deployment, app App, u
 	}
 	// Owner referenced to the Job, so the write credential is collected with it
 	// and never outlives the one build it was for.
-	secret, err := build.BuildCredentialSecret(dep.ID, r.opts.BuildNamespace, r.credential(), owner)
+	secret, err := build.BuildCredentialSecret(dep.ID, namespace, r.credential(), owner)
 	if err != nil {
 		return &failure{domain.ReasonInternal, err}
 	}
@@ -512,7 +545,7 @@ func (r *Reconciler) awaitBuild(ctx context.Context, dep *Deployment) *failure {
 
 	name := build.JobName(dep.ID)
 	for {
-		state, err := r.cluster.JobState(buildCtx, r.opts.BuildNamespace, name)
+		state, err := r.cluster.JobState(buildCtx, r.buildNamespace(*dep), name)
 		if err != nil {
 			slog.WarnContext(ctx, "reading the build job failed, retrying", "error", err, "deployment", dep.ID)
 		}

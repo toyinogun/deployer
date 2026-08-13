@@ -6,12 +6,19 @@ import (
 	"testing"
 )
 
-// The blocked range list exists twice: as the default in this package, and as
-// literal text in deploy/builds-networkpolicy.yaml, which ArgoCD applies without
-// ever running this code. Nothing but this test stops the two from drifting
-// (spec 0008, AC-20).
+// The blocked range list exists three times now: as the default in this package,
+// and as literal text in each build namespace's policy file, which ArgoCD
+// applies without ever running this code. Nothing but this test stops them from
+// drifting (spec 0008, AC-20, and spec 0009, AC-21).
 func TestTheBuildNamespacePolicyMatchesTheBlockedDefault(t *testing.T) {
-	const path = "../../deploy/builds-networkpolicy.yaml"
+	for _, f := range buildsPolicyFiles {
+		t.Run(f.namespace, func(t *testing.T) { assertBlockedListMatches(t, f.path) })
+	}
+}
+
+func assertBlockedListMatches(t *testing.T, path string) {
+	t.Helper()
+
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("reading %s: %v", path, err)

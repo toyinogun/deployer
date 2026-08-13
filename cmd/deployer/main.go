@@ -236,6 +236,7 @@ func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, up
 			PodName:               cfg.PodName,
 			ControlPlaneNamespace: cfg.Namespace,
 			BuildNamespace:        cfg.BuildNamespace,
+			BuildkitNamespace:     cfg.BuildkitNamespace,
 			AppDomain:             cfg.AppDomain,
 			IngressClassName:      cfg.IngressClassName,
 			SelfImage:             cfg.SelfImage,

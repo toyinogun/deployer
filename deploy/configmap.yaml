@@ -17,7 +17,16 @@ data:
   DEPLOYER_APP_QUOTA_CPU: "1"
   DEPLOYER_APP_QUOTA_MEMORY: 1Gi
   DEPLOYER_APP_QUOTA_PODS: "5"
+  # The two build namespaces. They are two rather than one because they enforce
+  # different pod security levels: Paketo Jobs fit `restricted` and run in the
+  # first, rootless BuildKit is admitted only at `privileged` and runs alone in
+  # the second (spec 0009, AC-10). Setting them to the same name fails the boot,
+  # because one namespace cannot enforce both. Both names have to match the
+  # namespaces builds-namespace.yaml and builds-dockerfile-namespace.yaml
+  # declare, and those two land through ArgoCD before the control plane that
+  # routes to them.
   DEPLOYER_BUILD_NAMESPACE: deployer-builds
+  DEPLOYER_BUILDKIT_NAMESPACE: deployer-builds-dockerfile
   DEPLOYER_LOG_LEVEL: info
 
   # Added by spec 0004. The control plane's own reachable address goes into the
