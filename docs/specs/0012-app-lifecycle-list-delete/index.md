@@ -1,7 +1,7 @@
 # 0012. App lifecycle: what a listing reports, and how a delete tears an app down
 
 **Date**: 2026-08-13
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

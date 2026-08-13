@@ -53,7 +53,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 10 | Dockerfile build path | Slice 6 | done |
 | 11 | App environment configuration | Slice 7 | done |
 | 12 | Rollback & release history | Slice 8 | done |
-| 13 | App lifecycle: list & decommission | Slice 9 | in-progress |
+| 13 | App lifecycle: list & decommission | Slice 9 | done |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
 
 ## Foundations
@@ -259,7 +259,7 @@ spec [0011](../specs/0011-rollback-and-release-history/index.md) · code in `int
 
 ## Slice 9: App lifecycle: list & decommission
 
-### 13. App lifecycle: list & decommission · in-progress
+### 13. App lifecycle: list & decommission · done
 Closes the loop. An agent can see what it has deployed and tear an app down cleanly, which matters most when the agent is generating throwaway apps.
 **Done when:** a caller can list their apps with current state and hostname, and delete an app so its workload, route, namespace resources, and hostname are all released, with the delete recorded.
 From spec 0012: an app's state is two facts, not one, because an app whose last deploy failed is usually still serving its previous release; and the delete gets an orphan reaper behind it, the platform's first unattended destructive loop.
