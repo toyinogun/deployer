@@ -63,7 +63,22 @@ type Deployment struct {
 	// Empty on a row whose build has not started yet, which reads as the
 	// Buildpacks path, the same answer every archive got before this feature.
 	BuildPath string
+	// SourceReleaseID is the release a rollback re promotes, and empty on a
+	// build deploy. It is the only thing that says which of the two this row is:
+	// both are queued when claimed, so the state cannot answer it.
+	//
+	// Every path that builds a Deployment has to fill it, the claim, the sweep,
+	// and the listing alike, or a control plane restarted mid rollback resumes
+	// the row as a build deploy and fails it for having no upload (spec 0011,
+	// AC-24).
+	SourceReleaseID string
 }
+
+// Rollback reports whether this deployment re promotes a stored release rather
+// than building one. A deployment is unambiguously one or the other: the schema
+// pairs upload_id and source_release_id with a CHECK, and nothing in Go may
+// relax it.
+func (d Deployment) Rollback() bool { return d.SourceReleaseID != "" }
 
 // App is the app a deployment belongs to.
 type App struct {
@@ -100,7 +115,12 @@ type Deployments interface {
 	// release pointer in one transaction. The config is the one the deploy
 	// composed the container's Secret from, so the release snapshots what
 	// actually ran rather than whatever is current now (spec 0010, AC-10).
-	MarkHealthy(ctx context.Context, id string, config map[string]string) (Release, error)
+	// It carries each key's secret flag beside its value, because a release
+	// written without one could never restore it (spec 0011, AC-15).
+	//
+	// On a rollback the same transaction also replaces the app's stored
+	// configuration with what was deployed (spec 0011, AC-13).
+	MarkHealthy(ctx context.Context, id string, config map[string]domain.ConfigValue) (Release, error)
 }
 
 // Apps reads the app a deployment is for.
@@ -110,7 +130,11 @@ type Apps interface {
 	// included, as the Secret's data. Read when the workload is composed, so a
 	// value set while the build was running reaches the next deploy rather than
 	// this one (spec 0010, Value sourcing).
-	ConfigForDeploy(ctx context.Context, appID string) (map[string]string, error)
+	ConfigForDeploy(ctx context.Context, appID string) (map[string]domain.ConfigValue, error)
+	// ReleaseSnapshot reads the configuration a release actually ran with. It is
+	// what a rollback composes the Secret from instead of the current table, and
+	// therefore also what the rollback's own release records (spec 0011, AC-12).
+	ReleaseSnapshot(ctx context.Context, releaseID string) (map[string]domain.ConfigValue, error)
 }
 
 // Uploads is what the loop needs of the source tarball.
@@ -360,7 +384,14 @@ func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
 	runCtx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 
-	upload, uploadErr := r.uploads.Get(runCtx, dep.UploadID)
+	// A rollback has no upload and never will, so the read is skipped rather than
+	// made and forgiven: an unbranched read here fails a rollback as
+	// upload_invalid before any phase check is reached (spec 0011, AC-11).
+	var upload Upload
+	var uploadErr error
+	if !dep.Rollback() {
+		upload, uploadErr = r.uploads.Get(runCtx, dep.UploadID)
+	}
 	switch fail := r.run(runCtx, &dep, upload, uploadErr); {
 	case fail == nil:
 	case errors.Is(fail.err, ErrNotInFlight):
@@ -384,8 +415,11 @@ func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
 		}
 		r.fail(ctx, dep.ID, fail)
 	}
-	// Terminal either way, so the tarball has served its purpose (AC-22).
-	r.uploads.Remove(ctx, upload.Path)
+	// Terminal either way, so the tarball has served its purpose (AC-22). A
+	// rollback never had one.
+	if !dep.Rollback() {
+		r.uploads.Remove(ctx, upload.Path)
+	}
 }
 
 // overBudget is the phase boundary check: a drive never starts another phase
@@ -412,7 +446,14 @@ func (r *Reconciler) run(ctx context.Context, dep *Deployment, upload Upload, up
 		if fail := overBudget(ctx); fail != nil {
 			return fail
 		}
-		if fail := r.startBuild(ctx, dep, app, upload); fail != nil {
+		// An explicit two way branch, not a fall through: a claimed rollback is
+		// queued, exactly the state a build deploy starts in, so dispatching on
+		// state alone would send it to startBuild (spec 0011, AC-11).
+		if dep.Rollback() {
+			if fail := r.move(ctx, dep, domain.StateDeploying); fail != nil {
+				return fail
+			}
+		} else if fail := r.startBuild(ctx, dep, app, upload); fail != nil {
 			return fail
 		}
 	}
@@ -611,12 +652,22 @@ func (r *Reconciler) deployApp(ctx context.Context, dep *Deployment, app App) *f
 	}
 	// Read once, here, so the Secret the container is given, the checksum on its
 	// pod template, and the release snapshot all describe the same configuration
-	// (spec 0010, AC-7, AC-10).
-	config, err := r.apps.ConfigForDeploy(ctx, app.ID)
+	// (spec 0010, AC-7, AC-10). A rollback reads the source release's snapshot
+	// instead of the table, which is what makes the checksum differ and roll the
+	// pods even though the image digest is unchanged (spec 0011, AC-12).
+	config, err := r.deployConfig(ctx, dep, app)
 	if err != nil {
-		return &failure{domain.ReasonInternal, fmt.Errorf("reading the app's configuration: %w", err)}
+		return &failure{domain.ReasonInternal, err}
 	}
-	in := r.appInput(app, dep.ImageRepo+"@"+dep.ImageDigest, config)
+
+	repo := dep.ImageRepo
+	if dep.Rollback() {
+		// resolveImage is the only thing that ever fills image_repo, and a
+		// rollback skips it. The repo is recomputed rather than stored because a
+		// slug is permanent (spec 0002), so it is deterministic.
+		repo = build.ImageRepo(r.opts.RegistryHost, app.Slug)
+	}
+	in := r.appInput(app, repo+"@"+dep.ImageDigest, config)
 
 	if err := r.cluster.EnsureNamespace(ctx,
 		deploy.Namespace(in), deploy.RoleBinding(in), deploy.ResourceQuota(in), deploy.LimitRange(in)); err != nil {
@@ -656,6 +707,26 @@ func (r *Reconciler) deployApp(ctx context.Context, dep *Deployment, app App) *f
 	return nil
 }
 
+// deployConfig is the configuration this deployment composes its workload from,
+// and therefore the one its release records. A build deploy takes the app's
+// current table; a rollback takes the source release's snapshot, because a
+// rollback that restored an old image beside today's configuration would bring
+// back something that never ran.
+func (r *Reconciler) deployConfig(ctx context.Context, dep *Deployment, app App) (map[string]domain.ConfigValue, error) {
+	if dep.Rollback() {
+		config, err := r.apps.ReleaseSnapshot(ctx, dep.SourceReleaseID)
+		if err != nil {
+			return nil, fmt.Errorf("reading the source release's configuration: %w", err)
+		}
+		return config, nil
+	}
+	config, err := r.apps.ConfigForDeploy(ctx, app.ID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the app's configuration: %w", err)
+	}
+	return config, nil
+}
+
 // awaitReady waits for the Deployment to report an available updated replica.
 func (r *Reconciler) awaitReady(ctx context.Context, app App) *failure {
 	readyCtx, cancel := context.WithTimeout(ctx, r.opts.ReadyTimeout)
@@ -692,8 +763,14 @@ func (r *Reconciler) wait(ctx, phase context.Context, onPhaseDeadline domain.Rea
 	return &failure{onPhaseDeadline, phase.Err()}
 }
 
-// appInput is everything an app's objects are composed from.
-func (r *Reconciler) appInput(app App, image string, config map[string]string) deploy.Input {
+// appInput is everything an app's objects are composed from. The secret flags
+// stop here: every key reaches the container the same way, so the Secret and its
+// checksum are composed from values alone.
+func (r *Reconciler) appInput(app App, image string, config map[string]domain.ConfigValue) deploy.Input {
+	values := make(map[string]string, len(config))
+	for k, v := range config {
+		values[k] = v.Value
+	}
 	return deploy.Input{
 		AppID:                 app.ID,
 		Slug:                  app.Slug,
@@ -709,7 +786,7 @@ func (r *Reconciler) appInput(app App, image string, config map[string]string) d
 		QuotaPods:             r.opts.QuotaPods,
 		ControlPlaneNamespace: r.opts.ControlPlaneNamespace,
 		EgressBlockedCIDRs:    r.opts.EgressBlockedCIDRs,
-		Config:                config,
+		Config:                values,
 	}
 }
 

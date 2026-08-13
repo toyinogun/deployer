@@ -4,8 +4,10 @@
 //
 // The handler observes and never acts. deploy_app resolves the upload, resolves
 // or creates the app, writes a queued deployment, and returns without reading
-// anything back; deployment_status is a pure read. Everything in between is the
-// reconcile loop's (spec 0004, Key invariants; spec 0005, AC-3).
+// anything back; deployment_status is a pure read. rollback_app is the same
+// shape as deploy_app: it resolves the release a caller named, writes a queued
+// deployment, and returns. Everything in between is the reconcile loop's
+// (spec 0004, Key invariants; spec 0005, AC-3).
 package mcp
 
 import (
@@ -40,6 +42,11 @@ type App struct {
 	ID   string
 	Slug string
 	Name string
+	// CurrentReleaseID is the release the app is serving, empty when it has
+	// never been healthy. It is the only source for the listing's current flag,
+	// and it rides along on the app the ownership check already read, so marking
+	// the current release costs no extra query (spec 0011, AC-2).
+	CurrentReleaseID string
 }
 
 // Upload is what the handler checks before it touches an app.
@@ -76,6 +83,20 @@ type Event struct {
 type Release struct {
 	Number int64
 	Digest string
+}
+
+// ErrNoRelease means the app has no release with that number. It is only ever
+// reached on an app the caller owns, because ownership is decided first.
+var ErrNoRelease = errors.New("mcp: no such release")
+
+// ReleaseSummary is one release as the listing reports it. It has no
+// configuration field on purpose: the snapshot never enters this package.
+type ReleaseSummary struct {
+	ID           string
+	Number       int64
+	Digest       string
+	DeploymentID string
+	CreatedAt    string
 }
 
 // Apps is the slice of persistence this package needs for the get or create, and
@@ -121,6 +142,17 @@ type Deployments interface {
 	Events(ctx context.Context, deploymentID string) ([]Event, error)
 	// Release reads the release a healthy deployment minted.
 	Release(ctx context.Context, deploymentID string) (Release, error)
+	// CreateRollback writes a queued rollback deployment, superseding anything
+	// in flight exactly as Create does. The digest is copied from the source
+	// release by the store, because no build will run to fill it in.
+	CreateRollback(ctx context.Context, appID, accountID, releaseID string) (string, error)
+	// ReleaseIDByNumber resolves the per app number a caller named to the id the
+	// deployment records, or ErrNoRelease. The caller never sends an id.
+	ReleaseIDByNumber(ctx context.Context, appID string, number int64) (string, error)
+	// ListReleases reads an app's newest releases, newest first, at most limit
+	// of them. What it returns carries no configuration, and the query behind it
+	// never selects the snapshot (spec 0011, AC-4).
+	ListReleases(ctx context.Context, appID string, limit int64) ([]ReleaseSummary, error)
 }
 
 // Uploads reads the tarball a deploy names.
@@ -289,6 +321,20 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 		Description: getConfigDescription,
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getConfigInput) (*mcp.CallToolResult, configOutput, error) {
 		return s.getConfig(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_releases",
+		Title:       "List an app's releases",
+		Description: listReleasesDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listReleasesInput) (*mcp.CallToolResult, listReleasesOutput, error) {
+		return s.listReleases(ctx, account, in)
+	})
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "rollback_app",
+		Title:       "Roll an app back to an earlier release",
+		Description: rollbackDescription,
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in rollbackInput) (*mcp.CallToolResult, rollbackOutput, error) {
+		return s.rollback(ctx, account, in)
 	})
 	return srv
 }

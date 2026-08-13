@@ -61,3 +61,9 @@ SET value = excluded.value, is_secret = excluded.is_secret, updated_at = exclude
 
 -- name: UnsetConfig :execrows
 DELETE FROM app_config WHERE app_id = @app_id AND key = @key;
+
+-- A rollback replaces the whole configuration set from the release snapshot, so
+-- it clears first and then writes the snapshot's keys, both inside MarkHealthy's
+-- transaction (spec 0011, AC-13).
+-- name: ClearConfig :exec
+DELETE FROM app_config WHERE app_id = @app_id;

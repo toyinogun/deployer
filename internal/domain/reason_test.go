@@ -22,6 +22,7 @@ var theSet = []domain.Reason{
 	domain.ReasonDeploymentUnknown,
 	domain.ReasonSuperseded,
 	domain.ReasonAppUnknown,
+	domain.ReasonReleaseUnknown,
 	domain.ReasonConfigKeyInvalid,
 	domain.ReasonConfigKeyReserved,
 	domain.ReasonConfigKeyUnknown,
@@ -30,12 +31,12 @@ var theSet = []domain.Reason{
 	domain.ReasonConfigTooLarge,
 }
 
-// The set is closed at eighteen codes: nine failures, plus deployment_unknown,
-// superseded (spec 0005, AC-11), app_unknown (spec 0006, AC-8), and the six
-// configuration refusals (spec 0010).
-const codesInTheSet = 18
+// The set is closed at nineteen codes: nine failures, plus deployment_unknown,
+// superseded (spec 0005, AC-11), app_unknown (spec 0006, AC-8), the six
+// configuration refusals (spec 0010), and release_unknown (spec 0011, AC-21).
+const codesInTheSet = 19
 
-func TestTheSetIsExactlyEighteenCodes(t *testing.T) {
+func TestTheSetIsExactlyNineteenCodes(t *testing.T) {
 	// covers: AC-11
 	t.Parallel()
 	if len(theSet) != codesInTheSet {
@@ -58,7 +59,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 	t.Parallel()
 	for _, r := range []domain.Reason{"", "unknown", "BUILD_FAILED", "build failed", "internal "} {
 		if r.Valid() {
-			t.Errorf("%q reads as valid but is not one of the eighteen codes", r)
+			t.Errorf("%q reads as valid but is not one of the nineteen codes", r)
 		}
 	}
 }
@@ -164,6 +165,7 @@ func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 		domain.ReasonDeploymentUnknown: "deployment_unknown",
 		domain.ReasonSuperseded:        "superseded",
 		domain.ReasonAppUnknown:        "app_unknown",
+		domain.ReasonReleaseUnknown:    "release_unknown",
 
 		domain.ReasonConfigKeyInvalid:  "config_key_invalid",
 		domain.ReasonConfigKeyReserved: "config_key_reserved",

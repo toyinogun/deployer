@@ -43,6 +43,10 @@ func deploymentRow(d Deployment) reconcile.Deployment {
 		// here is what left the resume and watchdog paths addressing the wrong
 		// namespace (spec 0009, AC-19a).
 		BuildPath: deref(d.BuildPath),
+		// Which kind of deployment this is. Mapped here rather than at each call
+		// site so the claim, the sweep, and the in flight listing cannot disagree
+		// about it (spec 0011, AC-24).
+		SourceReleaseID: deref(d.SourceReleaseID),
 	}
 }
 
@@ -110,7 +114,7 @@ func (a ReconcileStore) RecordBuild(ctx context.Context, id, buildPath, jobName,
 }
 
 // MarkHealthy runs the one transaction that mints a release.
-func (a ReconcileStore) MarkHealthy(ctx context.Context, id string, config map[string]string) (reconcile.Release, error) {
+func (a ReconcileStore) MarkHealthy(ctx context.Context, id string, config map[string]domain.ConfigValue) (reconcile.Release, error) {
 	_, rel, err := a.s.MarkHealthy(ctx, id, config)
 	if errors.Is(err, ErrTerminal) {
 		return reconcile.Release{}, fmt.Errorf("%w: %w", reconcile.ErrNotInFlight, err)
@@ -133,16 +137,25 @@ func (a ReconcileStore) Get(ctx context.Context, id string) (reconcile.App, erro
 // ConfigForDeploy reads the app's configuration as the Secret's data. Secret
 // values come back in clear here, which is the whole point of this being the
 // deploy path's read and not a response's (spec 0010, Value sourcing).
-func (a ReconcileStore) ConfigForDeploy(ctx context.Context, appID string) (map[string]string, error) {
+// The secret flag travels with each value rather than being dropped here,
+// because the release this deploy mints has to record it and a bare map has
+// nothing to record (spec 0011, AC-15).
+func (a ReconcileStore) ConfigForDeploy(ctx context.Context, appID string) (map[string]domain.ConfigValue, error) {
 	entries, err := a.s.ListConfigForDeploy(ctx, appID)
 	if err != nil {
 		return nil, err
 	}
-	config := make(map[string]string, len(entries))
+	config := make(map[string]domain.ConfigValue, len(entries))
 	for _, e := range entries {
-		config[e.Key] = e.Value
+		config[e.Key] = domain.ConfigValue{Value: e.Value, Secret: e.IsSecret}
 	}
 	return config, nil
+}
+
+// ReleaseSnapshot reads what a release actually ran with, which is the only
+// configuration a rollback composes from.
+func (a ReconcileStore) ReleaseSnapshot(ctx context.Context, releaseID string) (map[string]domain.ConfigValue, error) {
+	return a.s.ReleaseConfigSnapshot(ctx, releaseID)
 }
 
 // GetAppByName reads the one live app an account gave that name, which is the

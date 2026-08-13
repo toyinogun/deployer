@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -75,12 +74,13 @@ func (s *Store) CurrentReleaseConfig(ctx context.Context, appID string) (map[str
 	if err != nil {
 		return nil, fmt.Errorf("store: reading release %s: %w", releaseID, err)
 	}
-	values := map[string]string{}
-	if rel.ConfigSnapshot == "" {
-		return values, nil
+	decoded, err := decodeSnapshot(rel.ConfigSnapshot)
+	if err != nil {
+		return nil, fmt.Errorf("store: release %s: %w", releaseID, err)
 	}
-	if err := json.Unmarshal([]byte(rel.ConfigSnapshot), &values); err != nil {
-		return nil, fmt.Errorf("store: decoding the configuration snapshot of release %s: %w", releaseID, err)
+	values := make(map[string]string, len(decoded))
+	for k, v := range decoded {
+		values[k] = v.Value
 	}
 	return values, nil
 }

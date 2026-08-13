@@ -9,6 +9,18 @@ import (
 	"context"
 )
 
+const clearConfig = `-- name: ClearConfig :exec
+DELETE FROM app_config WHERE app_id = ?1
+`
+
+// A rollback replaces the whole configuration set from the release snapshot, so
+// it clears first and then writes the snapshot's keys, both inside MarkHealthy's
+// transaction (spec 0011, AC-13).
+func (q *Queries) ClearConfig(ctx context.Context, appID string) error {
+	_, err := q.db.ExecContext(ctx, clearConfig, appID)
+	return err
+}
+
 const countInFlightDeploymentsForApp = `-- name: CountInFlightDeploymentsForApp :one
 SELECT COUNT(*) FROM deployments
 WHERE app_id = ?1 AND state NOT IN ('healthy', 'failed', 'cancelled')

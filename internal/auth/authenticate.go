@@ -57,6 +57,16 @@ const (
 	ActionConfigUnset = "config_unset"
 	// ActionConfigGet is one get_config call, recorded only when it is refused.
 	ActionConfigGet = "config_get"
+
+	// The release actions, added by spec 0011 (AC-20).
+
+	// ActionRollback is one rollback_app call. Both outcomes are recorded, not
+	// only refusals: a rollback replaced what was running, which is worth a row
+	// even when it was allowed.
+	ActionRollback = "rollback"
+	// ActionReleases is one list_releases call, recorded only when it is
+	// refused. Like ActionStatus, a successful read is not an access decision.
+	ActionReleases = "releases"
 )
 
 // TargetAppConfig is the target type a configuration change is recorded against.

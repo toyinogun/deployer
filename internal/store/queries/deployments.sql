@@ -89,9 +89,25 @@ SELECT * FROM releases WHERE deployment_id = @deployment_id;
 -- name: GetRelease :one
 SELECT * FROM releases WHERE id = ?;
 
+-- The release a rollback names, addressed the way a caller addresses it: by the
+-- per app number, never by an id the caller has no way to know.
+-- name: GetReleaseByNumber :one
+SELECT * FROM releases WHERE app_id = @app_id AND release_number = @release_number;
+
 -- name: ListReleasesByApp :many
 SELECT * FROM releases
 WHERE app_id = @app_id AND (@cursor = '' OR id < @cursor)
+ORDER BY id DESC
+LIMIT @page_limit;
+
+-- The listing's own read, projecting five named columns so config_snapshot never
+-- enters the process at all. Not reusing ListReleasesByApp is the point: a query
+-- that cannot load the snapshot is a stronger guarantee than a handler that
+-- remembers not to serialize it (spec 0011, AC-4).
+-- name: ListReleaseSummariesByApp :many
+SELECT id, release_number, image_digest, deployment_id, created_at
+FROM releases
+WHERE app_id = @app_id
 ORDER BY id DESC
 LIMIT @page_limit;
 
