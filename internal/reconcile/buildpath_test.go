@@ -31,10 +31,14 @@ func (w *world) queueWith(t *testing.T, names ...string) reconcile.Deployment {
 	return toLoop(dep)
 }
 
-// buildJobs is every build Job this world's cluster was actually asked to create.
+// buildJobs is every build Job this world's cluster was actually asked to
+// create, in either build namespace. Both, because these tests are about which
+// engine ran and not about where it ran: a Job counted in only one namespace
+// would make a routing change look like a build that never started. Where each
+// one lands is pinned separately, in buildnamespace_test.go.
 func (w *world) buildJobs(t *testing.T) []batchv1.Job {
 	t.Helper()
-	list, err := w.clientset.BatchV1().Jobs("deployer-builds").List(context.Background(), metav1.ListOptions{})
+	list, err := w.clientset.BatchV1().Jobs("").List(context.Background(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("listing build jobs: %v", err)
 	}

@@ -111,6 +111,33 @@ Three shapes were weighed on that evidence:
 
 Two operational findings came out of the same probes and are now in the design section rather than left to be rediscovered. RootlessKit stats its state directory under `TMPDIR`, and the pinned image points `TMPDIR` inside the home directory, so the state volume mounted there makes it disappear; `TMPDIR` has to be set to something that survives the mount. And `buildctl-daemonless.sh` calls `mktemp` in `/tmp` directly, so that container's root filesystem cannot be read only.
 
+## The namespace correction
+
+_Added 2026-08-13, after `/check verify` ran the finished code against the cluster._
+
+The deviation correction above got the pod right and the namespace wrong. It recorded four deviations and then asserted, in this spec and verbatim in `deploy/builds-namespace.yaml`, that "those four are exactly what `baseline` permits". Two of them are not.
+
+Three Dockerfile deployments were driven through the real platform. Not one pod was ever created. Every attempt, on a retry loop, produced:
+
+```
+Error creating: pods "build-dep-01kzx6ss3wn65kebzeb3sqcr7y-gln2z" is forbidden:
+violates PodSecurity "baseline:latest": forbidden AppArmor profile (container "build"
+must not set AppArmor profile type to "Unconfined"), seccompProfile (pod and container
+"build" must not set securityContext.seccompProfile.type to "Unconfined")
+```
+
+`baseline` permits `allowPrivilegeEscalation` true and permits adding `SETUID` and `SETGID`. It forbids an explicitly Unconfined seccomp profile, deliberately and by design ([kubernetes#103388](https://github.com/kubernetes/kubernetes/issues/103388)), and forbids an Unconfined AppArmor profile. Both are permitted at `privileged` alone. So the level was never capable of admitting this pod, and no amount of composing the pod differently changes that while rootless BuildKit needs those two profiles, which upstream says it does: seccomp "for allowing several syscalls such as `unshare` (used by runc) and `mount`", AppArmor "for allowing mounting filesystems". `--oci-worker-no-process-sandbox`, which the Kubernetes examples already use, substitutes for `systempaths=unconfined` and does not remove either need.
+
+Each failed deployment burned its full 480 second deadline retrying and then reported `build_failed` with `context deadline exceeded`, so the failure told the caller to go and fix a `Dockerfile` the platform had never opened. Meanwhile a Buildpacks deploy through the same namespace completed in 34 seconds and answered on its hostname, which is what confines this to the Dockerfile path.
+
+Three ways out were weighed:
+
+- **Split the namespaces** (chosen). `deployer-builds` back to enforced `restricted`, and `deployer-builds-dockerfile` at `privileged` holding BuildKit alone. This is the fallback the deviation correction had already priced and agreed, so it is being taken rather than re decided. It costs a second network policy pair, a second RoleBinding, a configuration value and routing at four call sites, and it returns something too: Paketo gets its admission enforced `restricted` back, which the single namespace version had given up and the Consequences section had recorded as a loss.
+- **Widen `deployer-builds` to `privileged`**. One label, no code. Rejected: it removes admission enforcement from the Paketo pod as well, so hostPath, host networking and privileged containers all become admissible in the namespace where every build runs, guarded by the composer alone. It widens the path that was never the risk, which is the same mistake in the opposite direction.
+- **`Localhost` seccomp and AppArmor profiles**, which `baseline` does permit, keeping one namespace. The strongest answer on paper and rejected on operations: the profiles are node level files on all four k3sprox nodes, outside ArgoCD, in the same class as the registry mirror in `/etc/rancher/k3s/registries.yaml` that already has to be edited on every node. A node added later silently breaks every Dockerfile build until someone remembers. Worth revisiting only if this cluster ever grows a way to manage node files properly.
+
+The lesson worth keeping is narrower than "test it". The pod shape was proved on the cluster in build step 3, carefully, with five probe pods. What was never proved is the sentence beside it about what the namespace would admit, because the probes ran as hand applied pods and not as Jobs the platform created in the namespace the platform uses. A claim about admission is only tested by the admission path the real thing takes.
+
 ## References
 
 **Project sources** (verifiable, in this repo):
@@ -120,7 +147,13 @@ Two operational findings came out of the same probes and are now in the design s
 - spec [0002](../0002-platform-data-model/index.md), which added `deployments.build_path` and the store's `BuildPath` field for this feature
 - spec [0003](../0003-cluster-foundation/index.md), whose follow up left `deployer-builds` pod security undecided until the build path was in front of you
 - spec [0004](../0004-first-deploy-end-to-end/index.md), the existing build Job, the registry image user read, and the deferred AC-10 root image refusal
-- spec [0008](../0008-workload-isolation-network-policy/index.md) and `deploy/builds-networkpolicy.yaml`, whose public egress allowance already covers base image pulls
+- spec [0008](../0008-workload-isolation-network-policy/index.md) and `deploy/builds-networkpolicy.yaml`, whose public egress allowance already covers base image pulls, and which the second build namespace has to copy
+
+**External sources** (checked 2026-08-13, for the namespace correction):
+
+- [moby/buildkit, docs/rootless.md](https://github.com/moby/buildkit/blob/master/docs/rootless.md): why rootless BuildKit asks for unconfined seccomp and AppArmor, and what `--oci-worker-no-process-sandbox` does and does not replace
+- [kubernetes#103388](https://github.com/kubernetes/kubernetes/issues/103388): `baseline` forbidding an explicitly Unconfined seccomp profile, the decision that makes this a level problem rather than a pod problem
+- [Kubernetes Pod Security Standards](https://kubernetes.io/docs/concepts/security/pod-security-standards/): the field by field table for `baseline` and `privileged`, including the `Localhost` profile type both levels do permit
 - `AGENTS.md`, the rules that every manifest is composed field by field, that builder uids are read off pinned images rather than assumed, that deploys go by digest, and that a failure a caller sees is a closed reason code
 - `internal/source/extract.go`, which performs no prefix stripping, so an archive entry named `Dockerfile` is what lands at the root of the build context
 

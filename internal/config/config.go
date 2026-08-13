@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // Config is every value the control plane reads from its environment.
@@ -75,6 +76,13 @@ type Config struct {
 	// and CI checks them against the pinned digest the same way.
 	BuildkitUID int64
 	BuildkitGID int64
+	// BuildkitNamespace is where Dockerfile build Jobs are created. It is a
+	// second namespace rather than a second Job in the first one because the two
+	// enforce different pod security levels: BuildKit is admitted only at
+	// `privileged`, and BuildNamespace stays at `restricted` so a mis routed Job
+	// is refused rather than run. That is also why the two are refused when they
+	// are equal: one namespace cannot enforce both (spec 0009, AC-22).
+	BuildkitNamespace string
 
 	// DeployTimeout is one deployment's whole budget, measured from created_at to
 	// a terminal state and enforced by the reconcile loop. It does not bound an
@@ -142,9 +150,12 @@ func Load(getenv func(string) string) (Config, error) {
 		RegistryPass:   required("REGISTRY_PASSWORD"),
 		AppDomain:      required("APP_DOMAIN"),
 		BuildNamespace: optional("BUILD_NAMESPACE", "deployer-builds"),
-		MaxUploadBytes: 100 << 20,
-		DBBusyTimeout:  5000 * time.Millisecond,
-		Retention:      90 * 24 * time.Hour,
+		// The Dockerfile path's own namespace, at `privileged`. Validated below
+		// beside the one above, and refused if the two are the same.
+		BuildkitNamespace: optional("BUILDKIT_NAMESPACE", "deployer-builds-dockerfile"),
+		MaxUploadBytes:    100 << 20,
+		DBBusyTimeout:     5000 * time.Millisecond,
+		Retention:         90 * 24 * time.Hour,
 
 		// The control plane's own namespace comes from the downward API, so an
 		// unset value means the pod spec is wrong rather than the operator being
@@ -157,6 +168,27 @@ func Load(getenv func(string) string) (Config, error) {
 	}
 
 	var errs []string
+	// Both build namespaces go straight into a Job's metadata, so a name the API
+	// server would refuse is caught at boot rather than at the first deploy. They
+	// are checked as a pair because being equal is the failure that matters most:
+	// the two enforce different pod security levels, so a shared name means every
+	// build of one kind is refused by admission, which surfaces as a deployment
+	// that timed out rather than as the configuration mistake it is (AC-22).
+	for _, ns := range []struct{ key, value string }{
+		{"DEPLOYER_BUILD_NAMESPACE", c.BuildNamespace},
+		{"DEPLOYER_BUILDKIT_NAMESPACE", c.BuildkitNamespace},
+	} {
+		if problems := validation.IsDNS1123Label(ns.value); len(problems) > 0 {
+			errs = append(errs, fmt.Sprintf("%s must be a Kubernetes namespace name, got %q: %s",
+				ns.key, ns.value, strings.Join(problems, "; ")))
+		}
+	}
+	if c.BuildNamespace == c.BuildkitNamespace {
+		errs = append(errs, fmt.Sprintf(
+			"DEPLOYER_BUILD_NAMESPACE and DEPLOYER_BUILDKIT_NAMESPACE must not be the same namespace (both %q): "+
+				"one enforces restricted for Buildpacks and the other privileged for BuildKit",
+			c.BuildNamespace))
+	}
 	// The quota ceilings go straight into a ResourceQuota, so they are parsed as
 	// Kubernetes quantities here rather than discovered to be nonsense by the API
 	// server at the first deploy.

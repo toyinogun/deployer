@@ -193,6 +193,7 @@ func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Opt
 		PodName:               "deployer-0",
 		ControlPlaneNamespace: "deployer-system",
 		BuildNamespace:        "deployer-builds",
+		BuildkitNamespace:     "deployer-builds-dockerfile",
 		AppDomain:             "deploy.example.org",
 		IngressClassName:      "nginx",
 		SelfImage:             "ghcr.io/x/deployer@" + testDigest,

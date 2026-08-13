@@ -3,24 +3,22 @@
 # holds no cluster credentials beyond the one registry credential a build needs
 # to push.
 #
-# It enforces `baseline` rather than `restricted`, which is the one place in this
-# repo that is true (spec 0009, AC-10). Rootless BuildKit cannot fit inside
-# `restricted`: it was run against the pinned image on this cluster and needs an
-# unconfined seccomp profile, an unconfined AppArmor profile,
-# allowPrivilegeEscalation true, and SETUID plus SETGID added back on top of
-# dropping all capabilities. Those four are exactly what `baseline` permits, so
-# none of them needs a further exception, and the fifth one does not exist: if it
-# is ever needed, the agreed answer is to split this namespace in two rather than
-# widen it again (spec 0009, Follow-up).
+# It enforces `restricted`, and it holds Paketo build Jobs only. The Buildpacks
+# pod composes every field that level asks for, including allowPrivilegeEscalation
+# false and all capabilities dropped, so nothing here needs an exception (spec
+# 0009, AC-10).
 #
-# The Buildpacks pod is unchanged and still composes every field `restricted`
-# asks for, including allowPrivilegeEscalation false and all capabilities
-# dropped. What used to be enforced here is now pinned by a test over the
-# composer instead, which is a weaker guarantee and was priced as such.
+# Rootless BuildKit does not run here and cannot: it needs four deviations, two
+# of which are forbidden outright below `privileged`. It has a namespace of its
+# own, builds-dockerfile-namespace.yaml, holding that one pod shape and nothing
+# else. This file briefly enforced `baseline` to try to hold both; that was
+# refused at admission on every attempt and is the correction spec 0009's
+# rationale records.
 #
-# The audit and warn levels stay at `restricted` on purpose: the API server then
-# still says which pods deviate, so the four expected deviations are visible and
-# a fifth is noisy rather than silent.
+# Enforcing `restricted` here is also what makes a routing bug loud. A BuildKit
+# Job that lands in this namespace by mistake is refused when it is created,
+# which the platform reports, rather than running quietly in the wrong place
+# (AC-20).
 apiVersion: v1
 kind: Namespace
 metadata:
@@ -28,7 +26,7 @@ metadata:
   labels:
     app.kubernetes.io/name: deployer
     app.kubernetes.io/managed-by: argocd
-    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/enforce: restricted
     pod-security.kubernetes.io/enforce-version: latest
     pod-security.kubernetes.io/warn: restricted
     pod-security.kubernetes.io/audit: restricted

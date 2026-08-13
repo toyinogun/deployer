@@ -38,6 +38,11 @@ func deploymentRow(d Deployment) reconcile.Deployment {
 		ImageDigest:  deref(d.ImageDigest),
 		CreatedAt:    stamped(d.CreatedAt),
 		BuildJobName: deref(d.BuildJobName),
+		// The engine this build runs, carried through so a row the loop picked up
+		// after a restart still knows which namespace its Job is in. Dropping it
+		// here is what left the resume and watchdog paths addressing the wrong
+		// namespace (spec 0009, AC-19a).
+		BuildPath: deref(d.BuildPath),
 	}
 }
 

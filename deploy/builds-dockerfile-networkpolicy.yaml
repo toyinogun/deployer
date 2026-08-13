@@ -1,0 +1,91 @@
+# The fence around the Dockerfile build namespace (spec 0009, AC-21).
+#
+# The same pair as builds-networkpolicy.yaml, rule for rule, because a
+# NetworkPolicy only selects pods in its own namespace: a second namespace with
+# no policy of its own is a second namespace with no fence. Nothing here is
+# reasoned about separately, and a Go test pins the two files against each other
+# so neither can drift open alone.
+#
+# A BuildKit pod needs the same three ways out a Paketo one does. It resolves
+# names, pushes to the in cluster registry, fetches the source through the
+# control plane, and pulls whatever base image the caller's Dockerfile names,
+# which is the public internet rule below.
+#
+# The blocked ranges are the same list as the DEPLOYER_APP_EGRESS_BLOCKED_CIDRS
+# default in internal/config/isolation.go, restated for the same reason it is
+# restated in the other file, and pinned by the same test.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: deployer-builds-dockerfile
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+spec:
+  # Empty selector, every pod. No rules under either policy type, so nothing is
+  # permitted in or out until the policy below adds an exception back.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+# Every exception, and no ingress rule at all: nothing connects to a build pod,
+# so there is nothing to allow inbound.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: build-allow
+  namespace: deployer-builds-dockerfile
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  egress:
+    # CoreDNS, and only CoreDNS. The namespace selector and the pod selector sit
+    # inside one peer on purpose: as two peers they would mean "anything in
+    # kube-system or anything labelled kube-dns anywhere", which opens the whole
+    # namespace rather than the resolver.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # The two things a build reaches inside the cluster: the registry it pushes
+    # the finished image to, and the control plane the init container fetches the
+    # source tarball from. Both ports are the destination pod's own, not the
+    # Service's, because Cilium translates a ClusterIP address in eBPF before
+    # policy is evaluated: the platform Service listens on 80 and its pod on 8080.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: deployer-system
+      ports:
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 8080
+    # Base image pulls and whatever the Dockerfile's own RUN steps download.
+    # Everything public is reachable and every private range is not, which is
+    # what stops a build from reaching your other services while it runs someone
+    # else's instructions.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 100.64.0.0/10

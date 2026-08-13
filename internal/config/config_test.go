@@ -56,6 +56,57 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+// Spec 0009, AC-22. The two build namespaces enforce different pod security
+// levels, so one name cannot serve both: a config that set them equal would put
+// the BuildKit pod somewhere that refuses it, and the failure would surface as a
+// build that timed out rather than as the misconfiguration it is.
+func TestTheTwoBuildNamespacesAreValidatedAndMustDiffer(t *testing.T) {
+	c, err := Load(env(valid))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.BuildkitNamespace != "deployer-builds-dockerfile" {
+		t.Errorf("BuildkitNamespace = %q, want the deployer-builds-dockerfile default", c.BuildkitNamespace)
+	}
+
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{
+			name: "the same name for both",
+			env:  map[string]string{"DEPLOYER_BUILDKIT_NAMESPACE": "deployer-builds"},
+			want: "must not be the same namespace",
+		},
+		{
+			name: "the same name for both, set the other way round",
+			env:  map[string]string{"DEPLOYER_BUILD_NAMESPACE": "shared", "DEPLOYER_BUILDKIT_NAMESPACE": "shared"},
+			want: "must not be the same namespace",
+		},
+		{
+			name: "a buildkit namespace no API server would accept",
+			env:  map[string]string{"DEPLOYER_BUILDKIT_NAMESPACE": "Not A Namespace"},
+			want: "DEPLOYER_BUILDKIT_NAMESPACE",
+		},
+		{
+			name: "a build namespace no API server would accept",
+			env:  map[string]string{"DEPLOYER_BUILD_NAMESPACE": "under_scored"},
+			want: "DEPLOYER_BUILD_NAMESPACE",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := Load(env(withValid(tc.env)))
+			if err == nil {
+				t.Fatal("want an error naming the problem, got nil")
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error %q does not mention %q", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestLoadReportsEveryMissingRequiredVar(t *testing.T) {
 	_, err := Load(env(map[string]string{"DEPLOYER_REGISTRY_HOST": "r:5000"}))
 	if err == nil {

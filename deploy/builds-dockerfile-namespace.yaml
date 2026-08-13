@@ -1,0 +1,49 @@
+# Where Dockerfile build Jobs run (spec 0009, AC-10). This namespace holds one
+# pod shape and nothing else: the rootless BuildKit builder, composed field by
+# field in Go by the control plane.
+#
+# It enforces `privileged`, the widest level there is, and that is deliberate
+# rather than lazy. Rootless BuildKit was run against the pinned image on this
+# cluster and needs four deviations from `restricted`: an unconfined seccomp
+# profile, an unconfined AppArmor profile, allowPrivilegeEscalation true, and
+# SETUID plus SETGID added back on top of dropping all capabilities. Two of those
+# four, the unconfined profiles, are forbidden outright at `baseline`, which is
+# not a matter of adding an exception: `baseline` was tried here first and
+# refused the pod at admission every time. `privileged` is the only level that
+# admits it, so the pod gets a namespace of its own at that level and
+# deployer-builds goes back to enforcing `restricted` for Paketo.
+#
+# The audit and warn levels stay at `baseline` rather than following the
+# enforcement up. The API server then records the two forbidden fields on every
+# build, and a third recorded field is the signal that this pod has grown a fifth
+# deviation, which is a spec change (spec 0009, AC-11) and not a commit.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: deployer-builds-dockerfile
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: baseline
+    pod-security.kubernetes.io/audit: baseline
+---
+# The control plane's reach into this namespace, the same binding
+# builds-namespace.yaml declares for the other one and for the same reasons: it
+# is part of the platform, ArgoCD owns it, and the binding is for the control
+# plane rather than for the builder, which holds no service account rights at
+# all.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployer-builds-dockerfile
+  namespace: deployer-builds-dockerfile
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: deployer-app
+subjects:
+  - kind: ServiceAccount
+    name: deployer
+    namespace: deployer-system
