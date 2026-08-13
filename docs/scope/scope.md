@@ -51,7 +51,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 8 | Accounts, API tokens & app ownership | Slice 4 | done |
 | 9 | Workload isolation & network policy | Slice 5 | done |
 | 10 | Dockerfile build path | Slice 6 | in-progress |
-| 11 | App environment configuration | Slice 7 | planned |
+| 11 | App environment configuration | Slice 7 | in-progress |
 | 12 | Rollback & release history | Slice 8 | planned |
 | 13 | App lifecycle: list & decommission | Slice 9 | planned |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
@@ -220,18 +220,30 @@ spec [0009](../specs/0009-dockerfile-build-path/index.md)
 
 ## Slice 7: App environment configuration
 
-### 11. App environment configuration · needs a decision
-Thickens the app contract so deployed apps can actually be configured. The platform injects `PORT` and any values set for the app, and decides what happens to values that are sensitive.
-**Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables, a change triggers a new release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
+### 11. App environment configuration · in-progress
+Thickens the app contract so deployed apps can actually be configured. The platform injects `PORT` and `APP_URL` plus any values set for the app, and decides what happens to values that are sensitive.
+**Done when:** an agent can set and read configuration for an app it owns, values reach the container as environment variables through a Secret, a change lands on the next deploy and is snapshotted onto the release rather than mutating the running one, and sensitive values never appear in MCP responses or logs.
 From spec 0006: this is also where `get_logs` gains exact redaction, because the platform will finally know which values are secret because it injected them.
-From spec 0009: decide here whether a Dockerfile build receives build arguments or build secrets. The answer today is none, deliberately, because a value that reaches a build layer is baked into a published image.
-- [ ] Design it (spec): `/architect app environment configuration`
+From spec 0009: decide here whether a Dockerfile build receives build arguments or build secrets. Spec 0010 confirms the answer is none, deliberately, because a value that reaches a build layer is baked into a published image.
+spec [0010](../specs/0010-app-environment-configuration/index.md)
+- [x] Design it (spec): `/architect app environment configuration`
+- [ ] Build it: `/develop app environment configuration`
+  - [ ] The domain rules and the transactional store batch: reason codes, key shape, reserved names, bounds, the required secret flag, and all or nothing writes — AC-1, AC-3, AC-4, AC-5, AC-6, AC-16
+  - [ ] The injection side: the app's Secret, `envFrom`, `APP_URL` beside `PORT`, the pod template checksum, and applying it from the reconcile loop — AC-7, AC-10, AC-15, AC-17
+  - [ ] The tools live: `set_config`, `get_config`, `unset_config`, ownership, audit rows, and the next deploy line in the response — AC-1, AC-2, AC-3, AC-8, AC-12, AC-13
+  - [ ] Exact log redaction, matched against the running release as well as current configuration — AC-11
+  - [ ] The first call path: the optional config map on `deploy_app`, the tool descriptions, and the test holding builds clear of configuration — AC-9, AC-14
+- [ ] Verify it: `/check verify app environment configuration`
+- [ ] Test it: `/test app environment configuration`
+- [ ] Review it (fresh model): `/check review app environment configuration`
+- [ ] Document it: `/document app environment configuration`
 
 ## Slice 8: Rollback & release history
 
 ### 12. Rollback & release history
 Thickens the release segment. Every healthy deploy is a known good release, and going back to one re promotes the exact prior image rather than rebuilding from source.
 **Done when:** an agent can list an app's recent releases and roll back to one, the rollback re promotes the stored image digest without a build, health is re verified, and a failed new release never replaces a healthy current one.
+From spec 0010: a rollback must also rewrite the app's configuration Secret from the release snapshot, not only the image digest, and the pod template checksum spec 0010 adds is what makes that roll the pods.
 - [ ] Build it: `/develop rollback & release history`
 
 ## Slice 9: App lifecycle: list & decommission
@@ -256,7 +268,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Public exposure**: real public hostnames with certificates, chosen per app · needs a decision
 - **Image and dependency scanning**: block a release on a critical finding. From spec 0009, base image allowlisting for Dockerfile builds belongs with this rather than on its own · needs a decision
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
-- **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned · needs a decision
+- **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned. From spec 0010: once apps carry configuration, those are live third party credentials, not hypothetical ones · needs a decision
+- **Build secrets for Dockerfile builds**: BuildKit can mount a secret for one build step without leaving it in a layer, which is what a private package registry needs. From spec 0010, deliberately not built: it exists only on the Dockerfile path, so it would make the two builders behave differently before anyone has asked for it · needs a decision
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003 · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
 - **Registry garbage collection**: every deploy pushes an image and nothing ever deletes one, so the registry volume grows without bound. From spec 0004 · needs a decision

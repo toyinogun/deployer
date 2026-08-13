@@ -104,6 +104,11 @@ type Deployments interface {
 // Apps reads the app a deployment is for.
 type Apps interface {
 	Get(ctx context.Context, id string) (App, error)
+	// ConfigForDeploy reads the app's whole configuration, secret values
+	// included, as the Secret's data. Read when the workload is composed, so a
+	// value set while the build was running reaches the next deploy rather than
+	// this one (spec 0010, Value sourcing).
+	ConfigForDeploy(ctx context.Context, appID string) (map[string]string, error)
 }
 
 // Uploads is what the loop needs of the source tarball.
@@ -602,7 +607,14 @@ func (r *Reconciler) deployApp(ctx context.Context, dep *Deployment, app App) *f
 	if dep.ImageDigest == "" {
 		return &failure{domain.ReasonBuildNoDigest, errors.New("no image digest on the deployment")}
 	}
-	in := r.appInput(app, dep.ImageRepo+"@"+dep.ImageDigest)
+	// Read once, here, so the Secret the container is given, the checksum on its
+	// pod template, and the release snapshot all describe the same configuration
+	// (spec 0010, AC-7, AC-10).
+	config, err := r.apps.ConfigForDeploy(ctx, app.ID)
+	if err != nil {
+		return &failure{domain.ReasonInternal, fmt.Errorf("reading the app's configuration: %w", err)}
+	}
+	in := r.appInput(app, dep.ImageRepo+"@"+dep.ImageDigest, config)
 
 	if err := r.cluster.EnsureNamespace(ctx,
 		deploy.Namespace(in), deploy.RoleBinding(in), deploy.ResourceQuota(in), deploy.LimitRange(in)); err != nil {
@@ -619,6 +631,11 @@ func (r *Reconciler) deployApp(ctx context.Context, dep *Deployment, app App) *f
 	}
 	if err := r.cluster.ApplySecret(ctx, pull); err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("writing the pull secret: %w", err)}
+	}
+	// Before the workload, always: the container references this Secret by name,
+	// so a pod scheduled ahead of it would never start (AC-7).
+	if err := r.cluster.ApplySecret(ctx, deploy.Secret(in)); err != nil {
+		return &failure{domain.ReasonInternal, fmt.Errorf("writing the configuration secret: %w", err)}
 	}
 	if err := r.cluster.ApplyWorkload(ctx, deploy.Deployment(in), deploy.Service(in), deploy.Ingress(in)); err != nil {
 		return &failure{domain.ReasonInternal, fmt.Errorf("applying the workload: %w", err)}
@@ -674,7 +691,7 @@ func (r *Reconciler) wait(ctx, phase context.Context, onPhaseDeadline domain.Rea
 }
 
 // appInput is everything an app's objects are composed from.
-func (r *Reconciler) appInput(app App, image string) deploy.Input {
+func (r *Reconciler) appInput(app App, image string, config map[string]string) deploy.Input {
 	return deploy.Input{
 		AppID:                 app.ID,
 		Slug:                  app.Slug,
@@ -690,6 +707,7 @@ func (r *Reconciler) appInput(app App, image string) deploy.Input {
 		QuotaPods:             r.opts.QuotaPods,
 		ControlPlaneNamespace: r.opts.ControlPlaneNamespace,
 		EgressBlockedCIDRs:    r.opts.EgressBlockedCIDRs,
+		Config:                config,
 	}
 }
 

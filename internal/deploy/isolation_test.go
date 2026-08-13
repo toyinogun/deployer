@@ -98,8 +98,15 @@ func TestDeployInputCarriesNoPassthrough(t *testing.T) {
 		field := typ.Field(i)
 		switch field.Type.Kind() {
 		case reflect.Map, reflect.Interface, reflect.Pointer, reflect.Struct, reflect.Func:
-			t.Errorf("field %s is a %s, which can carry a value the platform did not compose",
-				field.Name, field.Type.Kind())
+			// One map is expected. Config holds what a caller set, and it is the
+			// exception that proves the rule: it lands in a Secret's data and the
+			// pod spec references that Secret by name, so no string a caller sent
+			// reaches a pod spec field (spec 0010, Key invariants). Any other map
+			// would be a passthrough.
+			if field.Type.Kind() != reflect.Map || field.Name != "Config" {
+				t.Errorf("field %s is a %s, which can carry a value the platform did not compose",
+					field.Name, field.Type.Kind())
+			}
 		case reflect.Slice:
 			// One slice is expected, and it holds configuration the platform
 			// parsed at startup, never anything a caller sent.

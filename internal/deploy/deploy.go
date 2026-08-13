@@ -13,6 +13,13 @@
 package deploy
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"sort"
+	"strconv"
+
+	"github.com/toyinogun/deployer/internal/domain"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
@@ -38,6 +45,17 @@ const (
 	// PullSecretName is the registry credential the kubelet pulls with. Refreshed
 	// on every deploy, never mounted into the app container (AC-12).
 	PullSecretName = "registry"
+
+	// ConfigSecretName holds the app's own configuration, which the container
+	// receives whole through envFrom. Rewritten on every deploy from the rows
+	// stored at compose time (spec 0010, AC-7).
+	ConfigSecretName = "config"
+
+	// ConfigChecksumAnnotation carries a digest of the configuration the pod
+	// template was composed with. Without it a deploy that changes only
+	// configuration leaves the template identical, so Kubernetes rolls nothing
+	// and the running pods keep the old values (spec 0010, AC-17).
+	ConfigChecksumAnnotation = "deployer.internal/config-checksum"
 
 	// RoleBindingName is the control plane's reach into one app namespace. It
 	// binds ClusterRole/deployer-app, which is bound nowhere cluster wide, so the
@@ -90,6 +108,13 @@ type Input struct {
 	// startup. It becomes the `except` list of the egress allow rule and is the
 	// whole of an app's isolation from other apps and from the cluster.
 	EgressBlockedCIDRs []string
+
+	// Config is the app's own configuration, read from the store when the
+	// workload is composed. It is the one place a value a caller sent reaches
+	// these objects, and it reaches only a Secret's data, never a pod spec
+	// field: the Deployment references the Secret by name (spec 0010, Key
+	// invariants).
+	Config map[string]string
 }
 
 // NamespaceName is the namespace one app lives in.
@@ -197,7 +222,10 @@ func Deployment(in Input) *appsv1.Deployment {
 			Replicas: &replicas,
 			Selector: &metav1.LabelSelector{MatchLabels: Selector(in.Slug)},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: podLabels(in.Slug)},
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      podLabels(in.Slug),
+					Annotations: map[string]string{ConfigChecksumAnnotation: ConfigChecksum(in.Config)},
+				},
 				Spec: corev1.PodSpec{
 					// The app holds no Kubernetes rights at all. It is a web
 					// server the platform happens to have built.
@@ -220,9 +248,22 @@ func container(in Input) corev1.Container {
 		Name:  WorkloadName,
 		Image: in.Image,
 		Ports: []corev1.ContainerPort{{Name: "http", ContainerPort: ContainerPort}},
-		// The whole environment. Application configuration is slice 7; until
-		// then an app is told its port and nothing else.
-		Env: []corev1.EnvVar{{Name: "PORT", Value: "8080"}},
+		// The app's own configuration arrives whole through envFrom, and the two
+		// variables the platform owns are listed after it. Env beats envFrom in
+		// Kubernetes, so PORT and APP_URL are what the container sees whatever
+		// the Secret happens to hold (spec 0010, AC-5, AC-7).
+		EnvFrom: []corev1.EnvFromSource{{
+			SecretRef: &corev1.SecretEnvSource{
+				LocalObjectReference: corev1.LocalObjectReference{Name: ConfigSecretName},
+			},
+		}},
+		Env: []corev1.EnvVar{
+			{Name: domain.ReservedKeyPort, Value: strconv.Itoa(int(ContainerPort))},
+			// Built from the same field the Ingress rule takes its host from, so
+			// the address an app is told and the address it is served on cannot
+			// disagree.
+			{Name: domain.ReservedKeyAppURL, Value: "https://" + in.Host},
+		},
 		SecurityContext: &corev1.SecurityContext{
 			AllowPrivilegeEscalation: ptr(false),
 			RunAsNonRoot:             ptr(true),
@@ -248,6 +289,49 @@ func container(in Input) corev1.Container {
 			},
 		},
 	}
+}
+
+// Secret holds the app's configuration, and is the only object here carrying a
+// value a caller supplied. It is rewritten on every deploy from the rows read at
+// compose time, so a key removed from the store is gone from the container's
+// environment on the next deploy rather than lingering (spec 0010, AC-7).
+//
+// An app with no configuration still gets the Secret, empty, because the
+// container references it by name and a missing Secret would stop the pod
+// starting.
+func Secret(in Input) *corev1.Secret {
+	data := make(map[string][]byte, len(in.Config))
+	for k, v := range in.Config {
+		data[k] = []byte(v)
+	}
+	return &corev1.Secret{
+		ObjectMeta: objectMeta(ConfigSecretName, in.Slug),
+		Type:       corev1.SecretTypeOpaque,
+		Data:       data,
+	}
+}
+
+// ConfigChecksum is a digest of exactly what the Secret will hold, sorted by key
+// so the same configuration always produces the same string. It goes on the pod
+// template, which is what makes Kubernetes roll the pods when only the
+// configuration changed (AC-17).
+//
+// The digest is of secret values, so it is one way on purpose: it names the
+// configuration without carrying it. A length prefix separates each key and
+// value, so no two different configurations can hash the same.
+func ConfigChecksum(config map[string]string) string {
+	keys := make([]string, 0, len(config))
+	for k := range config {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := sha256.New()
+	for _, k := range keys {
+		// A hash.Hash never returns an error, which is why the interface says so
+		// and why this is the one place the return is dropped deliberately.
+		_, _ = fmt.Fprintf(h, "%d:%s=%d:%s\n", len(k), k, len(config[k]), config[k])
+	}
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // Service fronts the pod on the port the Ingress routes to.

@@ -130,6 +130,21 @@ func (a ReconcileStore) Get(ctx context.Context, id string) (reconcile.App, erro
 	return reconcile.App{ID: app.ID, Slug: app.Slug}, nil
 }
 
+// ConfigForDeploy reads the app's configuration as the Secret's data. Secret
+// values come back in clear here, which is the whole point of this being the
+// deploy path's read and not a response's (spec 0010, Value sourcing).
+func (a ReconcileStore) ConfigForDeploy(ctx context.Context, appID string) (map[string]string, error) {
+	entries, err := a.s.ListConfigForDeploy(ctx, appID)
+	if err != nil {
+		return nil, err
+	}
+	config := make(map[string]string, len(entries))
+	for _, e := range entries {
+		config[e.Key] = e.Value
+	}
+	return config, nil
+}
+
 // GetAppByName reads the one live app an account gave that name, which is the
 // lookup every deploy starts with. The same pair always resolves to the same
 // row, which is what keeps an app's hostname stable across deploys (AC-4).
