@@ -32,6 +32,15 @@ type Store struct {
 	suffix func() string
 }
 
+// How a write transaction that loses the race for the lock is retried. These are
+// small on purpose: the busy timeout has already done the waiting by the time one
+// of these attempts fails, so this is the last word on a genuinely contended
+// file, not the main way the platform waits.
+const (
+	busyRetries = 3
+	busyBackoff = 20 * time.Millisecond
+)
+
 // Options configures Open.
 type Options struct {
 	// Path is the SQLite file. Use ":memory:" only in throwaway tests; the
@@ -170,7 +179,29 @@ func (s *Store) now() string { return ids.Stamp(s.clock.Now()) }
 // the caller loses the write. Waiting at BEGIN is a wait the busy timeout does
 // serve. Read only paths never come through here, they use the pool directly and
 // stay deferred, so they still never queue behind a writer.
+// A write that still cannot get the lock inside the busy timeout is retried
+// rather than lost. The transaction rolled back whole, so running fn again is
+// running it against the state it would have read on a first attempt, and every
+// caller decides from the rows it reads inside the transaction rather than from
+// anything it captured before it.
 func (s *Store) inTx(ctx context.Context, fn func(*sqlcgen.Queries) error) error {
+	var err error
+	for attempt := range busyRetries {
+		err = s.writeTx(ctx, fn)
+		if !isBusy(err) {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return err
+		case <-time.After(busyBackoff * time.Duration(attempt+1)):
+		}
+	}
+	return err
+}
+
+// writeTx is one attempt at the transaction inTx retries.
+func (s *Store) writeTx(ctx context.Context, fn func(*sqlcgen.Queries) error) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("store: taking a connection: %w", err)
