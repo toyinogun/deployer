@@ -2,6 +2,7 @@
 
 **Date**: 2026-08-12
 **Status**: Accepted
+**Amended by**: [spec 0015](../0015-invite-only-registration/index.md), 2026-08-14. Registration now needs a live invite to authorise it, so read three criteria below with that in mind. AC-1 holds only for a caller who also carries a usable invite: without one the same request is refused `403 invite_invalid`, and that check runs before the password is validated or hashed. AC-2's rule that a taken address is indistinguishable is unchanged and now also covers the invite, which survives an address that is already spoken for rather than being spent by it. AC-24's shared bucket is unchanged, and a registration refused for its invite spends from it like any other. Nothing in this spec is withdrawn.
 
 ## Summary
 
