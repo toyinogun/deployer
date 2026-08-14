@@ -15,7 +15,7 @@ Decisions you already made, so no feature reopens them:
 - Source arrives as a tarball uploaded by the MCP client. There is no Git server, no repo provisioning, no Git credentials anywhere.
 - Builds use Buildpacks with no config, and fall back to the project's Dockerfile when one is present.
 - Callers authenticate with a platform issued API token. No identity provider, no OAuth in the MVP.
-- Apps are reachable on your LAN or VPN only, on a hostname under one wildcard domain.
+- Apps are reachable on your LAN or VPN only, on a hostname under one wildcard domain. Slice 12 and 13 reopen the LAN or VPN half of this deliberately: the wildcard becomes reachable from the open internet, the domain and the wildcard shape do not change.
 - Apps are stateless. No databases, no volumes, no object storage in the MVP.
 - Isolation is enforced, not advisory: own namespace, non root, dropped capabilities, resource ceilings, and network policy that stops apps reaching each other or your cluster services.
 
@@ -56,6 +56,14 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | done |
 | 15 | Stranded deployment recovery | Slice 11 | done |
+| 16 | Invite only registration | Slice 12 | planned |
+| 17 | Per account app cap | Slice 12 | planned |
+| 18 | Bounded app egress | Slice 12 | planned |
+| 19 | Account suspension | Slice 12 | planned |
+| 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
+| 21 | Platform backup & restore | Slice 12 | planned |
+| 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | planned |
+| 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
 
 ## Foundations
 
@@ -316,15 +324,67 @@ spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `int
 - [x] Review it (fresh model): `/check review stranded deployment recovery`
 - [x] Document it: `/document stranded deployment recovery`
 
+## Slice 12: The controls the tailnet was providing
+
+Everything through slice 11 was built with the tailnet as the outer fence, and several decisions were taken knowingly because of it: registration is open to anyone who can reach the page, nothing counts apps per account, app egress to the internet is unbounded, the pre authentication posts carry no CSRF token, and there is no way to stop a bad account short of the database. Handing the platform to invited strangers removes that fence, so this slice rebuilds each of those as a real control.
+
+The ordering is deliberate and it is not the usual tracer bullet shape. The public edge in slice 13 is one manifest change and it is the only irreversible step, so it goes last rather than first. Nothing in this slice needs it: every control is testable on the tailnet today.
+
+Settled for these two slices, so no feature reopens them: the platform stays on your homelab cluster and is reached through a tunnel, so your home address never appears in DNS or a certificate; signup is invite only; there is no billing; apps become publicly reachable on the existing wildcard; egress is open outbound with the known abuse ports closed rather than deny by default; the domain stays `deploy.toyintest.org`; and the first months hold under ten people.
+
+### 16. Invite only registration · needs a decision
+Registration today accepts anyone who can open the page, which was safe only because reaching the page meant being on the tailnet. An invite becomes the thing that authorises an account, so opening the front door does not mean opening it to everyone.
+**Done when:** registration without a valid invite is refused with a closed reason code, an invite is single use and expires, you can issue and revoke invites from the admin page, spending one is recorded against the account it created, and the accounts that already exist are untouched.
+- [ ] Design it (spec): `/architect invite only registration`
+
+### 17. Per account app cap · Beta · needs a decision
+Nothing counts apps per account, so one account can create as many as the cluster will hold. Every quota built so far bounds what one app consumes, not how many an account may start. With under ten people this is about stopping one runaway account rather than sharing scarce capacity.
+**Done when:** an account at its cap is refused a new app with a closed reason code that names the cap, the refusal reads the same through an MCP tool and through the pages, the cap is `DEPLOYER_*` configuration validated at startup, a deleted app frees a slot, and accounts already over the cap keep what they have.
+- [ ] Design it (spec): `/architect per account app cap`
+
+### 18. Bounded app egress · needs a decision
+Cluster traffic is fenced, but an app's outbound path to the internet is wide open. That is how a stranger's app mines coins or sends spam, and both cost you a relationship with your internet provider rather than just some CPU. Ports, not hostnames: an allow list by hostname is still deferred because it breaks every app that calls an API until its owner declares it.
+**Done when:** a pod cannot open outbound mail or the common mining pool ports, an ordinary outbound HTTPS call still works, the bound is applied to every app namespace including the ones that already exist, and both the block and the allowed call are proved against the real cluster rather than the fake clientset.
+- [ ] Design it (spec): `/architect bounded app egress`
+
+### 19. Account suspension · needs a decision
+The control you reach for at 2am when one account is the problem. Ownership is already solid, so the hard part is deciding what suspended means for a running app and how it comes back.
+**Done when:** an admin can suspend an account from the page that already exists, its apps stop serving, its sessions and API tokens stop working, a deploy or any other tool call is refused with a closed reason code, unsuspending restores serving without a rebuild, and both directions are recorded in the audit trail.
+- [ ] Design it (spec): `/architect account suspension`
+
+### 20. Open internet hardening: login CSRF & control plane policy · needs a decision
+Two hardening items were weighed and skipped on tailnet grounds and are named as such in their specs. From spec 0013: the pre authentication posts carry no synchroniser token, because there is no session to bind one to. From spec 0008: nothing stops a workload elsewhere on the cluster reaching the platform API at all, since tokens guard it.
+**Done when:** the sign in, register, forgot and reset posts each carry a token bound to a pre session cookie and a forged post is refused, and `deployer-system` accepts ingress only from the ingress controller and the build namespaces, with the platform still fully working from both.
+- [ ] Design it (spec): `/architect open internet hardening`
+
+### 21. Platform backup & restore · needs a decision
+The SQLite file is a secret store, not just metadata: every release snapshots the app's configuration in clear, releases are never pruned, and since slice 7 those are live third party credentials rather than hypothetical ones. Right now one lost volume is every account, every app, and every secret anyone ever set.
+**Done when:** the database is backed up on a schedule to somewhere that is not the cluster, the backup is encrypted at rest, a restore has actually been rehearsed into a scratch instance rather than assumed, and you can sign in to the restored copy.
+- [ ] Design it (spec): `/architect platform backup & restore`
+
+## Slice 13: The public edge
+
+The flip. One manifest change plus the pieces that only matter once the traffic is real, kept apart from slice 12 so the irreversible step lands on top of controls that already work.
+
+### 22. Public edge: tunnel, real certificates & the console hostname · needs a decision
+The control plane sits on the `tailscale` ingress class and the wildcard certificate is still issued by the staging authority. This gives the console a name of its own, moves both onto certificates a browser trusts, and puts a tunnel in front so your home address is never in DNS. It also has to solve the smaller thing the tunnel breaks: behind a proxy the rate limiter and the audit trail see the proxy, not the visitor.
+**Done when:** from a machine with no Tailscale the console answers on its own public hostname with a trusted certificate and a deployed app answers on its wildcard hostname, the console name is reserved so no app slug can ever claim it, your home address appears in no DNS record or certificate, the rate limiter and audit rows carry the visitor's real address, and cluster administration stays on the tailnet.
+- [ ] Design it (spec): `/architect public edge`
+
+### 23. Joining: the ready to paste agent configuration · needs a decision
+Joining is still a developer's job even though using the platform is not. Removing Tailscale takes it from four steps to three, and the step that actually goes wrong is the last one: a token is a password that grants deploys on your cluster, and pasting a secret into a configuration file by hand is exactly what a non technical person mishandles. This hands them one block to copy rather than a token and a format to work out.
+**Done when:** a newly verified person lands on one page holding a ready to paste MCP client block with a token already in it, the token is minted at that moment and shown once, it appears in their token list afterwards like any other, and the page never shows a token again on a later visit.
+- [ ] Design it (spec): `/architect joining`
+
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
 
 - **App databases**: a provisioned Postgres database and role per app · needs a decision
 - **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
-- **Public exposure**: real public hostnames with certificates, chosen per app · needs a decision
+- **Public exposure per app**: a real public hostname with a certificate, chosen per app. Narrowed by slice 13: the shared wildcard becomes publicly reachable there, so what is left here is an app choosing its own name rather than taking its slug · needs a decision
 - **Image and dependency scanning**: block a release on a critical finding. From spec 0009, base image allowlisting for Dockerfile builds belongs with this rather than on its own · needs a decision
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
-- **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned. From spec 0010: once apps carry configuration, those are live third party credentials, not hypothetical ones · needs a decision
+- **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned. From spec 0010: once apps carry configuration, those are live third party credentials, not hypothetical ones · promoted into feature 21
 - **Build secrets for Dockerfile builds**: BuildKit can mount a secret for one build step without leaving it in a layer, which is what a private package registry needs. From spec 0010, deliberately not built: it exists only on the Dockerfile path, so it would make the two builders behave differently before anyone has asked for it · needs a decision
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003. Spec 0012 raises this: the namespace delete right stops being a right nothing uses and becomes an unattended loop, so the fence being a name prefix rather than an ownership label now matters more · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
@@ -332,15 +392,15 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Layer cache for Dockerfile builds**: a registry backed cache, so a rebuild is not cold every time. From spec 0009, left out because it would put unbounded cache images on the same registry that has no garbage collection, so it is only worth deciding together with the item above · needs a decision
 - **Kubernetes events for an app that prints nothing**: surfacing image pull failures, out of memory kills, and probe failures, which explain a failed app that produced no output of its own. From spec 0006, only worth building if `state: failed` with an empty log turns out to be a common dead end · needs a decision
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
-- **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · needs a decision
-- **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration · needs a decision
+- **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · promoted into feature 20
+- **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration. Feature 18 takes the cheap half of this, closing the known abuse ports, and leaves the hostname allow list here: it breaks every app that calls an API until its owner declares it, which is a support burden with non technical users · needs a decision
 - **Stranded recovery for `pushing` and `deploying`**: from spec 0014, which covers `building` only because a build Job is cheap, unambiguous evidence. The later phases need registry and workload evidence that is more expensive and easier to misread, and mistaking a rollout in progress for a stranded one would end a deploy that was going to succeed. They keep the deploy budget as their backstop, which is no worse than today · needs a decision
 - **A test that a tool description matches its behaviour**: every MCP tool description is contract rather than documentation, and nothing checks one against what the code does. From spec 0011, which adds two more, taking the gap to eight tools wide · needs a decision
 - **Write actions from the browser**: rollback, delete and configuration editing as page actions, which feature 14 deliberately left out to keep the pages read only for apps. From spec 0013, where rollback is named as the one with a real case behind it, since it is the thing you want at 2am · needs a decision
 - **An audited browser reveal of secret configuration values**: from spec 0013, weighed and refused so that `store.ListConfigForDeploy` keeps exactly two callers and a stolen session stays worth less than a stolen API token. Worth reopening only if reading a secret back becomes a real debugging need · needs a decision
 - **Static sites without a Dockerfile**: a plain HTML page uploaded on its own fails Buildpacks detection in about nine seconds, so the simplest thing a non technical person can ask an agent for is the one thing the platform cannot build unaided. Proved on the cluster 2026-08-14, and `testdata/sample-static` records it. `deploy_app`'s description now names the Dockerfile to use, which lets an agent correct itself on the first failure, and that may well be enough. Building it in would mean the platform composing a Dockerfile for a source tree it recognises as static, which is the first time it would author a build rather than run one the caller supplied · needs a decision
-- **A per account cap on apps**: nothing counts apps per account, so one account can create as many as it likes and the ceiling is the cluster. Every quota built so far is per app namespace, which bounds what one app consumes and not how many an account may start. Raised by handing a second person an account: isolation between accounts is solid, capacity between them is shared and ungoverned, and registration is open to anyone who can reach the page. It has stayed invisible only because the tailnet has kept the number of accounts at one · needs a decision
-- **Getting a new person from nothing to a connected agent**: joining the platform is still a developer's job, even though using it is not. Four steps stand between a new person and their first deploy: install Tailscale and accept a node share, register and verify, mint a token, and paste that token into an MCP client's configuration as a bearer header. Only the middle one is built. The web interface made the platform person friendly at its edges and left the joining unaddressed, which did not show while there was one account. The token paste is the step that actually goes wrong, because a token is a password that grants deploys on the cluster and pasting a secret into a config file is exactly what a non technical person mishandles. Raised 2026-08-14 by working out what handing an account to a friend costs. Worth being clear it may be the wrong problem to solve: anyone running Claude Code or Codex is already using a developer's tool, so the coding agent is a higher wall than the configuration. If it is worth solving, the shape is handing someone one thing rather than four, an invite link that mints the token and returns a ready configuration, and that is a new credential path with its own security model rather than a convenience · needs a decision
+- **A per account cap on apps**: nothing counts apps per account, so one account can create as many as it likes and the ceiling is the cluster. Every quota built so far is per app namespace, which bounds what one app consumes and not how many an account may start. Raised by handing a second person an account: isolation between accounts is solid, capacity between them is shared and ungoverned, and registration is open to anyone who can reach the page. It has stayed invisible only because the tailnet has kept the number of accounts at one · promoted into feature 17
+- **Getting a new person from nothing to a connected agent**: joining the platform is still a developer's job, even though using it is not. Four steps stand between a new person and their first deploy: install Tailscale and accept a node share, register and verify, mint a token, and paste that token into an MCP client's configuration as a bearer header. Only the middle one is built. The web interface made the platform person friendly at its edges and left the joining unaddressed, which did not show while there was one account. The token paste is the step that actually goes wrong, because a token is a password that grants deploys on the cluster and pasting a secret into a config file is exactly what a non technical person mishandles. Raised 2026-08-14 by working out what handing an account to a friend costs. Worth being clear it may be the wrong problem to solve: anyone running Claude Code or Codex is already using a developer's tool, so the coding agent is a higher wall than the configuration. If it is worth solving, the shape is handing someone one thing rather than four, an invite link that mints the token and returns a ready configuration, and that is a new credential path with its own security model rather than a convenience. Features 16 and 23 take the two halves that do not need a new credential path, the invite and the copyable block; what stays here is the one click version that provisions the client for them · needs a decision
 - **Dark mode for the web interface**: from spec 0013, scoped out of feature 14. Cheap as a token swap under `prefers-color-scheme` only because the stylesheet defines every colour as a token from the start · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
