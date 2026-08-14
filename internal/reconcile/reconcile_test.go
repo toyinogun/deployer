@@ -59,6 +59,10 @@ type world struct {
 	app        store.App
 	accountID  string
 	uploadPath string
+	// deployments replaces the store the loop writes deployments through, and is
+	// only ever set to a passthrough over that same real store that fails one
+	// named call. See failOnce in stranded_test.go.
+	deployments reconcile.Deployments
 }
 
 // setup builds a world with one account, one app, one uploaded tarball, and one
@@ -191,6 +195,10 @@ func (w *world) appComesUp() {
 // tweaks run over the options before the loop is built, so a test that cares
 // about one budget states only that one.
 func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Options)) *reconcile.Reconciler {
+	var deployments reconcile.Deployments = store.ForReconcile(w.store)
+	if w.deployments != nil {
+		deployments = w.deployments
+	}
 	rs := store.ForReconcile(w.store)
 	opts := reconcile.Options{
 		PodName:               "deployer-0",
@@ -228,7 +236,7 @@ func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Opt
 	for _, tweak := range tweaks {
 		tweak(&opts)
 	}
-	return reconcile.New(rs, rs, uploadsFor{w.uploads}, reg, kube.NewFor(w.clientset), opts)
+	return reconcile.New(deployments, rs, uploadsFor{w.uploads}, reg, kube.NewFor(w.clientset), opts)
 }
 
 // uploadsFor adapts the upload service the way the composition root does.

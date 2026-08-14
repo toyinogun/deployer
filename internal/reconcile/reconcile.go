@@ -101,8 +101,17 @@ type Release struct {
 
 // Deployments is the slice of persistence this package needs for the state walk.
 type Deployments interface {
-	// ClaimNext hands over the oldest queued deployment, or ErrNoWork.
+	// ClaimNext hands over the deployment the platform owes next: the oldest
+	// queued one, and only when there is none, the oldest row still in flight in
+	// any other state, so a stranded row is adopted without overtaking fresh work
+	// (spec 0014, AC-5). ErrNoWork when there is neither.
 	ClaimNext(ctx context.Context, claimedBy string) (Deployment, error)
+	// ReleaseClaim hands a deployment back so a later tick adopts and resumes it,
+	// leaving its state untouched. It is a no op on a row that is no longer
+	// building, so a supersession that landed in the meantime is never reopened
+	// (spec 0014, AC-5a). It reports whether a row was actually released, so that
+	// no op is visible in the logs rather than only in a test (AC-10).
+	ReleaseClaim(ctx context.Context, id string) (bool, error)
 	// ListNonTerminal returns everything still in flight, which the sweep reads.
 	ListNonTerminal(ctx context.Context) ([]Deployment, error)
 	// Transition moves a deployment, writing the row and one event together.
@@ -283,17 +292,28 @@ func (r *Reconciler) Run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			r.tick(ctx)
+			r.Tick(ctx)
 		case <-reaper.C:
 			r.ReapOrphanNamespaces(ctx, time.Now().UTC())
 		}
 	}
 }
 
-// tick fails whatever has run past the deploy budget, then claims one deployment
-// and drives it to a terminal state.
-func (r *Reconciler) tick(ctx context.Context) {
-	r.expireOverdue(ctx)
+// Tick recovers whatever a dead drive left stranded, fails whatever has run past
+// the deploy budget, then claims one deployment and drives it to a terminal
+// state.
+//
+// The two passes share one listing, so the recovery check costs no extra store
+// round trip (spec 0014, AC-1), and recovery runs first so a row that is both
+// stranded and overdue is ended with the reason the cluster gave rather than
+// with timeout (AC-6).
+func (r *Reconciler) Tick(ctx context.Context) {
+	if deps, err := r.deployments.ListNonTerminal(ctx); err != nil {
+		slog.ErrorContext(ctx, "reading in flight deployments failed", "error", err)
+	} else {
+		r.recoverStranded(ctx, deps)
+		r.expireOverdue(ctx, deps)
+	}
 
 	dep, err := r.deployments.ClaimNext(ctx, r.opts.PodName)
 	if errors.Is(err, ErrNoWork) {
@@ -325,18 +345,78 @@ func (r *Reconciler) Sweep(ctx context.Context) {
 	}
 }
 
+// recoverStranded ends or hands back every deployment left sitting in building
+// by a drive that died without writing the row terminal.
+//
+// It asks the cluster what the build Job actually did and acts on that answer
+// alone, so a row is only ever ended on positive evidence. It never drives, so
+// it cannot hold the loop's one goroutine (spec 0014, AC-7).
+//
+// Safe because the control plane is one pod: a row observed in building at the
+// top of a tick is not being driven by anybody, because the drive that put it
+// there has already returned. See the single replica invariant in deploy/.
+func (r *Reconciler) recoverStranded(ctx context.Context, deps []Deployment) {
+	for _, dep := range deps {
+		if ctx.Err() != nil {
+			return
+		}
+		// A row with no Job name never started one, so there is nothing to ask
+		// about (AC-1).
+		if dep.State != domain.StateBuilding || dep.BuildJobName == "" {
+			continue
+		}
+		state, err := r.cluster.JobState(ctx, r.buildNamespace(dep), dep.BuildJobName)
+		if err != nil {
+			// The absence of an answer is not evidence that a deploy died, which is
+			// the same judgement awaitBuild makes when it polls through a read
+			// error. The next tick asks again (AC-4).
+			slog.WarnContext(ctx, "reading the build job of an in flight deployment failed",
+				"deployment", dep.ID, "job", dep.BuildJobName, "error", err)
+			continue
+		}
+		switch state {
+		case build.JobFailed:
+			r.fail(ctx, dep.ID, &failure{domain.ReasonBuildFailed,
+				fmt.Errorf("the build job of stranded deployment %s reported failed", dep.ID)})
+		case build.JobGone:
+			r.fail(ctx, dep.ID, &failure{domain.ReasonBuildFailed,
+				fmt.Errorf("the build job of stranded deployment %s no longer exists", dep.ID)})
+		case build.JobSucceeded:
+			// Real work worth resuming rather than throwing away, so the claim goes
+			// back and a later tick adopts the row and drives it on from building.
+			released, err := r.deployments.ReleaseClaim(ctx, dep.ID)
+			if err != nil {
+				// Not retried inside this tick: the next one reads the Job again and
+				// reaches the same decision, which is what makes this self healing
+				// against exactly the class of fault it exists to survive (AC-5b).
+				slog.ErrorContext(ctx, "handing a stranded deployment back failed",
+					"deployment", dep.ID, "error", err)
+				continue
+			}
+			if !released {
+				// The guard matched nothing, so something ended the row between the
+				// Job read and the write. Logged apart from a real release, because
+				// this is the AC-5a race actually happening in production (AC-10).
+				slog.InfoContext(ctx, "a stranded deployment was ended by something else before it could be handed back",
+					"deployment", dep.ID)
+				continue
+			}
+			slog.InfoContext(ctx, "handed a stranded deployment back to be resumed",
+				"deployment", dep.ID, "state", dep.State)
+		case build.JobRunning:
+			// The build is alive, so nothing is stranded yet. The next tick asks
+			// again and the deploy budget bounds the wait (AC-4a).
+		}
+	}
+}
+
 // expireOverdue fails every non terminal deployment that has run past the deploy
-// budget. It runs at the top of a tick, before anything is claimed, so it is one
-// store query and no cluster call unless something is actually overdue.
+// budget, over the listing the tick already read. It makes no cluster call
+// unless something is actually overdue.
 //
 // Between drives rather than during one: what bounds how long an overdue row
 // waits here is the budget check inside the drive ahead of it (spec 0005, AC-14).
-func (r *Reconciler) expireOverdue(ctx context.Context) {
-	deps, err := r.deployments.ListNonTerminal(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "reading in flight deployments for the deploy budget failed", "error", err)
-		return
-	}
+func (r *Reconciler) expireOverdue(ctx context.Context, deps []Deployment) {
 	for _, dep := range deps {
 		if ctx.Err() != nil {
 			return
