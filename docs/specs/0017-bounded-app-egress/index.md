@@ -1,7 +1,7 @@
 # 0017. Bounded app egress: closing the ports abuse actually uses
 
 **Date**: 2026-08-14
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
@@ -110,13 +110,13 @@ Eight TCP entries and one UDP entry, in one rule, on one peer. A Kubernetes Netw
 
 Ordered as a Tracer Bullet: one app is really, provably bounded against a real listening mail server before anything is generalised or the build namespaces are touched. The baseline run comes first, because it is the only step that cannot be done after the fact.
 
-1. [ ] Extend `testdata/probe` with the four named targets, deploy it through the real `deploy_app` path on the platform as it stands today, and record the report. All four must read `reached`; anything else means the upstream connection is already doing the blocking and the later proof has to be read accordingly, satisfies **AC-7**, **AC-8**.
+1. [x] Extend `testdata/probe` with the four named targets, deploy it through the real `deploy_app` path on the platform as it stands today, and record the report. All four must read `reached`; anything else means the upstream connection is already doing the blocking and the later proof has to be read accordingly, satisfies **AC-7**, **AC-8**.
 2. [x] Add `DEPLOYER_APP_EGRESS_BLOCKED_PORTS` to `internal/config` beside the CIDR list, with its default, parse, range check, deduplication and sort, and every boot refusal including the empty complement, satisfies **AC-1**.
 3. [x] Write the complement function in `internal/deploy` test first, covering adjacency, duplicates, both boundaries and the one port wide range, satisfies **AC-2**.
 4. [x] Thread the list into `deploy.Input` and give `AllowPolicy`'s public egress rule its ports list, with the explicit UDP protocol, and unit tests over the eight literal ranges, the protocol, the untouched peer and the single peer rule, satisfies **AC-3**, **AC-4**, **AC-14**.
-5. [ ] Deploy the probe again and read the report against the live cluster: 25 and 3333 now time out where step 1 read reached, 443 and 587 are still reached, the app still serves and stays ready, satisfies **AC-5**, **AC-6**, **AC-12**.
-6. [ ] Confirm the retrofit on an app namespace that predates the change, with a control plane restart and no redeploy, satisfies **AC-11**.
-7. [ ] Narrow both build namespace policies to TCP 80 and 443 and prove both build paths still complete end to end, satisfies **AC-9**, **AC-10**.
+5. [x] Deploy the probe again and read the report against the live cluster: 25 and 3333 now time out where step 1 read reached, 443 and 587 are still reached, the app still serves and stays ready, satisfies **AC-5**, **AC-6**, **AC-12**.
+6. [x] Confirm the retrofit on an app namespace that predates the change, with a control plane restart and no redeploy, satisfies **AC-11**.
+7. [x] Narrow both build namespace policies to TCP 80 and 443 and prove both build paths still complete end to end, satisfies **AC-9**, **AC-10**.
 8. [x] Add the bound to `deploy_app`'s description, naming the shape rather than the literal ports, satisfies **AC-13**.
 
 ## Consequences
