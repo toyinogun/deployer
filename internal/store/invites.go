@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store/sqlcgen"
 )
@@ -133,6 +134,23 @@ func (s *Store) SpendInviteAndCreateAccount(ctx context.Context, inviteID, accou
 		}
 		if err != nil {
 			return fmt.Errorf("store: creating an account: %w", err)
+		}
+		// The spend's own audit row, written here rather than by the handler that
+		// called in. No edge may learn that an account was created: answering a
+		// taken address identically to a fresh one is the whole point of AC-10, so
+		// the row naming the invite and the account it made can only be written
+		// where both are known. Inside the transaction it describes, so a spend
+		// that rolls back leaves no row claiming it happened (AC-15).
+		if err := q.InsertAuditLog(ctx, sqlcgen.InsertAuditLogParams{
+			ID:         ids.New(ids.AuditLog, s.clock.Now()),
+			AccountID:  ptr(accountID),
+			Action:     auth.ActionRegister,
+			TargetType: ptr("invite"),
+			TargetID:   ptr(inviteID),
+			Outcome:    "allowed",
+			OccurredAt: now,
+		}); err != nil {
+			return fmt.Errorf("store: recording the spend of invite %s: %w", inviteID, err)
 		}
 		return nil
 	})
