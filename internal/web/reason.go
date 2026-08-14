@@ -20,6 +20,10 @@ var sentences = map[domain.Reason]string{
 	domain.ReasonTimeout:         "The deploy ran out of time.",
 	domain.ReasonInternal:        "The platform failed while deploying.",
 	domain.ReasonSuperseded:      "Cancelled because a newer deploy replaced it.",
+	// Unlike the other refusal codes, this one can reach deployments.failure_reason:
+	// a deploy already in flight when its account is suspended ends here (spec
+	// 0018, AC-14).
+	domain.ReasonAccountSuspended: "Stopped because this account was suspended.",
 }
 
 // reasonSentence is the line to show for a reason code, falling back to the code

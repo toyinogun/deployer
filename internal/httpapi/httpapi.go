@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
+	"github.com/toyinogun/deployer/internal/domain"
 	"github.com/toyinogun/deployer/internal/uploads"
 )
 
@@ -40,6 +41,18 @@ func (a *API) Register(mux *http.ServeMux) {
 func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	account, err := a.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")))
+	// A suspended account presented a working credential, so it is refused as a
+	// decision rather than as a bad credential: 403 with the closed reason code,
+	// and audited against the account it actually belongs to (spec 0018, AC-11).
+	if errors.Is(err, auth.ErrAccountSuspended) {
+		auth.Record(ctx, a.auditor, auth.Audit{
+			AccountID: account.ID,
+			Action:    auth.ActionUpload,
+			Reason:    string(domain.ReasonAccountSuspended),
+		})
+		writeError(ctx, w, http.StatusForbidden, string(domain.ReasonAccountSuspended))
+		return
+	}
 	if err != nil {
 		// The denial is audited with a null account, which is exactly the row
 		// worth having: something presented a credential and it did not work.

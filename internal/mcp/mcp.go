@@ -325,6 +325,9 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 		Title:   "Deployer",
 		Version: "0.1.0",
 	}, nil)
+	if account.Disabled {
+		srv.AddReceivingMiddleware(refuseSuspended)
+	}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "deploy_app",
 		Title:       "Deploy an app",

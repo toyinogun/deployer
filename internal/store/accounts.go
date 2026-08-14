@@ -83,8 +83,10 @@ func (s *Store) CreateAPIToken(ctx context.Context, t NewToken) (APIToken, error
 }
 
 // ResolveToken turns a token hash into the account it belongs to. Unknown,
-// revoked, expired, and belonging to a disabled account are all the same
-// ErrTokenInvalid, so a caller learns nothing from which one it hit.
+// revoked and expired are all the same ErrTokenInvalid, so a caller learns
+// nothing from which one it hit. A suspended account resolves normally and
+// carries its DisabledAt: telling that case apart is auth.Authenticate's job,
+// not the query's (spec 0018, AC-12).
 func (s *Store) ResolveToken(ctx context.Context, tokenHash string) (Account, APIToken, error) {
 	row, err := s.q.ResolveToken(ctx, sqlcgen.ResolveTokenParams{
 		TokenHash: tokenHash,

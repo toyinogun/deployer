@@ -137,12 +137,16 @@ func NewAuthenticator(s Store, t TokenToucher) *Authenticator {
 	return &Authenticator{store: s, toucher: t}
 }
 
-// Authenticate resolves a raw bearer token to its account, or ErrTokenInvalid.
+// Authenticate resolves a raw bearer token to its account, ErrTokenInvalid, or
+// ErrAccountSuspended.
 //
-// Unknown, revoked, expired, and belonging to a disabled account are all the
-// same error on purpose: a caller learns only that the token does not work.
-// The token's last use is recorded on success, and a failure to record it is
-// logged rather than allowed to refuse a caller who presented a good token.
+// Unknown, revoked, expired, and held by an account that never confirmed its
+// address are all the same error on purpose: a caller learns only that the token
+// does not work. A good token on a suspended account is the one case that is
+// told apart, so the surface above can answer account_suspended (spec 0018,
+// AC-12). The token's last use is recorded on success, and a failure to record
+// it is logged rather than allowed to refuse a caller who presented a good
+// token.
 func (a *Authenticator) Authenticate(ctx context.Context, raw string) (Account, error) {
 	if raw == "" {
 		return Account{}, ErrTokenInvalid
@@ -154,11 +158,23 @@ func (a *Authenticator) Authenticate(ctx context.Context, raw string) (Account, 
 		}
 		return Account{}, fmt.Errorf("auth: resolving the presented token: %w", err)
 	}
+	// The suspension gate, on the bearer route. The store no longer filters a
+	// suspended account out of the resolve, so this is the only place the bearer
+	// route decides it, and it decides it as its own outcome rather than folding
+	// it into the invalid credential answer (spec 0018, AC-12).
+	//
+	// The account is returned alongside the error, which nothing else here does:
+	// a surface refusing a suspended caller still has to audit which account it
+	// refused, and the caller already proved it holds that account's credential.
+	// Every caller branches on the error first, so the account is only ever read
+	// by one that meant to.
+	if account.Disabled {
+		return account, ErrAccountSuspended
+	}
 	// The verified gate, on the bearer route. A token held by an account that
 	// never confirmed its address is refused with the same answer an invalid token
-	// gets, on every surface, MCP and upload alike (AC-16). The store already
-	// filtered disabled accounts out; this holds the rule even so, because the
-	// gate must be readable in one place rather than split across two layers.
+	// gets, on every surface, MCP and upload alike (AC-16). The gate must be
+	// readable in one place rather than split across two layers.
 	if !account.usable() {
 		return Account{}, ErrTokenInvalid
 	}

@@ -172,7 +172,6 @@ JOIN accounts ON accounts.id = api_tokens.account_id
 WHERE api_tokens.token_hash = ?1
   AND api_tokens.revoked_at IS NULL
   AND (api_tokens.expires_at IS NULL OR api_tokens.expires_at > ?2)
-  AND accounts.disabled_at IS NULL
 `
 
 type ResolveTokenParams struct {
@@ -185,9 +184,15 @@ type ResolveTokenRow struct {
 	ApiToken ApiToken
 }
 
-// A token resolves to an account only while it is live: not revoked, not past
-// its expiry, and belonging to an account that is not locked out. Unknown,
-// revoked, expired and disabled are all the same empty result to the caller.
+// A token resolves to an account only while the token itself is live: not
+// revoked and not past its expiry. Unknown, revoked and expired are all the same
+// empty result to the caller.
+//
+// A suspended account is deliberately NOT filtered here (spec 0018, AC-12). A
+// good token on a suspended account has to be told apart from a dead token so
+// the agent holding it hears account_suspended rather than a blank credential
+// error, and that decision is made once, in Go, by auth.Authenticate reading the
+// disabled_at this row carries.
 func (q *Queries) ResolveToken(ctx context.Context, arg ResolveTokenParams) (ResolveTokenRow, error) {
 	row := q.db.QueryRowContext(ctx, resolveToken, arg.TokenHash, arg.Now)
 	var i ResolveTokenRow
