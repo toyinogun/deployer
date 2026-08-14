@@ -8,21 +8,21 @@ _Steps derived from spec 0013 acceptance criteria. `/check verify` runs these; `
 - [x] Visit `/apps` signed out → `302`/`303` to `/login?next=/apps`, and signing in lands back on `/apps` → AC-2
 - [x] Sign in with `next=//evil.test` and with `next=https://evil.test` → both land on `/apps`, never off site → AC-2
 - [x] Send a request to `/apps` carrying a valid bearer API token and no session cookie → treated as signed out → AC-3
-- [ ] Register a new address, click the link in the real email → lands on a page, not JSON, and the URL is `/verify`, not `/v1/auth/verify` → AC-6, AC-7, AC-10
-- [ ] Click the same verification link twice → the second renders the shared link invalid page with a resend action; an expired and an unknown token render it in the same words → AC-7
-- [ ] Sign in as a registered but unverified account → the unverified page shows the address, a resend button, and the three an hour note. Press resend → a fresh link arrives → AC-8
-- [ ] Complete forgot and reset in the browser. `POST /forgot` with an address that does not exist renders the same confirmation as one that does → AC-9
+- [x] Register a new address, click the link in the real email → lands on a page, not JSON, and the URL is `/verify`, not `/v1/auth/verify` → AC-6, AC-7, AC-10
+- [x] Click the same verification link twice → the second renders the shared link invalid page with a resend action; an expired and an unknown token render it in the same words → AC-7
+- [x] Sign in as a registered but unverified account → the unverified page shows the address, a resend button, and the three an hour note. Press resend → a fresh link arrives → AC-8
+- [x] Complete forgot and reset in the browser. `POST /forgot` with an address that does not exist renders the same confirmation as one that does → AC-9
 - [x] Sign out → cookie cleared, redirected to `/login`, and the back button does not show the previous page's data → AC-11
 - [x] Open a form, edit the hidden `csrf` value in devtools, submit → `403`, nothing changed, and an audit row is written → AC-12
 - [x] Submit a page POST from a page on another origin → `403` before the handler runs → AC-13
 - [ ] With 21 or more apps on the account, `/apps` shows twenty and a **Load more** control that appends the next page. Confirm no app of another account appears and a deleted app does not → AC-14
-- [ ] On an app whose most recent deploy failed: the list row and the overview both show the release still being served **and** the failure → AC-14, AC-15
+- [x] On an app whose most recent deploy failed: the list row and the overview both show the release still being served **and** the failure → AC-14, AC-15
 - [x] Open another account's app slug on all four app pages → the same not found page an unknown slug gives, with an audit row → AC-15
 - [x] Start a real deploy and watch the overview → the status region refreshes itself every three seconds and stops when the deploy ends, without a reload → AC-16
-- [ ] Revoke the session in the database while the overview is polling → polling stops, the page is left as it stands, and the next navigation lands on sign in → AC-16
+- [x] Revoke the session in the database while the overview is polling → polling stops, the page is left as it stands, and the next navigation lands on sign in → AC-16
 - [x] Load the overview with JavaScript disabled → the correct current state renders → AC-16, AC-30
 - [ ] Check a `superseded` deployment → renders as cancelled, not as a failure. Check each reason code renders its written sentence with the raw code beside it → AC-17
-- [ ] After a rollback, `/apps/{slug}/releases` marks the release actually being served, not the newest row → AC-18
+- [x] After a rollback, `/apps/{slug}/releases` marks the release actually being served, not the newest row → AC-18
 - [x] Open `/apps/{slug}/logs` for a running app → recent output in the dark pane, redacted. For an app whose namespace is not readable yet → the explanatory empty state, not an error → AC-19
 - [x] On `/apps/{slug}/config`: a secret key shows no reveal control; a non secret key reveals on demand and writes an audit row naming account, app and key → AC-20
 - [x] Mint a token → shown once with a copy control and a warning. Reload → it is gone and never reappears → AC-21, AC-22
@@ -48,11 +48,11 @@ _Steps derived from spec 0013 acceptance criteria. `/check verify` runs these; `
 - [x] The CSRF token changes when the session changes and stops verifying the moment that session is revoked → AC-12
 - [x] The hostname on the list and overview is the slug joined with `DEPLOYER_APP_DOMAIN`; change the domain and both follow → AC-14, AC-15
 - [x] The onboarding endpoints are built from `DEPLOYER_PUBLIC_URL`; change it and both follow → AC-26
-- [ ] The serving release comes from the app's own current release, not the latest deployment's: on an app whose last deploy failed, the digest shown is the one actually running → AC-15
-- [ ] The never deployed state appears only for an app nothing has ever deployed, not for one whose only deploy failed → AC-15
-- [ ] Polling starts only when the last deployment is non terminal, decided from the same terminal set `internal/domain` defines → AC-16
-- [ ] The releases page marks current from the serving release, so after a rollback the marked row is not the newest → AC-18
-- [ ] Logs redaction matches on the running release's configuration for keys that are secret today: rotate a secret, then confirm the old value is still redacted out of the running pod's output → AC-19
+- [x] The serving release comes from the app's own current release, not the latest deployment's: on an app whose last deploy failed, the digest shown is the one actually running → AC-15
+- [x] The never deployed state appears only for an app nothing has ever deployed, not for one whose only deploy failed → AC-15
+- [x] Polling starts only when the last deployment is non terminal, decided from the same terminal set `internal/domain` defines → AC-16
+- [x] The releases page marks current from the serving release, so after a rollback the marked row is not the newest → AC-18
+- [x] Logs redaction matches on the running release's configuration for keys that are secret today: rotate a secret, then confirm the old value is still redacted out of the running pod's output → AC-19
 - [x] The reveal returns a value only for a key `ListConfigForResponse` returns one for → AC-20
 - [x] The token panel's raw value comes from the mint call's return and appears in that one response body only → AC-22
 

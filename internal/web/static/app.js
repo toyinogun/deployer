@@ -99,6 +99,81 @@
     });
   }
 
+  // Load more appends the next page onto the table rather than replacing it
+  // (AC-14). The control stays an ordinary link to the same cursor URL, so with
+  // this script off it still works, it just takes you to the next page instead
+  // of growing this one (AC-30). One handler serves both paged tables, the app
+  // list and the releases list, because they share this markup.
+  function wireLoadMore() {
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest(".load-more a");
+      // A modified click is a request to open the page elsewhere. Let it.
+      if (!link || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+        return;
+      }
+      var body = document.querySelector("table.rows tbody");
+      if (!body) {
+        return;
+      }
+      event.preventDefault();
+      if (link.dataset.loading === "on") {
+        return;
+      }
+      link.dataset.loading = "on";
+      link.setAttribute("aria-busy", "true");
+
+      fetch(link.href, {
+        headers: { "Accept": "text/html" },
+        credentials: "same-origin",
+        // Same reasoning as the status poll: a redirect is the session having
+        // gone underneath this, and following it would append the sign in page
+        // into the table.
+        redirect: "manual",
+      })
+        .then(function (res) {
+          return res.ok ? res.text() : null;
+        })
+        .then(function (html) {
+          link.dataset.loading = "";
+          link.removeAttribute("aria-busy");
+          if (!html) {
+            // Leave the page exactly as it stands and leave the link alone, so
+            // clicking again navigates and lands on sign in.
+            return;
+          }
+          var doc = new DOMParser().parseFromString(html, "text/html");
+          var rows = doc.querySelectorAll("table.rows tbody tr");
+          if (!rows.length) {
+            return;
+          }
+          var arrived = null;
+          rows.forEach(function (row) {
+            var added = body.appendChild(document.importNode(row, true));
+            if (!arrived) {
+              arrived = added;
+            }
+          });
+          var next = doc.querySelector(".load-more a");
+          if (next) {
+            // Updating the href in place keeps focus where the person left it.
+            link.href = next.getAttribute("href");
+            return;
+          }
+          // That was the last page. The control goes, so focus moves to the
+          // first row that just arrived rather than to a removed button.
+          var landing = arrived.querySelector("a");
+          link.parentNode.remove();
+          if (landing) {
+            landing.focus();
+          }
+        })
+        .catch(function () {
+          link.dataset.loading = "";
+          link.removeAttribute("aria-busy");
+        });
+    });
+  }
+
   // The sidebar toggle below the breakpoint. Without this script the sidebar is
   // simply always open, which is why the markup starts unhidden.
   function wireNav() {
@@ -146,6 +221,7 @@
   }
 
   startPolling();
+  wireLoadMore();
   wireCopy();
   wireNav();
   wireConfirm();
