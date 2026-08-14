@@ -39,11 +39,28 @@ type result struct {
 // The rest are addresses only kubectl knows, passed as query parameters:
 //
 //	/probe?sibling_pod=10.42.1.7:8080&sibling_service=10.43.2.9:80&node=172.16.70.11:6443&load_balancer=172.16.70.20:443
+//
+// The three spec 0017 adds join the existing public host on 443 to make the four
+// targets the port bound is read from, and each is chosen because it genuinely
+// listens on that port. That
+// matters more than it looks: a target with nothing listening reads as `refused`
+// whatever the policy says, so it could never tell a bound apart from an absent
+// listener. They belong to other people, so if a pool moves off 3333 or a mail
+// exchanger stops answering, the reading turns quietly false rather than failing
+// honestly (spec 0017, Consequences).
 var targets = map[string]string{
 	"kubernetes_api": "kubernetes.default.svc:443",
 	"registry":       "deployer-registry.deployer-system.svc:5000",
 	"control_plane":  "deployer.deployer-system.svc:80",
 	"public_host":    "example.com:443",
+
+	// Blocked by the default list: direct to mail exchanger delivery, and the
+	// stratum port mining pools most often listen on.
+	"public_smtp_mx": "aspmx.l.google.com:25",
+	"public_stratum": "pool.supportxmr.com:3333",
+
+	// Open, and the one an app that sends mail is meant to use instead of 25.
+	"public_smtp_relay": "smtp.sendgrid.net:587",
 }
 
 // queryTargets are the ones with no name, only an address.

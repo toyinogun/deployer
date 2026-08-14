@@ -109,6 +109,13 @@ type Input struct {
 	// whole of an app's isolation from other apps and from the cluster.
 	EgressBlockedCIDRs []string
 
+	// EgressBlockedPorts is DEPLOYER_APP_EGRESS_BLOCKED_PORTS, already parsed,
+	// sorted and deduplicated at startup. It never reaches a policy directly: the
+	// egress allow rule carries the complement of this list over the whole port
+	// space, because a NetworkPolicy can only permit a port and never refuse one
+	// (spec 0017).
+	EgressBlockedPorts []int32
+
 	// Config is the app's own configuration, read from the store when the
 	// workload is composed. It is the one place a value a caller sent reaches
 	// these objects, and it reaches only a Secret's data, never a pod spec

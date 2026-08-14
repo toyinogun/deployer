@@ -72,6 +72,8 @@ func AllowPolicy(in Input) *networkingv1.NetworkPolicy {
 	except := make([]string, len(in.EgressBlockedCIDRs))
 	copy(except, in.EgressBlockedCIDRs)
 
+	publicPorts := publicEgressPorts(in.EgressBlockedPorts)
+
 	return &networkingv1.NetworkPolicy{
 		ObjectMeta: objectMeta(AllowPolicyName, in.Slug),
 		Spec: networkingv1.NetworkPolicySpec{
@@ -103,9 +105,15 @@ func AllowPolicy(in Input) *networkingv1.NetworkPolicy {
 					// IPv4 only, on purpose: a dual stack cluster would need ::/0
 					// added deliberately, and denied is the safe direction to be
 					// wrong in (spec 0008, Consequences).
+					//
+					// Exactly one peer, and it has to stay that way: a ports list
+					// applies to every peer under `to` in the same rule, so a second
+					// peer added here would silently inherit the port bound below
+					// (spec 0017, Key invariants). A test pins the count.
 					To: []networkingv1.NetworkPolicyPeer{{
 						IPBlock: &networkingv1.IPBlock{CIDR: allEgressCIDR, Except: except},
 					}},
+					Ports: publicPorts,
 				},
 			},
 		},
@@ -115,6 +123,31 @@ func AllowPolicy(in Input) *networkingv1.NetworkPolicy {
 // allEgressCIDR is every IPv4 address, which the except list above carves the
 // cluster and the home network out of.
 const allEgressCIDR = "0.0.0.0/0"
+
+// publicEgressPorts is the port half of the public egress rule (spec 0017,
+// AC-3): one TCP entry per allowed range, plus one UDP entry covering every UDP
+// port.
+//
+// Every entry states its protocol, and the UDP one is the reason why.
+// NetworkPolicyPort.Protocol defaults to TCP when it is nil, so a UDP entry
+// composed without it means "all TCP, any port" and reopens the whole bound in a
+// single missing field. UDP itself is unconditioned by the blocked list on
+// purpose: the bound is about TCP services, and narrowing UDP would break HTTP/3
+// and time synchronisation for no matching benefit.
+func publicEgressPorts(blocked []int32) []networkingv1.NetworkPolicyPort {
+	tcp, udp := corev1.ProtocolTCP, corev1.ProtocolUDP
+
+	allowed := AllowedPortRanges(blocked)
+	ports := make([]networkingv1.NetworkPolicyPort, 0, len(allowed)+1)
+	for _, r := range allowed {
+		// Both taken per iteration: the API fields are pointers, so one shared
+		// local would leave every entry naming the last range.
+		start := intstr.FromInt32(r.Port)
+		end := r.EndPort
+		ports = append(ports, networkingv1.NetworkPolicyPort{Protocol: &tcp, Port: &start, EndPort: &end})
+	}
+	return append(ports, networkingv1.NetworkPolicyPort{Protocol: &udp})
+}
 
 // matchNamespace selects one namespace by the name label the API server owns.
 func matchNamespace(name string) *metav1.LabelSelector {
