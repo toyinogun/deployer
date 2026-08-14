@@ -1,7 +1,7 @@
 # 0014. Stranded deployment recovery: ending a row whose drive died, with the reason that is true
 
 **Date**: 2026-08-14
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

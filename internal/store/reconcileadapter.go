@@ -76,6 +76,13 @@ func (a ReconcileStore) ClaimNext(ctx context.Context, claimedBy string) (reconc
 	return deploymentRow(dep), nil
 }
 
+// ReleaseClaim hands a stranded deployment back to the loop, leaving its state
+// alone. A row something else already ended is left as it stands, which the
+// store's own guard decides rather than this adapter.
+func (a ReconcileStore) ReleaseClaim(ctx context.Context, id string) error {
+	return a.s.ReleaseBuildingClaim(ctx, id)
+}
+
 // ListNonTerminal returns everything still in flight, which the startup sweep
 // reconciles against the cluster.
 func (a ReconcileStore) ListNonTerminal(ctx context.Context) ([]reconcile.Deployment, error) {

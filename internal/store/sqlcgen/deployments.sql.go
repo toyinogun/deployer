@@ -14,8 +14,8 @@ UPDATE deployments
 SET claimed_at = ?1, claimed_by = ?2, updated_at = ?1
 WHERE id = (
     SELECT id FROM deployments
-    WHERE state = 'queued' AND claimed_at IS NULL
-    ORDER BY id
+    WHERE state NOT IN ('healthy', 'failed', 'cancelled') AND claimed_at IS NULL
+    ORDER BY state != 'queued', id
     LIMIT 1
 )
 AND claimed_at IS NULL
@@ -27,8 +27,14 @@ type ClaimNextDeploymentParams struct {
 	ClaimedBy *string
 }
 
-// One claim wins. The inner select picks the oldest unclaimed queued row and the
+// One claim wins. The inner select picks the row the platform owes next and the
 // outer WHERE re-checks the claim, so a racing caller updates zero rows.
+//
+// Queued work comes first and a stray only when there is none, which is what
+// lets a released row be adopted and resumed without ever letting recovery
+// overtake a fresh deploy (spec 0014, AC-5). The ordering key is a boolean, so
+// every queued row sorts ahead of every other one, and within each group the id
+// orders by time already because it is a ULID.
 func (q *Queries) ClaimNextDeployment(ctx context.Context, arg ClaimNextDeploymentParams) (Deployment, error) {
 	row := q.db.QueryRowContext(ctx, claimNextDeployment, arg.Now, arg.ClaimedBy)
 	var i Deployment
@@ -652,6 +658,30 @@ func (q *Queries) RecordBuildResult(ctx context.Context, arg RecordBuildResultPa
 		arg.Now,
 		arg.ID,
 	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const releaseBuildingClaim = `-- name: ReleaseBuildingClaim :execrows
+UPDATE deployments
+SET claimed_at = NULL, claimed_by = NULL, updated_at = ?1
+WHERE id = ?2 AND state = 'building'
+`
+
+type ReleaseBuildingClaimParams struct {
+	Now string
+	ID  string
+}
+
+// Handing a stranded row back to the loop, as one conditional write: the guard
+// is the row still being in `building`, so a supersession that landed between
+// the cluster read and this write is not written over (spec 0014, AC-5a).
+// Both claim columns are cleared, because ClaimNextDeployment decides what is
+// unclaimed from claimed_at alone (AC-3).
+func (q *Queries) ReleaseBuildingClaim(ctx context.Context, arg ReleaseBuildingClaimParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, releaseBuildingClaim, arg.Now, arg.ID)
 	if err != nil {
 		return 0, err
 	}

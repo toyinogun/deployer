@@ -440,9 +440,14 @@ func replaceConfig(ctx context.Context, q *sqlcgen.Queries, appID string, config
 	return nil
 }
 
-// ClaimNext hands the oldest unclaimed queued deployment to one caller and only
-// one. A racing caller updates no rows and gets ErrNotFound, which is a normal
-// result for a reconcile loop with nothing to do.
+// ClaimNext hands the deployment the platform owes next to one caller and only
+// one: the oldest unclaimed queued row, and only when there is none, the oldest
+// unclaimed row still in flight in any other state, which is how a stranded
+// deployment that was handed back gets adopted and resumed without ever
+// overtaking fresh work (spec 0014, AC-5).
+//
+// A racing caller updates no rows and gets ErrNotFound, which is a normal result
+// for a reconcile loop with nothing to do.
 func (s *Store) ClaimNext(ctx context.Context, claimedBy string) (Deployment, error) {
 	dep, err := s.q.ClaimNextDeployment(ctx, sqlcgen.ClaimNextDeploymentParams{
 		Now:       ptr(s.now()),
@@ -455,6 +460,23 @@ func (s *Store) ClaimNext(ctx context.Context, claimedBy string) (Deployment, er
 		return Deployment{}, fmt.Errorf("store: claiming the next deployment: %w", err)
 	}
 	return dep, nil
+}
+
+// ReleaseBuildingClaim hands a claimed deployment back so the loop can adopt and
+// resume it, and does nothing at all unless the row is still in `building`.
+//
+// The guard is the whole point: a supersession can land between the cluster read
+// that decided to release and this write, and a row something else ended must
+// never be reopened (spec 0014, AC-5a). Both claim columns are cleared, because
+// ClaimNext decides what is unclaimed from claimed_at alone.
+func (s *Store) ReleaseBuildingClaim(ctx context.Context, deploymentID string) error {
+	if _, err := s.q.ReleaseBuildingClaim(ctx, sqlcgen.ReleaseBuildingClaimParams{
+		Now: s.now(),
+		ID:  deploymentID,
+	}); err != nil {
+		return fmt.Errorf("store: releasing the claim on deployment %s: %w", deploymentID, err)
+	}
+	return nil
 }
 
 // GetDeployment reads one deployment.
