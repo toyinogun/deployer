@@ -384,12 +384,12 @@ The control you reach for at 2am when one account is the problem. Ownership is a
 **Done when:** an admin can suspend an account from the page that already exists, its apps stop serving, its sessions and API tokens stop working, a deploy or any other tool call is refused with a closed reason code, unsuspending restores serving without a rebuild, and both directions are recorded in the audit trail.
 spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/suspend`, `internal/auth`, `internal/mcp`, `internal/kube`, `internal/store`, `internal/reconcile`, `internal/web`, `internal/httpapi`
 - [x] Design it (spec): `/architect account suspension`
-- [ ] Build it: `/develop account suspension`
-  - [ ] The refusal thread, end to end first: the new closed reason code, token resolution telling a suspended account from a dead token, one gate refusing every MCP tool as a tool result, the upload endpoint at 403, proved through the real HTTP handler — AC-9, AC-10, AC-11, AC-12, AC-13, AC-15
-  - [ ] The cluster half: `ScaleWorkload` in `internal/kube`, the two store reads, and the `internal/suspend` use case that stops and restores an account's live apps, collecting partial failures as data — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-16, AC-22
-  - [ ] The safety net: the sweep holding suspended accounts at zero on the reconcile cadence, re-reading state before each write so a concurrent restore survives — AC-7, AC-8, AC-24
-  - [ ] The in flight case: the reconcile drive checking suspension at every phase boundary and ending the row with the reason code, build Job deleted — AC-14
-  - [ ] The surfaces and the leftovers: both admin routes through the one use case, the Suspend and Restore wording, the partial stop message, and the checks that nothing expires and no migration was added — AC-17, AC-18, AC-19, AC-20, AC-21, AC-23
+- [x] Build it: `/develop account suspension`
+  - [x] The refusal thread, end to end first: the new closed reason code, token resolution telling a suspended account from a dead token, one gate refusing every MCP tool as a tool result, the upload endpoint at 403, proved through the real HTTP handler — AC-9, AC-10, AC-11, AC-12, AC-13, AC-15
+  - [x] The cluster half: `ScaleWorkload` in `internal/kube`, the two store reads, and the `internal/suspend` use case that stops and restores an account's live apps, collecting partial failures as data — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-16, AC-22
+  - [x] The safety net: the sweep holding suspended accounts at zero on the reconcile cadence, re-reading state before each write so a concurrent restore survives — AC-7, AC-8, AC-24
+  - [x] The in flight case: the reconcile drive checking suspension at every phase boundary and ending the row with the reason code, build Job deleted — AC-14
+  - [x] The surfaces and the leftovers: both admin routes through the one use case, the Suspend and Restore wording, the partial stop message, and the checks that nothing expires and no migration was added — AC-17, AC-18, AC-19, AC-20, AC-21, AC-23
 - [ ] Verify it: `/check verify account suspension`
 - [ ] Test it: `/test account suspension`
 - [ ] Review it (fresh model): `/check review account suspension`
