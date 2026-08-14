@@ -64,9 +64,11 @@ type Cluster interface {
 // error string because both admin surfaces render it, the page in its message
 // and the JSON route as a field, and neither should be parsing prose
 // (spec 0018, AC-6).
+// There is deliberately no companion field naming the apps that did take the
+// scale. Nothing renders it, and an audit row is already written per app in both
+// directions, so a second record of the same fact would be a list nothing reads
+// and nothing keeps honest.
 type Result struct {
-	// Stopped is the slug of every app that took the scale.
-	Stopped []string
 	// NotStopped is the slug of every app the cluster refused. Empty on a clean
 	// run, which is the only thing a caller needs to test.
 	NotStopped []string
@@ -158,9 +160,7 @@ func (s *Service) set(ctx context.Context, adminID, accountID string, suspended 
 			slog.ErrorContext(ctx, "scaling an app for an account suspension failed",
 				"error", err, "app", app.Slug, "account", accountID, "direction", reason)
 			result.NotStopped = append(result.NotStopped, app.Slug)
-			continue
 		}
-		result.Stopped = append(result.Stopped, app.Slug)
 	}
 	return result, nil
 }
