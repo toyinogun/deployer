@@ -360,7 +360,7 @@ spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/con
   - [x] Exactness: the count and the insert in one transaction, with a race test — AC-6
   - [x] The surfaces: apps page usage and notice, admin per account count — AC-10, AC-11, AC-12
   - [x] The edges: a delete frees a slot, an over cap account keeps everything, no migration — AC-5, AC-14, AC-17
-- [ ] Verify it: `/check verify per account app cap`
+- [x] Verify it: `/check verify per account app cap`
 - [ ] Test it: `/test per account app cap`
 
 ### 18. Bounded app egress · needs a decision
