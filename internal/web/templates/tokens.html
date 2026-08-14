@@ -22,8 +22,10 @@
 
 {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
 
-<div class="cards two">
-  <section class="card" aria-labelledby="mint-head">
+{{/* The list is its own full width row rather than half of a two column grid:
+     five columns, three of them dates, wrap to three lines each in half a
+     panel (AC-21). */}}
+<section class="card mint-card" aria-labelledby="mint-head">
     <h2 id="mint-head">Mint a token</h2>
     <form method="post" action="/tokens" class="stack">
       <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
@@ -41,7 +43,7 @@
     </form>
   </section>
 
-  <section class="card" aria-labelledby="live-head">
+<section class="card" aria-labelledby="live-head">
     <h2 id="live-head">Live tokens</h2>
     {{if .Data.Tokens}}
     <table class="rows compact">
@@ -49,7 +51,9 @@
         <tr>
           <th scope="col">Name</th>
           <th scope="col">Prefix</th>
+          <th scope="col">Created</th>
           <th scope="col">Last used</th>
+          <th scope="col">Expires</th>
           <th scope="col"><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>
@@ -58,7 +62,9 @@
         <tr>
           <th scope="row" data-label="Name">{{.Name}}</th>
           <td data-label="Prefix"><code>{{.Prefix}}</code></td>
+          <td data-label="Created">{{when .CreatedAt}}</td>
           <td data-label="Last used">{{if .LastUsedAt}}{{when .LastUsedAt}}{{else}}<span class="quiet">never</span>{{end}}</td>
+          <td data-label="Expires">{{if .ExpiresAt}}{{when .ExpiresAt}}{{else}}<span class="quiet">never</span>{{end}}</td>
           <td data-label="Actions" class="row-actions">
             <form method="post" action="/tokens/{{.ID}}/revoke">
               <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
@@ -72,6 +78,5 @@
     {{else}}
     <p class="empty-line">No live tokens on this account. Mint one to point an agent here.</p>
     {{end}}
-  </section>
-</div>
+</section>
 {{end}}

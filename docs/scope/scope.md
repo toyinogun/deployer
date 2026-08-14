@@ -285,12 +285,12 @@ From spec 0012: `list_apps` is capped at the newest fifty the same way, so a pag
 Spec 0013 corrects one line above: only identity is already drivable, since everything about an app exists solely as an MCP tool behind a bearer token. The pages read the store server side rather than through a new API.
 spec [0013](../specs/0013-web-interface/index.md)
 - [x] Design it (spec): `/architect web interface`
-- [ ] Build it: `/develop web interface` — code in `internal/web`
+- [x] Build it: `/develop web interface` — code in `internal/web`
   - [x] Thin thread and guards: embedded assets, page session middleware, sign in, apps list, sign out, CSRF and origin — AC-1 to AC-5, AC-11 to AC-13
   - [x] Design system: tokens, sidebar and inset panel shell, tables and cards, View Transitions, reduced motion, responsive — AC-27 to AC-29
   - [x] The rest of identity: register, verify, unverified with resend, forgot, reset, and email links repointed at pages — AC-6 to AC-10
   - [x] App pages: paged list with onboarding empty state, overview with polling and failure sentences, releases, logs, config with reveal — AC-14 to AC-20, AC-26
-  - [ ] Tokens, admin, and the closing pass: mint and revoke, the admin accounts page, accessibility, the leak crawl, and the `DEPLOYER_CSRF_KEY` deploy wiring — AC-21 to AC-25, AC-30, AC-31. Everything but the sealed value is in: `deploy/web-sealedsecret.yaml` needs sealing against the cluster before the pod will start
+  - [x] Tokens, admin, and the closing pass: mint and revoke, the admin accounts page, accessibility, the leak crawl, and the `DEPLOYER_CSRF_KEY` deploy wiring — AC-21 to AC-25, AC-30, AC-31
 - [ ] Verify it: `/check verify web interface`
 - [ ] Test it: `/test web interface`
 - [ ] Review it (fresh model): `/check review web interface`
