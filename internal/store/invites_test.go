@@ -234,3 +234,110 @@ func TestTheBootstrapReadsAnswerTheEmptyDatabase(t *testing.T) {
 		t.Errorf("a registered account was not seen: %v %v", yes, err)
 	}
 }
+
+// TestTheSpendAuditsItself pins the half of AC-15 the edge cannot write. A
+// handler is not allowed to learn whether an account was created, because that
+// is exactly what the equal answer to a taken address hides, so the row naming
+// the invite and the account it made is written where both are known and only
+// when the transaction commits.
+// covers: AC-15
+func TestTheSpendAuditsItself(t *testing.T) {
+	s, clock := newStore(t)
+	inv := mintInvite(t, s, "hash", clock.Now().Add(time.Hour))
+
+	accountID := ids.New(ids.Account, clock.Now())
+	if _, err := s.SpendInviteAndCreateAccount(t.Context(), inv.ID, accountID,
+		account("sam@example.com")); err != nil {
+		t.Fatalf("spending: %v", err)
+	}
+
+	var gotAccount, action, targetType, targetID, outcome string
+	if err := s.DB().QueryRowContext(t.Context(),
+		`SELECT account_id, action, target_type, target_id, outcome FROM audit_log`,
+	).Scan(&gotAccount, &action, &targetType, &targetID, &outcome); err != nil {
+		t.Fatalf("reading the audit log: %v", err)
+	}
+	if gotAccount != accountID {
+		t.Errorf("the row names account %q, want the account the invite created, %q", gotAccount, accountID)
+	}
+	if targetType != "invite" || targetID != inv.ID {
+		t.Errorf("the row targets %s %q, want invite %q", targetType, targetID, inv.ID)
+	}
+	if action != "register" || outcome != "allowed" {
+		t.Errorf("the row is %q/%q, want register/allowed", action, outcome)
+	}
+
+	// A spend that rolled back names nothing, because the row is written inside
+	// the transaction it describes.
+	dead := mintInvite(t, s, "dead", clock.Now().Add(time.Hour))
+	if err := s.RevokeInvite(t.Context(), dead.ID); err != nil {
+		t.Fatalf("revoking: %v", err)
+	}
+	if _, err := s.SpendInviteAndCreateAccount(t.Context(), dead.ID,
+		ids.New(ids.Account, clock.Now()), account("nobody@example.com")); !errors.Is(err, store.ErrInviteInvalid) {
+		t.Fatalf("spending a revoked invite: got %v, want ErrInviteInvalid", err)
+	}
+	var rows int
+	if err := s.DB().QueryRowContext(t.Context(), `SELECT COUNT(*) FROM audit_log`).Scan(&rows); err != nil {
+		t.Fatalf("counting audit rows: %v", err)
+	}
+	if rows != 1 {
+		t.Errorf("got %d audit rows, want only the one the committed spend wrote", rows)
+	}
+}
+
+// TestATakenAddressWritesNoAuditRow pins the other rollback the audit row sits
+// behind. The insert that loses is the account one, after the invite is already
+// stamped spent, so this is the case where a row could survive a transaction
+// that made no account, which would tell a reader an address is taken.
+// covers: AC-10, AC-15
+func TestATakenAddressWritesNoAuditRow(t *testing.T) {
+	s, clock := newStore(t)
+	register(t, s, "taken@example.com")
+	inv := mintInvite(t, s, "hash", clock.Now().Add(time.Hour))
+
+	if _, err := s.SpendInviteAndCreateAccount(t.Context(), inv.ID,
+		ids.New(ids.Account, clock.Now()), account("taken@example.com")); !errors.Is(err, store.ErrEmailTaken) {
+		t.Fatalf("registering a taken address: got %v, want ErrEmailTaken", err)
+	}
+
+	if got := auditRowsFor(t, s, inv.ID); got != 0 {
+		t.Errorf("got %d audit rows naming the invite, want none: a refused registration claimed a spend", got)
+	}
+}
+
+// TestOneInviteAuditsOnce pins the audit row against AC-4's race. Three losing
+// racers roll back, so the one account that exists is described by exactly one
+// row rather than by four.
+// covers: AC-4, AC-15
+func TestOneInviteAuditsOnce(t *testing.T) {
+	s, clock := newStore(t)
+	inv := mintInvite(t, s, "hash", clock.Now().Add(time.Hour))
+
+	var wg sync.WaitGroup
+	for i := range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, _ = s.SpendInviteAndCreateAccount(t.Context(), inv.ID,
+				ids.New(ids.Account, clock.Now()), account(string(rune('a'+i))+"@example.com"))
+		}()
+	}
+	wg.Wait()
+
+	if got := auditRowsFor(t, s, inv.ID); got != 1 {
+		t.Errorf("got %d audit rows for one invite, want 1", got)
+	}
+}
+
+// auditRowsFor counts the audit rows naming one invite.
+func auditRowsFor(t *testing.T, s *store.Store, inviteID string) int {
+	t.Helper()
+	var n int
+	if err := s.DB().QueryRowContext(t.Context(),
+		`SELECT COUNT(*) FROM audit_log WHERE target_type = 'invite' AND target_id = ?`, inviteID,
+	).Scan(&n); err != nil {
+		t.Fatalf("counting audit rows: %v", err)
+	}
+	return n
+}

@@ -344,8 +344,8 @@ spec [0015](../specs/0015-invite-only-registration/index.md)
   - [x] Both doors: `invite` on the JSON register, the hidden field, the referrer header, the bare page sentence, and a GET that never validates — AC-2, AC-16, AC-17, AC-18
   - [x] The admin surface and the bootstrap: `/admin/invites` with mint, revoke and derived state, CSRF on both mutations, the startup mint, the audit rows and the leak crawl — AC-6 to AC-9, AC-13 to AC-15, AC-19
 code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/web/invites.go`, `internal/httpapi/inviteroutes.go`
-- [ ] Verify it: `/check verify invite only registration`
-- [ ] Test it: `/test invite only registration`
+- [x] Verify it: `/check verify invite only registration`
+- [x] Test it: `/test invite only registration`
 - [ ] Review it (fresh model): `/check review invite only registration`
 - [ ] Document it: `/document invite only registration`
 
