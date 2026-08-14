@@ -295,7 +295,7 @@ spec [0013](../specs/0013-web-interface/index.md)
 - [x] Verify it: `/check verify web interface`
 - [x] Test it: `/test web interface`
 - [x] Review it (fresh model): `/check review web interface` — reviewed on sonnet, changes requested
-- [ ] Document it: `/document web interface`
+- [x] Document it: `/document web interface` — CHANGELOG.md, Added, Changed and Security
 
 ## Slice 11: Stranded deployment recovery
 
