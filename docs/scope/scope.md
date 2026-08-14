@@ -393,7 +393,7 @@ spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/susp
 - [x] Verify it: `/check verify account suspension` — three runs against the real cluster, the last one closing AC-12's expired token and AC-3's soft deleted app
 - [x] Test it: `/test account suspension`
 - [x] Review it (fresh model): `/check review account suspension` — reviewed on sonnet, approve with nits
-- [ ] Document it: `/document account suspension`
+- [x] Document it: `/document account suspension`
 
 ### 20. Open internet hardening: login CSRF & control plane policy · needs a decision
 Two hardening items were weighed and skipped on tailnet grounds and are named as such in their specs. From spec 0013: the pre authentication posts carry no synchroniser token, because there is no session to bind one to. From spec 0008: nothing stops a workload elsewhere on the cluster reaching the platform API at all, since tokens guard it.
