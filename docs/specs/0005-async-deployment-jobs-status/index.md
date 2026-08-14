@@ -2,6 +2,7 @@
 
 **Date**: 2026-08-12
 **Status**: Accepted
+**Amended by**: [spec 0014](../0014-stranded-deployment-recovery/index.md), 2026-08-14. It adds a stranded row check to the tick, ahead of the budget pass, so read three criteria below with that in mind. AC-14's watchdog is unchanged but is no longer the first thing to notice a dead deploy. AC-16's tick gains a step and keeps its single writer guarantee. AC-15's closing note, that the startup sweep already resolves a non terminal row whose Job is gone, is only half the story: the sweep runs at startup, so a row stranded while the process stays up waits for the new check instead. Nothing in this spec is withdrawn.
 
 ## Summary
 
