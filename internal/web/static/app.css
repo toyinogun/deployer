@@ -217,11 +217,12 @@ code { font-family: var(--mono); font-size: 0.9em; }
 
 .cards { display: grid; gap: var(--s4); }
 .cards.two { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-.cards .card > h2 { margin-bottom: var(--s3); }
+.card > h2 { margin-bottom: var(--s3); }
 
 .card + .card, .cards + .card, .card + .cards, .tabs + * { margin-top: var(--s4); }
 
 .auth-card { width: min(420px, 100%); }
+.mint-card { width: min(440px, 100%); }
 .auth-card h1 { font-size: var(--text-xl); margin-bottom: var(--s4); }
 .auth-card .brand { margin: 0 0 var(--s5); }
 
