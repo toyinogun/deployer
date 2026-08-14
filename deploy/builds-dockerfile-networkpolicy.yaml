@@ -80,6 +80,13 @@ spec:
     # Everything public is reachable and every private range is not, which is
     # what stops a build from reaching your other services while it runs someone
     # else's instructions.
+    #
+    # Two ports and no more (spec 0017, AC-9). A base image pull and a RUN step's
+    # downloads are HTTP and HTTPS, so an allow list here is both stronger and
+    # simpler than the ranges an app namespace gets, and it never restates the
+    # port list so there is no second copy to drift. A Dockerfile that fetches
+    # over SSH on 22 or from a registry on some other port now fails, and it fails
+    # loudly at build time rather than quietly at run time.
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
@@ -89,3 +96,8 @@ spec:
               - 192.168.0.0/16
               - 169.254.0.0/16
               - 100.64.0.0/10
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443

@@ -232,6 +232,7 @@ func (w *world) reconciler(reg reconcile.Registry, tweaks ...func(*reconcile.Opt
 		QuotaMemory:           "1Gi",
 		QuotaPods:             5,
 		EgressBlockedCIDRs:    []string{"10.0.0.0/8"},
+		EgressBlockedPorts:    []int32{25, 3333},
 	}
 	for _, tweak := range tweaks {
 		tweak(&opts)

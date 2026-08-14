@@ -296,6 +296,12 @@ account does not already have, once it is at that limit, is refused with
 app_limit_reached; deleting an app frees a slot straight away. Redeploying an
 app the account already has is never refused for this reason.
 
+A deployed app reaches the internet on almost every port, but not quite all of
+them. Outbound mail straight to a mail exchanger on port 25 is closed, as are
+the common mining pool ports. A blocked connection times out rather than failing
+fast, so an app that sends mail should use a provider's relay on port 587, which
+is open, rather than delivering mail itself.
+
 The app must listen on the port given in the PORT environment variable, and can
 build links to itself from APP_URL, which the platform sets to its public
 address. Its image must run as a non root user. Deploying the same name again

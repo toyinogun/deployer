@@ -29,8 +29,15 @@ func (r *Reconciler) PolicySweep(ctx context.Context) {
 			return
 		}
 		// Only the fields the policies are composed from: this sweep knows a slug
-		// and the configured blocked ranges, and needs nothing else.
-		in := deploy.Input{Slug: slug, EgressBlockedCIDRs: r.opts.EgressBlockedCIDRs}
+		// and the configured bounds, and needs nothing else. Every bound the allow
+		// policy carries has to be listed here as well as on the deploy path, or an
+		// app namespace that predates it is swept back to a weaker policy than the
+		// one a deploy would compose.
+		in := deploy.Input{
+			Slug:               slug,
+			EgressBlockedCIDRs: r.opts.EgressBlockedCIDRs,
+			EgressBlockedPorts: r.opts.EgressBlockedPorts,
+		}
 		if err := r.cluster.ApplyNetworkPolicies(ctx, deploy.DefaultDenyPolicy(in), deploy.AllowPolicy(in)); err != nil {
 			slog.ErrorContext(ctx, "policing an app namespace failed", "app", slug, "error", err)
 			continue

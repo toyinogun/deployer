@@ -340,6 +340,7 @@ func reconcileOptions(cfg config.Config) reconcile.Options {
 		QuotaMemory:           cfg.AppQuotaMemory,
 		QuotaPods:             cfg.AppQuotaPods,
 		EgressBlockedCIDRs:    cfg.AppEgressBlockedCIDRs,
+		EgressBlockedPorts:    cfg.AppEgressBlockedPorts,
 	}
 }
 

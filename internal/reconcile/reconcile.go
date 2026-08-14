@@ -252,6 +252,10 @@ type Options struct {
 	// EgressBlockedCIDRs is what an app's egress rule carves out of the internet,
 	// already parsed at startup (spec 0008).
 	EgressBlockedCIDRs []string
+
+	// EgressBlockedPorts is what an app's egress rule leaves out of the public
+	// port space, already parsed at startup (spec 0017).
+	EgressBlockedPorts []int32
 }
 
 // Reconciler drives deployments.
@@ -893,6 +897,7 @@ func (r *Reconciler) appInput(app App, image string, config map[string]domain.Co
 		QuotaPods:             r.opts.QuotaPods,
 		ControlPlaneNamespace: r.opts.ControlPlaneNamespace,
 		EgressBlockedCIDRs:    r.opts.EgressBlockedCIDRs,
+		EgressBlockedPorts:    r.opts.EgressBlockedPorts,
 		Config:                values,
 	}
 }

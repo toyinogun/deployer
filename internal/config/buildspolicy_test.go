@@ -155,6 +155,12 @@ func TestTheBuildNamespaceEgressIsCoreDNSTheRegistryAndThePublicInternet(t *test
 			if len(internet.To[0].IPBlock.Except) == 0 {
 				t.Error("the internet rule excepts nothing, so it is an open door onto the LAN")
 			}
+			// An allow list of two rather than the ranges an app namespace gets: a
+			// build fetches dependencies and base images, which is HTTP and HTTPS,
+			// and nothing else it does over the public internet is legitimate (spec
+			// 0017, AC-9). Unported here would mean a build pod could still reach
+			// port 25 while the apps it produces cannot.
+			assertPorts(t, "internet", internet.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {80, 443}})
 		})
 	}
 }

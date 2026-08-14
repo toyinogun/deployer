@@ -108,9 +108,9 @@ func TestDeployInputCarriesNoPassthrough(t *testing.T) {
 					field.Name, field.Type.Kind())
 			}
 		case reflect.Slice:
-			// One slice is expected, and it holds configuration the platform
+			// Two slices are expected, and both hold configuration the platform
 			// parsed at startup, never anything a caller sent.
-			if field.Name != "EgressBlockedCIDRs" {
+			if field.Name != "EgressBlockedCIDRs" && field.Name != "EgressBlockedPorts" {
 				t.Errorf("field %s is a slice, which is a passthrough unless it is platform derived", field.Name)
 			}
 		}

@@ -125,6 +125,16 @@ type Config struct {
 	// isolation as a side effect (spec 0008, Key invariants).
 	AppEgressBlockedCIDRs []string
 
+	// Added by spec 0017, bounded app egress.
+
+	// AppEgressBlockedPorts are the TCP ports an app may not reach on any public
+	// address, deduplicated and sorted. They never appear in a policy directly: a
+	// NetworkPolicy can only permit a port, so deploy composes the complement of
+	// this list over 1..65535 and a blocked port is one no range names. Removing a
+	// port from the list opens it for every app on the platform at once (spec
+	// 0017, Key invariants).
+	AppEgressBlockedPorts []int32
+
 	// Added by spec 0012, the app lifecycle.
 
 	// ReapInterval is how often the orphan namespace reaper runs, on its own
@@ -301,6 +311,7 @@ func Load(getenv func(string) string) (Config, error) {
 	missing = append(missing, webMissing...)
 	errs = append(errs, webErrs...)
 	errs = append(errs, loadIsolation(getenv, &c)...)
+	errs = append(errs, loadPortBound(getenv, &c)...)
 	errs = append(errs, loadLifecycle(getenv, &c)...)
 
 	if len(missing) > 0 {

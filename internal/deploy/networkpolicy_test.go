@@ -18,6 +18,7 @@ import (
 func policyInput() deploy.Input {
 	in := input()
 	in.EgressBlockedCIDRs = []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}
+	in.EgressBlockedPorts = []int32{25, 3333, 4444, 5555, 7777, 9999, 14444}
 	return in
 }
 
@@ -121,9 +122,10 @@ func TestAllowPolicyExceptsEveryBlockedRangeFromTheInternetRule(t *testing.T) {
 	p := deploy.AllowPolicy(in)
 
 	internet := p.Spec.Egress[1]
-	if len(internet.Ports) != 0 {
-		t.Errorf("internet ports = %+v, want none so every port is reachable", internet.Ports)
-	}
+	// The ports half of this rule is spec 0017's, pinned in portpolicy_test.go.
+	// What is asserted here is that adding it left the peer alone: the `except`
+	// list decides which addresses, the ports list decides which ports on the ones
+	// that are left, and the two compose without interacting.
 	if len(internet.To) != 1 || internet.To[0].IPBlock == nil {
 		t.Fatalf("internet peer = %+v, want a single ipBlock", internet.To)
 	}

@@ -58,7 +58,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 15 | Stranded deployment recovery | Slice 11 | done |
 | 16 | Invite only registration | Slice 12 | done |
 | 17 | Per account app cap | Slice 12 | done |
-| 18 | Bounded app egress | Slice 12 | planned |
+| 18 | Bounded app egress | Slice 12 | done |
 | 19 | Account suspension | Slice 12 | planned |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
 | 21 | Platform backup & restore | Slice 12 | planned |
@@ -363,10 +363,21 @@ spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/con
 - [x] Verify it: `/check verify per account app cap`
 - [x] Test it: `/test per account app cap`
 
-### 18. Bounded app egress · needs a decision
+### 18. Bounded app egress · done
 Cluster traffic is fenced, but an app's outbound path to the internet is wide open. That is how a stranger's app mines coins or sends spam, and both cost you a relationship with your internet provider rather than just some CPU. Ports, not hostnames: an allow list by hostname is still deferred because it breaks every app that calls an API until its owner declares it.
 **Done when:** a pod cannot open outbound mail or the common mining pool ports, an ordinary outbound HTTPS call still works, the bound is applied to every app namespace including the ones that already exist, and both the block and the allowed call are proved against the real cluster rather than the fake clientset.
-- [ ] Design it (spec): `/architect bounded app egress`
+spec [0017](../specs/0017-bounded-app-egress/index.md) · code in `internal/config`, `internal/deploy`, `deploy/`, `testdata/probe`, `internal/mcp`
+- [x] Design it (spec): `/architect bounded app egress`
+- [x] Build it: `/develop bounded app egress`
+  - [x] The baseline, before anything changes: the probe gains its four named targets and reads all four as reached, which is the only thing that later makes a block attributable to the policy rather than to your internet provider — AC-7, AC-8
+  - [x] The configured list and the complement: `DEPLOYER_APP_EGRESS_BLOCKED_PORTS` with every boot refusal, and the pure function that inverts it into ranges, written test first — AC-1, AC-2
+  - [x] The composed rule: the ports list on the existing public egress rule with an explicit UDP protocol, pinned against the eight literal ranges and the single peer — AC-3, AC-4, AC-14
+  - [x] Proved live: 25 and 3333 now time out, 443 and 587 still reached, the app still serving and ready, and an older namespace picking it up on restart with no redeploy — AC-5, AC-6, AC-11, AC-12
+  - [x] The build namespaces and the contract: both static policies narrowed to TCP 80 and 443 with both build paths still completing, and the bound named in `deploy_app`'s description — AC-9, AC-10, AC-13
+- [x] Verify it: `/check verify bounded app egress`
+- [x] Test it: `/test bounded app egress`
+- [x] Review it (fresh model): `/check review bounded app egress`
+- [x] Document it: `/document bounded app egress`
 
 ### 19. Account suspension · needs a decision
 The control you reach for at 2am when one account is the problem. Ownership is already solid, so the hard part is deciding what suspended means for a running app and how it comes back.
