@@ -354,12 +354,12 @@ Nothing counts apps per account, so one account can create as many as the cluste
 **Done when:** an account at its cap is refused a new app with a closed reason code that names the cap, the refusal reads the same through an MCP tool and through the pages, the cap is `DEPLOYER_*` configuration validated at startup, a deleted app frees a slot, and accounts already over the cap keep what they have.
 spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/config`, `internal/domain`, `internal/store`, `internal/mcp`, `internal/web`
 - [x] Design it (spec): `/architect per account app cap`
-- [ ] Build it: `/develop per account app cap`
-  - [ ] The configured number, the reason code, and the live count read — AC-7, AC-8, AC-15
-  - [ ] The refusal through `deploy_app`, proved over the wire, with the tool description — AC-1, AC-2, AC-3, AC-4, AC-9, AC-13, AC-16
-  - [ ] Exactness: the count and the insert in one transaction, with a race test — AC-6
-  - [ ] The surfaces: apps page usage and notice, admin per account count — AC-10, AC-11, AC-12
-  - [ ] The edges: a delete frees a slot, an over cap account keeps everything, no migration — AC-5, AC-14, AC-17
+- [x] Build it: `/develop per account app cap`
+  - [x] The configured number, the reason code, and the live count read — AC-7, AC-8, AC-15
+  - [x] The refusal through `deploy_app`, proved over the wire, with the tool description — AC-1, AC-2, AC-3, AC-4, AC-9, AC-13, AC-16
+  - [x] Exactness: the count and the insert in one transaction, with a race test — AC-6
+  - [x] The surfaces: apps page usage and notice, admin per account count — AC-10, AC-11, AC-12
+  - [x] The edges: a delete frees a slot, an over cap account keeps everything, no migration — AC-5, AC-14, AC-17
 - [ ] Verify it: `/check verify per account app cap`
 - [ ] Test it: `/test per account app cap`
 

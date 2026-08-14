@@ -1,7 +1,7 @@
 # 0016. Per account app cap
 
 **Date**: 2026-08-14
-**Status**: Proposed
+**Status**: In Progress
 
 The decision record (context, options considered, rationale) is in [rationale.md](rationale.md).
 
