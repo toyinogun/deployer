@@ -292,9 +292,9 @@ spec [0013](../specs/0013-web-interface/index.md)
   - [x] The rest of identity: register, verify, unverified with resend, forgot, reset, and email links repointed at pages — AC-6 to AC-10
   - [x] App pages: paged list with onboarding empty state, overview with polling and failure sentences, releases, logs, config with reveal — AC-14 to AC-20, AC-26
   - [x] Tokens, admin, and the closing pass: mint and revoke, the admin accounts page, accessibility, the leak crawl, and the `DEPLOYER_CSRF_KEY` deploy wiring — AC-21 to AC-25, AC-30, AC-31
-- [ ] Verify it: `/check verify web interface`
-- [ ] Test it: `/test web interface`
-- [ ] Review it (fresh model): `/check review web interface`
+- [x] Verify it: `/check verify web interface`
+- [x] Test it: `/test web interface`
+- [x] Review it (fresh model): `/check review web interface` — reviewed on sonnet, changes requested
 - [ ] Document it: `/document web interface`
 
 ## Slice 11: Stranded deployment recovery

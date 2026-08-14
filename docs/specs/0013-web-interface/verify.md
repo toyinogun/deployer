@@ -3,7 +3,7 @@ _Steps derived from spec 0013 acceptance criteria. `/check verify` runs these; `
 
 ## UI / manual
 
-- [ ] Seal `deploy/web-sealedsecret.yaml` against the cluster, sync, and confirm the pod starts. Remove the Secret and confirm it refuses to start rather than serving unverifiable forms → AC-1, AC-12
+- [x] Seal `deploy/web-sealedsecret.yaml` against the cluster, sync, and confirm the pod starts. Remove the Secret and confirm it refuses to start rather than serving unverifiable forms → AC-1, AC-12
 - [x] Visit `/` signed out → redirected to `/login`. Sign in, visit `/` again → redirected to `/apps` → AC-2
 - [x] Visit `/apps` signed out → `302`/`303` to `/login?next=/apps`, and signing in lands back on `/apps` → AC-2
 - [x] Sign in with `next=//evil.test` and with `next=https://evil.test` → both land on `/apps`, never off site → AC-2
@@ -21,7 +21,7 @@ _Steps derived from spec 0013 acceptance criteria. `/check verify` runs these; `
 - [x] Start a real deploy and watch the overview → the status region refreshes itself every three seconds and stops when the deploy ends, without a reload → AC-16
 - [x] Revoke the session in the database while the overview is polling → polling stops, the page is left as it stands, and the next navigation lands on sign in → AC-16
 - [x] Load the overview with JavaScript disabled → the correct current state renders → AC-16, AC-30
-- [ ] Check a `superseded` deployment → renders as cancelled, not as a failure. Check each reason code renders its written sentence with the raw code beside it → AC-17
+- [x] Check a `superseded` deployment → renders as cancelled, not as a failure. Check each reason code renders its written sentence with the raw code beside it → AC-17
 - [x] After a rollback, `/apps/{slug}/releases` marks the release actually being served, not the newest row → AC-18
 - [x] Open `/apps/{slug}/logs` for a running app → recent output in the dark pane, redacted. For an app whose namespace is not readable yet → the explanatory empty state, not an error → AC-19
 - [x] On `/apps/{slug}/config`: a secret key shows no reveal control; a non secret key reveals on demand and writes an audit row naming account, app and key → AC-20
@@ -39,7 +39,7 @@ _Steps derived from spec 0013 acceptance criteria. `/check verify` runs these; `
 
 - [x] `go test -race ./...` → passes → AC-4
 - [x] `golangci-lint run` → clean → AC-4
-- [ ] `ko build ./cmd/deployer` → builds with no node toolchain and no extra layer → AC-1
+- [x] `ko build ./cmd/deployer` → builds with no node toolchain and no extra layer → AC-1
 - [x] `grep -rn "ListConfigForDeploy" internal/ --include='*.go' | grep -v _test` → exactly two callers, neither in `internal/web` → AC-20
 - [x] Crawl every page as a signed in account and assert no response body carries the session cookie value, a raw token, or a secret configuration value; check the same against the platform log at info level → AC-31
 
