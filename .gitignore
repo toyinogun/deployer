@@ -16,3 +16,6 @@
 /.claude/skills/react-email
 /.claude/skills/email-best-practices
 /.claude/skills/agent-email-inbox
+
+# Console logs written by the Playwright MCP tool during /check verify runs
+/.playwright-mcp/
