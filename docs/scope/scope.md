@@ -368,14 +368,14 @@ Cluster traffic is fenced, but an app's outbound path to the internet is wide op
 **Done when:** a pod cannot open outbound mail or the common mining pool ports, an ordinary outbound HTTPS call still works, the bound is applied to every app namespace including the ones that already exist, and both the block and the allowed call are proved against the real cluster rather than the fake clientset.
 spec [0017](../specs/0017-bounded-app-egress/index.md) · code in `internal/config`, `internal/deploy`, `deploy/`, `testdata/probe`, `internal/mcp`
 - [x] Design it (spec): `/architect bounded app egress`
-- [ ] Build it: `/develop bounded app egress`
-  - [ ] The baseline, before anything changes: the probe gains its four named targets and reads all four as reached, which is the only thing that later makes a block attributable to the policy rather than to your internet provider — AC-7, AC-8
+- [x] Build it: `/develop bounded app egress`
+  - [x] The baseline, before anything changes: the probe gains its four named targets and reads all four as reached, which is the only thing that later makes a block attributable to the policy rather than to your internet provider — AC-7, AC-8
   - [x] The configured list and the complement: `DEPLOYER_APP_EGRESS_BLOCKED_PORTS` with every boot refusal, and the pure function that inverts it into ranges, written test first — AC-1, AC-2
   - [x] The composed rule: the ports list on the existing public egress rule with an explicit UDP protocol, pinned against the eight literal ranges and the single peer — AC-3, AC-4, AC-14
-  - [ ] Proved live: 25 and 3333 now time out, 443 and 587 still reached, the app still serving and ready, and an older namespace picking it up on restart with no redeploy — AC-5, AC-6, AC-11, AC-12
-  - [ ] The build namespaces and the contract: both static policies narrowed to TCP 80 and 443 with both build paths still completing, and the bound named in `deploy_app`'s description — AC-9, AC-10, AC-13
-- [ ] Verify it: `/check verify bounded app egress`
-- [ ] Test it: `/test bounded app egress`
+  - [x] Proved live: 25 and 3333 now time out, 443 and 587 still reached, the app still serving and ready, and an older namespace picking it up on restart with no redeploy — AC-5, AC-6, AC-11, AC-12
+  - [x] The build namespaces and the contract: both static policies narrowed to TCP 80 and 443 with both build paths still completing, and the bound named in `deploy_app`'s description — AC-9, AC-10, AC-13
+- [x] Verify it: `/check verify bounded app egress`
+- [x] Test it: `/test bounded app egress`
 - [ ] Review it (fresh model): `/check review bounded app egress`
 - [ ] Document it: `/document bounded app egress`
 
