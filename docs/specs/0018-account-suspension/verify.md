@@ -16,7 +16,7 @@ admin page mid run is the one way to strand this.
 - [x] Watch the same call at the HTTP level (`curl -i` against the MCP endpoint with the suspended token) → the response is a normal 200 JSON-RPC body carrying the error result, not a 401 → AC-9
 - [x] After that refusal, check `apps`, `deployments`, and `uploads` → no new row of any kind → AC-9
 - [x] `curl -X POST -H "Authorization: Bearer <suspended token>" <upload endpoint>` → 403 with `account_suspended` in the body → AC-11
-- [ ] Repeat with a made up token, a revoked token, and an expired token → all three answer 401 unauthorized, indistinguishable from each other → AC-12
+- [x] Repeat with a made up token, a revoked token, and an expired token → all three answer 401 unauthorized, indistinguishable from each other → AC-12
 - [x] `SELECT action, outcome, reason, target_type, target_id FROM audit_log ORDER BY id DESC LIMIT 5` after suspending → one `admin` row against the account plus one row per app stopped, all with reason `suspend` → AC-16
 - [x] Restore from the admin page, then `kubectl -n app-<slug> get deploy` → `READY 1/1` on each app → AC-4
 - [x] `SELECT COUNT(*) FROM deployments WHERE app_id = ?` and `SELECT COUNT(*) FROM releases WHERE app_id = ?` before and after the restore → both unchanged, and `kubectl -n app-<slug> get deploy -o jsonpath='{..image}'` is the same digest → AC-4
@@ -49,7 +49,7 @@ One step per row of the spec's Value sourcing table, exercising the edge that
 breaks if the source is wrong.
 
 - [x] Give the account an app that has never deployed successfully (no `current_release_id`), then suspend and restore → it is skipped both ways with no error and no audit row, proving the live app predicate → AC-3
-- [ ] Soft delete an app, then suspend → the deleted app is not scaled and not audited, proving `deleted_at IS NULL` is in the query → AC-3
+- [x] Soft delete an app, then suspend → the deleted app is not scaled and not audited, proving `deleted_at IS NULL` is in the query → AC-3
 - [x] Restore and read the Deployment's replica count → exactly 1, the same number a fresh deploy composes, proving the shared constant → AC-4
 - [x] Suspend with two apps where one namespace is unreachable → the reachable one still stops, proving failures are collected rather than returned on the first → AC-6
 - [x] Add a second suspended account, then watch one sweep tick → both accounts' apps are held at zero from the single joined read → AC-7
@@ -176,6 +176,42 @@ Still owed, both needing a permission this run did not have:
 - **AC-3's soft deleted app.** `delete_app` is refused by the permission
   classifier here, so `deleted_at IS NULL` in the query is still only proved by
   its unit test.
+
+## What the third run on 2026-08-15 found
+
+Driven against the real cluster on branch image `sha256:c5ee8db0`, target account
+`ogunseindetoyin+rbverify@gmail.com` (`acc_01KZY5EPT321BFNZJJMPRN6E2B`). This run
+existed to close the two steps every earlier run left owed, both of which needed
+a row no surface will create. Both are now met.
+
+- **AC-12's expired token is met.** An `api_tokens` row was seeded with
+  `expires_at` two days in the past, every other column matching what the mint
+  path writes. Against `POST /v1/uploads` it answers identically to a token that
+  was never minted, not just in status but in full: `HTTP/2 401`,
+  `content-type: application/json`, `content-length: 25`,
+  `{"error":"unauthorized"}`, with only the `Date` header differing. With the
+  revoked shape from the previous run, all three now match.
+- **AC-3's soft deleted app is met.** The account held `digestone-ddjmgk` (live),
+  `digesttwo-8hnpx6` (soft deleted by stamping `deleted_at`, nothing else), and
+  `neverdeployed-7js932` (no release). Both stopped apps were serving at 1/1
+  beforehand. The suspension wrote exactly two audit rows, the account and
+  `digestone`, and took only that app to zero. Neither the soft deleted app nor
+  the never deployed one was scaled or audited.
+
+Worth knowing for the next run of this step: stamping `deleted_at` is what the
+reaper watches, so it removed `app-digesttwo-8hnpx6` about forty seconds later,
+before the suspension landed. That makes the replica count useless as evidence
+here and leaves the audit rows as the only thing that can tell "skipped by the
+query" from "namespace was already gone". Read the rows, not the cluster.
+
+A count of audit rows naming that app is not the check either, unless it is
+bounded by time: the app carried twenty `suspend` and `restore` rows from the
+earlier runs, all of them older than this one.
+
+Not exercised at runtime, and not exercisable: the `ErrAppsUnlisted` path added
+on 2026-08-15. It opens only when the store read fails between the lockout write
+and the scaling, and no surface can make one SQLite read fail mid request. Its
+proof is `internal/web/suspension_test.go`, which fails without the fix.
 
 One unrelated thing seen in passing: the first `POST /v1/auth/login` with wrong
 credentials answered `{"code":"credentials_invalid","message":"sign in first"}`,

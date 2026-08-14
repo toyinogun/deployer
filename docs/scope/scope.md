@@ -390,7 +390,7 @@ spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/susp
   - [x] The safety net: the sweep holding suspended accounts at zero on the reconcile cadence, re-reading state before each write so a concurrent restore survives — AC-7, AC-8, AC-24
   - [x] The in flight case: the reconcile drive checking suspension at every phase boundary and ending the row with the reason code, build Job deleted — AC-14
   - [x] The surfaces and the leftovers: both admin routes through the one use case, the Suspend and Restore wording, the partial stop message, and the checks that nothing expires and no migration was added — AC-17, AC-18, AC-19, AC-20, AC-21, AC-23
-- [ ] Verify it: `/check verify account suspension`
+- [x] Verify it: `/check verify account suspension` — three runs against the real cluster, the last one closing AC-12's expired token and AC-3's soft deleted app
 - [x] Test it: `/test account suspension`
 - [x] Review it (fresh model): `/check review account suspension` — reviewed on sonnet, approve with nits
 - [ ] Document it: `/document account suspension`
