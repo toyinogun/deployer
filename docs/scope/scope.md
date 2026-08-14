@@ -58,7 +58,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 15 | Stranded deployment recovery | Slice 11 | done |
 | 16 | Invite only registration | Slice 12 | done |
 | 17 | Per account app cap | Slice 12 | done |
-| 18 | Bounded app egress | Slice 12 | in-progress |
+| 18 | Bounded app egress | Slice 12 | done |
 | 19 | Account suspension | Slice 12 | planned |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
 | 21 | Platform backup & restore | Slice 12 | planned |
@@ -363,7 +363,7 @@ spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/con
 - [x] Verify it: `/check verify per account app cap`
 - [x] Test it: `/test per account app cap`
 
-### 18. Bounded app egress · in-progress
+### 18. Bounded app egress · done
 Cluster traffic is fenced, but an app's outbound path to the internet is wide open. That is how a stranger's app mines coins or sends spam, and both cost you a relationship with your internet provider rather than just some CPU. Ports, not hostnames: an allow list by hostname is still deferred because it breaks every app that calls an API until its owner declares it.
 **Done when:** a pod cannot open outbound mail or the common mining pool ports, an ordinary outbound HTTPS call still works, the bound is applied to every app namespace including the ones that already exist, and both the block and the allowed call are proved against the real cluster rather than the fake clientset.
 spec [0017](../specs/0017-bounded-app-egress/index.md) · code in `internal/config`, `internal/deploy`, `deploy/`, `testdata/probe`, `internal/mcp`
