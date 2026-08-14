@@ -3,11 +3,15 @@
 <div class="card auth-card">
   <p class="brand">Deployer</p>
   <h1>Create an account</h1>
+  {{/* Said on every render, with a code and without one, so the page reads the
+       same whatever kind of code it was handed (AC-16, AC-18). */}}
+  <p class="hint">Registration here is by invitation. You need an invite link from an administrator.</p>
   {{if .Data.MailDown}}
   <p class="alert" role="alert">No mail sender is configured on this platform, so a confirmation link cannot be sent yet.</p>
   {{end}}
   {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
   <form method="post" action="/register" class="stack">
+    <input type="hidden" name="invite" value="{{.Data.Invite}}">
     <div class="field">
       <label for="email">Email address</label>
       <input id="email" name="email" type="email" autocomplete="username" required value="{{.Data.Email}}">

@@ -328,6 +328,8 @@ func TestMigrationUpThenDownLeavesTheFileEmpty(t *testing.T) {
 		"deployments", "deployment_events", "releases", "audit_log",
 		// Added by spec 0007's 00002_identity.sql.
 		"sessions", "email_tokens",
+		// Added by spec 0015's 00003_invites.sql.
+		"invites",
 	}
 	for _, table := range want {
 		if !tableExists(t, s, table) {
@@ -342,9 +344,10 @@ func TestMigrationUpThenDownLeavesTheFileEmpty(t *testing.T) {
 	}
 
 	// One MigrateDown rolls back one migration, so an empty file takes as many
-	// calls as there are migrations. Counting them here rather than hardcoding a
-	// number means adding a third does not silently leave this test checking two.
-	for range 2 {
+	// calls as there are migrations. The count is read off the embedded
+	// migrations rather than typed here, because typing it is how adding the
+	// third one left this test rolling back two and passing anyway.
+	for range store.MigrationCount() {
 		if err := s.MigrateDown(ctx); err != nil {
 			t.Fatalf("migrating down: %v", err)
 		}

@@ -56,11 +56,17 @@ func TestNoPageOrLogLineCarriesACredential(t *testing.T) {
 		t.Fatalf("minting a token: %v", err)
 	}
 
+	// A live invite whose code nothing on any page may carry. It is a working
+	// credential for as long as it is unspent, exactly as the session cookie and
+	// the API token beside it are (spec 0015, AC-14).
+	inviteCode := h.invite(t)
+
 	forbidden := map[string]string{
 		"the session cookie value": admin.Value,
 		"a raw API token":          minted.Raw,
 		"a secret config value":    secretValue,
 		"a password":               testPassword,
+		"a raw invite code":        inviteCode,
 	}
 
 	for _, path := range []string{
@@ -72,7 +78,12 @@ func TestNoPageOrLogLineCarriesACredential(t *testing.T) {
 		"/apps/crawled/config",
 		"/tokens",
 		"/admin/accounts",
+		"/admin/invites",
 		"/login", "/register", "/forgot", "/reset", "/unverified",
+		// The register page carries whatever code it was handed straight into a
+		// hidden field, so it is exempt from the crawl's own code: what matters
+		// there is that no OTHER page carries one, and that this one never
+		// reveals whether the code is any good (AC-18).
 	} {
 		rec := h.get(t, path, admin)
 		if rec.Code >= http.StatusInternalServerError {
@@ -106,7 +117,7 @@ func TestNoPageOrLogLineCarriesACredential(t *testing.T) {
 // into the page the link renders. covers: AC-31
 func TestAVerificationLinkTokenNeverReachesAPage(t *testing.T) {
 	h := newHarness(t, nil)
-	if rec := h.post(t, "/register", formValues("link@example.test"), nil, nil); rec.Code != http.StatusOK {
+	if rec := h.post(t, "/register", h.registration(t, "link@example.test"), nil, nil); rec.Code != http.StatusOK {
 		t.Fatalf("registering: got %d", rec.Code)
 	}
 	token := linkToken(t, h.mail.latest(t))
@@ -139,12 +150,5 @@ func TestEveryPageForbidsCaching(t *testing.T) {
 		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
 			t.Errorf("GET %s has Cache-Control %q, want no-store", tc.path, got)
 		}
-	}
-}
-
-// formValues is one registration form's fields.
-func formValues(email string) map[string][]string {
-	return map[string][]string{
-		"email": {email}, "password": {testPassword}, "display_name": {"Someone"},
 	}
 }

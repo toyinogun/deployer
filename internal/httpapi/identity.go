@@ -63,6 +63,10 @@ func (i *Identity) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/admin/accounts/{id}/disable", i.adminDisable)
 	mux.HandleFunc("POST /v1/admin/accounts/{id}/enable", i.adminEnable)
 	mux.HandleFunc("DELETE /v1/admin/accounts/{id}/tokens/{tokenId}", i.adminRevokeToken)
+
+	mux.HandleFunc("GET /v1/admin/invites", i.adminListInvites)
+	mux.HandleFunc("POST /v1/admin/invites", i.adminMintInvite)
+	mux.HandleFunc("DELETE /v1/admin/invites/{id}", i.adminRevokeInvite)
 }
 
 // session resolves the caller's session cookie, answering 401 and returning false
@@ -198,7 +202,7 @@ func statusFor(c identity.Code) int {
 		return http.StatusUnprocessableEntity
 	case identity.CodeCredentialsInvalid:
 		return http.StatusUnauthorized
-	case identity.CodeEmailUnverified, identity.CodeAdminRequired:
+	case identity.CodeEmailUnverified, identity.CodeAdminRequired, identity.CodeInviteInvalid:
 		return http.StatusForbidden
 	case identity.CodeLinkInvalid:
 		return http.StatusBadRequest

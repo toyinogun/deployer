@@ -16,6 +16,11 @@ type formPage struct {
 	Next    string
 	Token   string
 	Message string
+	// Invite is the registration code, carried from the query string into a
+	// hidden field and nowhere else. It is never checked on the way through: the
+	// page must not become a second oracle telling a holder which kind of bad
+	// code they have (spec 0015, AC-18).
+	Invite string
 	// MailDown is whether there is no sender configured, which the forms that
 	// exist only to send mail say plainly rather than failing on submit.
 	MailDown bool
@@ -61,26 +66,44 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, safeNext(next), http.StatusSeeOther)
 }
 
+// registerPage renders the form and copies the invite code from the query into
+// a hidden field. It never touches the invites table: an unknown, expired,
+// revoked, spent and valid code all render the identical page, and every
+// distinction is made on the post (AC-18).
 func (s *Server) registerPage(w http.ResponseWriter, r *http.Request) {
-	s.renderPublic(w, r, http.StatusOK, "register", formPage{MailDown: !s.opts.HasMailer})
+	noReferrer(w)
+	s.renderPublic(w, r, http.StatusOK, "register", formPage{
+		Invite: r.URL.Query().Get("invite"), MailDown: !s.opts.HasMailer,
+	})
 }
 
 // registerSubmit registers. A duplicate address renders the identical check your
 // email page a new one does, because the service answers both the same way and
 // the page must not be the surface that tells an attacker which addresses
-// exist (AC-6).
+// exist (AC-6). A bad invite is refused in the words the service holds, which is
+// the same sentence and status the JSON surface answers with (spec 0015, AC-2).
 func (s *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
+	noReferrer(w)
 	if !s.checkOrigin(w, r, auth.Account{}) || !s.spend(w, r) {
 		return
 	}
 	email := r.PostFormValue("email")
 	name := r.PostFormValue("display_name")
+	invite := r.PostFormValue("invite")
 
-	if err := s.svc.Register(r.Context(), email, r.PostFormValue("password"), name); err != nil {
-		s.formFailure(w, r, "register", formPage{Email: email, Name: name, MailDown: !s.opts.HasMailer}, err)
+	if err := s.svc.Register(r.Context(), invite, email, r.PostFormValue("password"), name); err != nil {
+		s.formFailure(w, r, "register",
+			formPage{Email: email, Name: name, Invite: invite, MailDown: !s.opts.HasMailer}, err)
 		return
 	}
 	s.checkYourMail(w, r, email)
+}
+
+// noReferrer stops the browser carrying this page's address onward. The invite
+// code rides in the query string, and without this it would travel in the
+// Referer header of anything the page links to (AC-14).
+func noReferrer(w http.ResponseWriter) {
+	w.Header().Set("Referrer-Policy", "no-referrer")
 }
 
 // verifyPage consumes the link. All four ways a link can be no good, consumed,
@@ -249,7 +272,7 @@ func statusFor(c identity.Code) int {
 		return http.StatusUnprocessableEntity
 	case identity.CodeCredentialsInvalid:
 		return http.StatusUnauthorized
-	case identity.CodeEmailUnverified, identity.CodeAdminRequired:
+	case identity.CodeEmailUnverified, identity.CodeAdminRequired, identity.CodeInviteInvalid:
 		return http.StatusForbidden
 	case identity.CodeLinkInvalid:
 		return http.StatusBadRequest
