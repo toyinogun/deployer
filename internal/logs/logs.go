@@ -31,6 +31,13 @@ const (
 	// the crash out of the answer (AC-4).
 	PreviousLines = 100
 	PreviousBytes = 16 * 1024
+	// BrowserTail and BrowserBytes cap what one page render shows. They are
+	// separate from the agent's bounds and larger, because a scrollable pane is
+	// not a context window, and they are constants for the same reason the pair
+	// above are: what fits a reader is a product decision, not per deployment
+	// tuning (spec 0013, AC-19).
+	BrowserTail  = 500
+	BrowserBytes = 256 * 1024
 )
 
 // redactedMark is what stands in for every blanked value, so a caller can see

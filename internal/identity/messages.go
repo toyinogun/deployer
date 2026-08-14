@@ -56,10 +56,14 @@ message and your password stays as it is.
 // linkURL builds the address a mailed link points at. It is built from
 // PublicURL, never InternalURL: this text is read by a person, whose browser
 // resolves names on the tailnet rather than on cluster DNS.
+// The paths are the page ones, not the /v1 ones: a person clicking a link in
+// their mail should land on a page, not on a JSON body. The /v1 endpoints keep
+// answering exactly as they did and stay drivable with curl, they are simply no
+// longer what a mailed link points at (spec 0013, AC-10).
 func linkURL(baseURL, purpose, rawToken string) string {
-	path := "/v1/auth/verify"
+	path := "/verify"
 	if purpose == PurposeReset {
-		path = "/v1/auth/reset"
+		path = "/reset"
 	}
 	return baseURL + path + "?token=" + url.QueryEscape(rawToken)
 }

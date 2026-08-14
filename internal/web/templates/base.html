@@ -1,0 +1,44 @@
+{{define "base"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>{{block "title" .}}Deployer{{end}} · Deployer</title>
+<link rel="stylesheet" href="/static/app.css">
+<script src="/static/app.js" defer></script>
+</head>
+<body class="{{if .Shell.SignedIn}}shell{{else}}plain{{end}}">
+<a class="skip" href="#main">Skip to content</a>
+{{if .Shell.SignedIn}}
+<button class="nav-toggle" type="button" aria-expanded="false" aria-controls="sidebar">Menu</button>
+<nav id="sidebar" class="sidebar" aria-label="Main">
+  <p class="brand">Deployer</p>
+
+  <p class="group-label" id="group-apps">Your platform</p>
+  <ul aria-labelledby="group-apps">
+    <li><a href="/apps"{{if eq .Shell.Nav "apps"}} aria-current="page"{{end}}>Apps</a></li>
+    <li><a href="/tokens"{{if eq .Shell.Nav "tokens"}} aria-current="page"{{end}}>API tokens</a></li>
+  </ul>
+
+  {{if .Shell.IsAdmin}}
+  <p class="group-label" id="group-admin">Administration</p>
+  <ul aria-labelledby="group-admin">
+    <li><a href="/admin/accounts"{{if eq .Shell.Nav "admin"}} aria-current="page"{{end}}>Accounts</a></li>
+  </ul>
+  {{end}}
+
+  <div class="sidebar-foot">
+    <p class="who">{{.Shell.Email}}</p>
+    <form method="post" action="/logout">
+      <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
+      <button class="link-button" type="submit">Sign out</button>
+    </form>
+  </div>
+</nav>
+{{end}}
+<main id="main" class="{{if .Shell.SignedIn}}panel{{else}}centered{{end}}">
+  {{block "content" .}}{{end}}
+</main>
+</body>
+</html>{{end}}

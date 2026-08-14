@@ -1,0 +1,28 @@
+{{define "title"}}Create an account{{end}}
+{{define "content"}}
+<div class="card auth-card">
+  <p class="brand">Deployer</p>
+  <h1>Create an account</h1>
+  {{if .Data.MailDown}}
+  <p class="alert" role="alert">No mail sender is configured on this platform, so a confirmation link cannot be sent yet.</p>
+  {{end}}
+  {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+  <form method="post" action="/register" class="stack">
+    <div class="field">
+      <label for="email">Email address</label>
+      <input id="email" name="email" type="email" autocomplete="username" required value="{{.Data.Email}}">
+    </div>
+    <div class="field">
+      <label for="display_name">Display name <span class="quiet">(optional)</span></label>
+      <input id="display_name" name="display_name" type="text" autocomplete="name" value="{{.Data.Name}}">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required>
+      <p class="hint" id="password-hint">At least 12 characters.</p>
+    </div>
+    <button class="button" type="submit">Create account</button>
+  </form>
+  <p class="quiet"><a href="/login">Already have an account</a></p>
+</div>
+{{end}}

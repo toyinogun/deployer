@@ -1,0 +1,50 @@
+{{define "title"}}{{.Data.Name}}{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>{{.Data.Name}}</h1>
+  <p class="sub"><a class="host" href="https://{{.Data.Hostname}}">{{.Data.Hostname}}</a></p>
+</header>
+{{template "apptabs" (tabs .Data.Slug "overview")}}
+
+{{/* The polled region. The script swaps this element's contents and nothing
+     else, so a poll cannot disturb the rest of the page (AC-16). */}}
+<div id="status" data-slug="{{.Data.Slug}}">
+{{template "status" .Data.Status}}
+</div>
+{{end}}
+
+{{define "status"}}
+{{/* The live marker rides inside the fragment, not on the region the script
+     swaps: a poll replaces this element's contents, so an attribute on the
+     container outside it would never change and polling would never stop. The
+     server decides terminal here, from the state machine (AC-16). */}}
+<div class="status-body" data-live="{{if and .LastDeploy.Present (not .LastDeploy.Terminal)}}on{{else}}off{{end}}">
+<div class="cards two">
+  <section class="card" aria-labelledby="serving-head">
+    <h2 id="serving-head">Serving now</h2>
+    {{if .Serving}}
+      <p class="big">Release {{.Serving}}</p>
+      <p class="quiet">Image <code title="{{.ServingDigest}}">{{shortDigest .ServingDigest}}</code></p>
+      {{if .ServingSince}}<p class="quiet">Since {{when .ServingSince}}</p>{{end}}
+    {{else if .NeverDeployed}}
+      <p class="big quiet">Never deployed</p>
+      <p>This app exists but nothing has been deployed to it yet.</p>
+    {{else}}
+      <p class="big quiet">Nothing yet</p>
+      <p>No deploy has become healthy, so there is nothing serving.</p>
+    {{end}}
+  </section>
+
+  <section class="card" aria-labelledby="deploy-head">
+    <h2 id="deploy-head">Last deploy</h2>
+    {{/* Read as a fact of its own: an app whose last deploy failed is usually
+         still serving the release beside it (AC-15). */}}
+    <p class="big">{{template "deploystate" .LastDeploy}}</p>
+    {{if .LastDeploy.When}}<p class="quiet">{{when .LastDeploy.When}}</p>{{end}}
+    {{if and .LastDeploy.Present (not .LastDeploy.Terminal)}}
+      <p class="live" role="status">This deploy is still running. The page updates itself.</p>
+    {{end}}
+  </section>
+</div>
+</div>
+{{end}}

@@ -1,0 +1,58 @@
+{{define "title"}}{{.Data.Name}} configuration{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>{{.Data.Name}}</h1>
+  <p class="sub">Configuration keys. Changing one stays with your coding agent.</p>
+</header>
+{{template "apptabs" (tabs .Data.Slug "config")}}
+
+{{if .Data.Keys}}
+<div class="card table-card">
+  <table class="rows">
+    <caption class="visually-hidden">Configuration keys</caption>
+    <thead>
+      <tr>
+        <th scope="col">Key</th>
+        <th scope="col">Value</th>
+        <th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody class="stagger">
+      {{range .Data.Keys}}
+      <tr>
+        <th scope="row" data-label="Key"><code>{{.Key}}</code></th>
+        <td data-label="Value">
+          {{if .Revealed}}
+            <code class="revealed">{{.Revealed}}</code>
+          {{else if .Secret}}
+            <span class="masked" aria-label="hidden secret value">••••••••</span>
+            <span class="badge quiet-badge">secret</span>
+          {{else if .Set}}
+            <span class="masked" aria-label="hidden value">••••••••</span>
+          {{else}}
+            <span class="quiet">not set</span>
+          {{end}}
+        </td>
+        <td data-label="Actions" class="row-actions">
+          {{/* A secret key renders no control at all, and the route refuses one
+               too. The browser is never a weaker door than the agent (AC-20). */}}
+          {{if and (not .Secret) (not .Revealed)}}
+          <form method="post" action="/apps/{{$.Data.Slug}}/config/{{.Key}}/reveal">
+            <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+            <button class="button secondary small" type="submit">Show value</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+<p class="hint">Secret values are never readable here, the same as through an agent.</p>
+{{else}}
+<div class="card empty">
+  <h2>No configuration set</h2>
+  <p>This app runs with no configuration keys. Your agent can set them with the platform's configuration tool.</p>
+</div>
+{{end}}
+{{end}}

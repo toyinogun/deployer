@@ -64,6 +64,39 @@ WHERE a.account_id = @account_id AND a.deleted_at IS NULL
 ORDER BY a.id DESC
 LIMIT @page_limit;
 
+-- The same projection as ListAppSummariesByAccount, over the keyset cursor
+-- ListAppsByAccount already carries. It exists because the web app list needs
+-- the serving release and the last deploy state on a page that also pages, and
+-- neither existing statement has both: one has the state without a cursor and
+-- the other has the cursor without the state (spec 0013, AC-14).
+-- name: ListAppSummaryPage :many
+SELECT
+    a.id,
+    a.name,
+    a.slug,
+    a.created_at,
+    r.release_number AS serving_release_number,
+    d.id AS last_deployment_id,
+    d.state AS last_deployment_state,
+    d.failure_reason AS last_deployment_reason,
+    CAST(COALESCE(f.last_finished, '') AS TEXT) AS last_deployed_at
+FROM apps a
+LEFT JOIN releases r ON r.id = a.current_release_id
+LEFT JOIN deployments d ON d.id = (
+    SELECT n.id FROM deployments n
+    WHERE n.app_id = a.id
+    ORDER BY n.created_at DESC, n.id DESC
+    LIMIT 1
+)
+LEFT JOIN (
+    SELECT app_id, MAX(finished_at) AS last_finished FROM deployments GROUP BY app_id
+) f ON f.app_id = a.id
+WHERE a.account_id = @account_id
+  AND a.deleted_at IS NULL
+  AND (@cursor = '' OR a.id < @cursor)
+ORDER BY a.id DESC
+LIMIT @page_limit;
+
 -- Every live app's slug, which is the one read the orphan reaper trusts to
 -- decide that a namespace owns nothing (spec 0012, AC-24).
 -- name: LiveAppSlugs :many

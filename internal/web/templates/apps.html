@@ -1,0 +1,58 @@
+{{define "title"}}Apps{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>Apps</h1>
+  <p class="sub">Everything this account owns. Deploys, rollbacks and deletes stay with your coding agent.</p>
+</header>
+
+{{if .Data.Apps}}
+<div class="card table-card">
+  <table class="rows">
+    <caption class="visually-hidden">Your apps, newest first</caption>
+    <thead>
+      <tr>
+        <th scope="col">App</th>
+        <th scope="col">Address</th>
+        <th scope="col">Serving</th>
+        <th scope="col">Last deploy</th>
+      </tr>
+    </thead>
+    <tbody class="stagger">
+      {{range .Data.Apps}}
+      <tr>
+        <th scope="row" data-label="App"><a href="/apps/{{.Slug}}">{{.Name}}</a></th>
+        <td data-label="Address"><a class="host" href="https://{{.Hostname}}">{{.Hostname}}</a></td>
+        <td data-label="Serving">
+          {{if .Serving}}release {{.Serving}}{{else}}<span class="quiet">nothing yet</span>{{end}}
+        </td>
+        <td data-label="Last deploy">{{template "deploystate" .LastDeploy}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+</div>
+{{template "loadmore" .Data.NextCursor}}
+
+{{else}}
+{{/* Zero apps is a beginning, not an empty table: what a new person needs here
+     is where to point their agent (AC-26). */}}
+<div class="card onboarding">
+  <h2>Point your agent at this platform</h2>
+  <p>Nothing is deployed on this account yet. Apps arrive here once your coding agent deploys one.</p>
+  <ol class="steps">
+    <li>
+      <p><strong>Mint an API token</strong> and give it to your agent.</p>
+      <p><a class="button" href="/tokens">Mint a token</a></p>
+    </li>
+    <li>
+      <p><strong>Add the MCP endpoint</strong> to your agent's configuration.</p>
+      <p><code class="endpoint">{{.Data.MCPEndpoint}}</code></p>
+    </li>
+    <li>
+      <p><strong>Ask it to deploy.</strong> It uploads the source here and the platform builds and runs it.</p>
+      <p><code class="endpoint">{{.Data.UploadEndpoint}}</code></p>
+    </li>
+  </ol>
+</div>
+{{end}}
+{{end}}

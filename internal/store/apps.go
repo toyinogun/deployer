@@ -153,6 +153,40 @@ func (s *Store) ListAppSummaries(ctx context.Context, accountID string, limit in
 	return out, nil
 }
 
+// ListAppSummaryPage returns one page of the same projection ListAppSummaries
+// returns, over the keyset cursor the plain app listing already uses. The web
+// app list needs the serving release and the last deploy state on a page that
+// also pages, which neither of the other two statements can answer alone
+// (spec 0013, AC-14).
+func (s *Store) ListAppSummaryPage(ctx context.Context, accountID string, page Page) ([]AppSummary, error) {
+	rows, err := s.q.ListAppSummaryPage(ctx, sqlcgen.ListAppSummaryPageParams{
+		AccountID: accountID,
+		Cursor:    page.Cursor,
+		PageLimit: page.limit(),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("store: listing apps for account %s: %w", accountID, err)
+	}
+	out := make([]AppSummary, 0, len(rows))
+	for _, r := range rows {
+		summary := AppSummary{
+			ID:                   r.ID,
+			Name:                 r.Name,
+			Slug:                 r.Slug,
+			CreatedAt:            r.CreatedAt,
+			LastDeploymentID:     deref(r.LastDeploymentID),
+			LastDeploymentState:  deref(r.LastDeploymentState),
+			LastDeploymentReason: deref(r.LastDeploymentReason),
+			LastDeployedAt:       r.LastDeployedAt,
+		}
+		if r.ServingReleaseNumber != nil {
+			summary.ServingRelease = *r.ServingReleaseNumber
+		}
+		out = append(out, summary)
+	}
+	return out, nil
+}
+
 // LiveAppSlugs returns the slug of every app that is not soft deleted. It is one
 // query on purpose: the orphan reaper deletes namespaces against this answer, so
 // a partial one would be a data loss bug rather than a display bug

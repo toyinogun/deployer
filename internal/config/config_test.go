@@ -25,6 +25,7 @@ var valid = map[string]string{
 	"DEPLOYER_BUILDKIT_IMAGE":    "moby/buildkit@sha256:" + strings.Repeat("c", 64),
 	"DEPLOYER_BUILDKIT_UID":      "1000",
 	"DEPLOYER_BUILDKIT_GID":      "1000",
+	"DEPLOYER_CSRF_KEY":          strings.Repeat("k", 32),
 }
 
 // withValid returns the valid environment plus the overrides given, so a test

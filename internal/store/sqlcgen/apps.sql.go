@@ -229,6 +229,91 @@ func (q *Queries) ListAppSummariesByAccount(ctx context.Context, arg ListAppSumm
 	return items, nil
 }
 
+const listAppSummaryPage = `-- name: ListAppSummaryPage :many
+SELECT
+    a.id,
+    a.name,
+    a.slug,
+    a.created_at,
+    r.release_number AS serving_release_number,
+    d.id AS last_deployment_id,
+    d.state AS last_deployment_state,
+    d.failure_reason AS last_deployment_reason,
+    CAST(COALESCE(f.last_finished, '') AS TEXT) AS last_deployed_at
+FROM apps a
+LEFT JOIN releases r ON r.id = a.current_release_id
+LEFT JOIN deployments d ON d.id = (
+    SELECT n.id FROM deployments n
+    WHERE n.app_id = a.id
+    ORDER BY n.created_at DESC, n.id DESC
+    LIMIT 1
+)
+LEFT JOIN (
+    SELECT app_id, MAX(finished_at) AS last_finished FROM deployments GROUP BY app_id
+) f ON f.app_id = a.id
+WHERE a.account_id = ?1
+  AND a.deleted_at IS NULL
+  AND (?2 = '' OR a.id < ?2)
+ORDER BY a.id DESC
+LIMIT ?3
+`
+
+type ListAppSummaryPageParams struct {
+	AccountID string
+	Cursor    interface{}
+	PageLimit int64
+}
+
+type ListAppSummaryPageRow struct {
+	ID                   string
+	Name                 string
+	Slug                 string
+	CreatedAt            string
+	ServingReleaseNumber *int64
+	LastDeploymentID     *string
+	LastDeploymentState  *string
+	LastDeploymentReason *string
+	LastDeployedAt       string
+}
+
+// The same projection as ListAppSummariesByAccount, over the keyset cursor
+// ListAppsByAccount already carries. It exists because the web app list needs
+// the serving release and the last deploy state on a page that also pages, and
+// neither existing statement has both: one has the state without a cursor and
+// the other has the cursor without the state (spec 0013, AC-14).
+func (q *Queries) ListAppSummaryPage(ctx context.Context, arg ListAppSummaryPageParams) ([]ListAppSummaryPageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAppSummaryPage, arg.AccountID, arg.Cursor, arg.PageLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAppSummaryPageRow{}
+	for rows.Next() {
+		var i ListAppSummaryPageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Slug,
+			&i.CreatedAt,
+			&i.ServingReleaseNumber,
+			&i.LastDeploymentID,
+			&i.LastDeploymentState,
+			&i.LastDeploymentReason,
+			&i.LastDeployedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAppsByAccount = `-- name: ListAppsByAccount :many
 SELECT id, account_id, name, slug, current_release_id, deleted_at, created_at, updated_at FROM apps
 WHERE account_id = ?1

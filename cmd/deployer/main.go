@@ -25,6 +25,7 @@ import (
 	"github.com/toyinogun/deployer/internal/registry"
 	"github.com/toyinogun/deployer/internal/store"
 	"github.com/toyinogun/deployer/internal/uploads"
+	"github.com/toyinogun/deployer/internal/web"
 )
 
 // dbRetryInterval is how long the boot waits between attempts to open and
@@ -92,6 +93,10 @@ func run() error {
 	})
 	mux.Handle("/v1/", realWork)
 	mux.Handle("/mcp", realWork)
+	// The pages live at the root paths, so everything the two probes above did
+	// not claim goes to the same place. The probes still win: a more specific
+	// pattern beats this one, which is what keeps liveness off the database.
+	mux.Handle("/", realWork)
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 
@@ -201,6 +206,18 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		})
 	mux.Handle("/mcp", tools.Handler())
 
+	// The browser surface, at the root paths of the same host. It reads through
+	// the same identity service and the same store this function already built,
+	// which is what keeps a rule from differing between a page and a tool
+	// (spec 0013, AC-4).
+	web.New(identitySvc, authenticator, as, st, webPods(cluster), web.Options{
+		PublicURL:      cfg.PublicURL,
+		AppDomain:      cfg.AppDomain,
+		CSRFKey:        []byte(cfg.CSRFKey),
+		SecretLiterals: []string{cfg.RegistryPass},
+		HasMailer:      sender != nil,
+	}).Register(mux)
+
 	if cluster != nil {
 		startReconciler(ctx, st, cfg, uploadSvc, cluster)
 	}
@@ -219,6 +236,15 @@ func mailerOrNil(s *mail.Sender) identity.Mailer {
 // podReader keeps a nil client nil through the interface, so the tool sees an
 // absent cluster rather than a non nil interface holding a nil pointer.
 func podReader(cluster *kube.Client) mcp.Pods {
+	if cluster == nil {
+		return nil
+	}
+	return cluster
+}
+
+// webPods keeps a nil client nil through the interface, so the logs page sees
+// an absent cluster rather than a non nil interface holding a nil pointer.
+func webPods(cluster *kube.Client) web.Pods {
 	if cluster == nil {
 		return nil
 	}
