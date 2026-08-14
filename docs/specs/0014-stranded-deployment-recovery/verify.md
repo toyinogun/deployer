@@ -5,11 +5,11 @@ _Steps derived from spec 0014 acceptance criteria. `/check verify` runs these; `
 _Rewritten after the 2026-08-14 verify run. The two cluster steps that used to lead this file were dropped: both faults that strand a row are internal, so neither can be induced from outside, and the steps as written were answered by `awaitBuild` and `Sweep` rather than by the check. The reasoning is in [rationale.md](rationale.md), "What the gates found". Fault injection tests carry AC-1 and AC-2 instead._
 
 ## Commands
-- [ ] `go test -race ./internal/reconcile/ ./internal/store/` → passes, covering the failed, gone, succeeded, running and unreadable branches, the ordering, the fairness, the supersession race, and the two fault injection cases below → AC-1 to AC-7, AC-9, AC-10
-- [ ] The write fault: a store whose `Transition` fails leaves a row in `building` after its drive, and the next tick ends it with the reason its Job gives, not `timeout`. This is the fault the spec exists for → AC-1, AC-2
-- [ ] The sweep fault: a store whose `ListNonTerminal` fails on the startup `Sweep` and succeeds afterwards leaves in flight rows unattended, and the tick recovers them → AC-1
-- [ ] A release whose guard matches no row returns `false` rather than an error, and the loop logs it as not released rather than as a success → AC-10
-- [ ] `kubectl get cm deployer-config -n deployer-system -o yaml | grep -c STRAND` → `0`, and `git diff` on `internal/store/migrations/` is empty: no new setting, no migration → AC-8
+- [x] `go test -race ./internal/reconcile/ ./internal/store/` → passes, covering the failed, gone, succeeded, running and unreadable branches, the ordering, the fairness, the supersession race, and the two fault injection cases below → AC-1 to AC-7, AC-9, AC-10
+- [x] The write fault: a store whose `Transition` fails leaves a row in `building` after its drive, and the next tick ends it with the reason its Job gives, not `timeout`. This is the fault the spec exists for → AC-1, AC-2
+- [x] The sweep fault: a store whose `ListNonTerminal` fails on the startup `Sweep` and succeeds afterwards leaves in flight rows unattended, and the tick recovers them → AC-1
+- [x] A release whose guard matches no row returns `false` rather than an error, and the loop logs it as not released rather than as a success → AC-10
+- [x] `kubectl get cm deployer-config -n deployer-system -o yaml | grep -c STRAND` → `0`, and `git diff` on `internal/store/migrations/` is empty: no new setting, no migration → AC-8
 
 ## Cluster
 - [x] `kubectl get deploy deployer -n deployer-system -o jsonpath='{.spec.replicas}{.spec.strategy.type}'` → `1Recreate`. Confirmed 2026-08-14. This is a precondition, not a detail: under two processes the check can end a deployment the other one is driving → AC-7, AC-11

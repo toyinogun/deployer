@@ -24,12 +24,13 @@ The platform's only writer of the SQLite database. It owns the connection, the m
 - A snapshot records `{"KEY":{"value":...,"secret":...}}` per key. Decoding is per key rather than per document: a bare string is a snapshot written before that format and every key restored from one is marked secret, because a key wrongly marked secret hides a value `get_config` used to show while the reverse leaks one. No migration, no version field, and both shapes stay readable.
 - `app_config` is rewritten from the snapshot inside the same transaction that marks a rollback healthy, replacing the whole set, so stored configuration and the running app cannot disagree because a rollback failed halfway. A `set_config` that commits during that rollout is reverted by it, which is specified behaviour rather than a race to close.
 - The release listing has its own query projecting five named columns and never `config_snapshot`, so no configuration value enters the process at all. The `SELECT *` read stays for the callers that need the whole row: a handler remembering not to serialize a field it holds is a much weaker guarantee than never holding it.
+- A claim is unclaimed when `claimed_at` is null, because that is the only column `ClaimNextDeployment` tests. Anything handing a row back clears both claim columns, so clearing `claimed_by` alone leaves a row nothing will ever adopt while looking released.
 - Domain and use case packages never import this one. They declare the narrow interfaces they need and take one of these types.
 - Every state transition is a database write before it is an action, and a multi write move (a transition plus its event, a deployment plus its release) runs inside one transaction.
 - Timestamps come from the injected `ids.Clock`, never from `time.Now()` directly, so tests can control them.
 
 ## Tests
 
-Tests run against a real SQLite file in a temp directory. The store is never mocked. Database level invariants (the state `CHECK`, the partial unique indexes, the source XOR constraint, foreign key restrictions) are exercised with raw SQL that bypasses the Go layer, so the schema is proven, not just the code above it.
+Tests run against a real SQLite file in a temp directory. The store is never mocked. That bans inventing store behaviour rather than banning a passthrough: a test type embedding one of these types, delegating every call, and returning a real error on one named call invents nothing, and it is the only way a caller can reach a fault internal to the platform, such as a write that does not land. See `internal/reconcile/stranded_test.go`. Database level invariants (the state `CHECK`, the partial unique indexes, the source XOR constraint, foreign key restrictions) are exercised with raw SQL that bypasses the Go layer, so the schema is proven, not just the code above it.
 
 _Drafted by /sync from the introducing change, worth a quick human pass._

@@ -311,8 +311,8 @@ spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `int
   - [x] The invariant written where it is enforced: the single replica note beside the manifest in `deploy/AGENTS.md` — AC-7
   - [x] The race made visible: `ReleaseClaim` returns whether it released a row, and the loop logs the no-op apart from the success — AC-10
   - [x] The two faults tested: a passthrough over the real store failing one call, covering a `Transition` that errors and a `ListNonTerminal` that errors on the startup sweep — AC-1, AC-2
-- [ ] Verify it: `/check verify stranded deployment recovery`
-- [ ] Test it: `/test stranded deployment recovery`
+- [x] Verify it: `/check verify stranded deployment recovery`
+- [x] Test it: `/test stranded deployment recovery`
 - [x] Review it (fresh model): `/check review stranded deployment recovery`
 - [ ] Document it: `/document stranded deployment recovery`
 
