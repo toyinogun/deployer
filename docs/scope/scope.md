@@ -54,7 +54,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 11 | App environment configuration | Slice 7 | done |
 | 12 | Rollback & release history | Slice 8 | done |
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
-| 14 | Web interface: register, sign in, apps & tokens | Slice 10 | in-progress |
+| 14 | Web interface: register, sign in, apps & tokens | Slice 10 | done |
 | 15 | Stranded deployment recovery | Slice 11 | done |
 
 ## Foundations
@@ -278,7 +278,7 @@ spec [0012](../specs/0012-app-lifecycle-list-delete/index.md) · code in `intern
 
 ## Slice 10: Web interface
 
-### 14. Web interface: register, sign in, apps & tokens
+### 14. Web interface: register, sign in, apps & tokens · done
 From spec 0007. The pages on top of the identity surface feature 8 builds: register, verify, sign in, mint and revoke tokens, and see your apps, releases and logs without an agent. Feature 8 deliberately builds no pages, so every endpoint they need is already there and drivable with curl.
 **Done when:** a person can register, verify, sign in, mint a token, and see their apps and logs in a browser, on the tailnet, with no curl and no agent.
 From spec 0011: `list_releases` is capped at the newest twenty with no paging, on purpose, so this is where full release history gets a paged view over the same store method.
@@ -294,7 +294,7 @@ spec [0013](../specs/0013-web-interface/index.md)
   - [x] Tokens, admin, and the closing pass: mint and revoke, the admin accounts page, accessibility, the leak crawl, and the `DEPLOYER_CSRF_KEY` deploy wiring — AC-21 to AC-25, AC-30, AC-31
 - [x] Verify it: `/check verify web interface`
 - [x] Test it: `/test web interface`
-- [x] Review it (fresh model): `/check review web interface` — reviewed on sonnet, changes requested
+- [x] Review it (fresh model): `/check review web interface` — reviewed on sonnet, changes requested; the flaky CSRF case and the token expiry coverage gap are both closed
 - [x] Document it: `/document web interface` — CHANGELOG.md, Added, Changed and Security
 
 ## Slice 11: Stranded deployment recovery
