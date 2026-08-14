@@ -101,6 +101,18 @@ type EmailToken struct {
 	CreatedAt  string
 }
 
+type Invite struct {
+	ID         string
+	CodeHash   string
+	Note       *string
+	CreatedBy  *string
+	ExpiresAt  string
+	ConsumedAt *string
+	ConsumedBy *string
+	RevokedAt  *string
+	CreatedAt  string
+}
+
 type Release struct {
 	ID             string
 	AppID          string

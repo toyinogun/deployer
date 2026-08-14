@@ -141,12 +141,38 @@ func (h *idHarness) do(t *testing.T, method, path string, body any, cookie *http
 	return rec
 }
 
+// invite mints one live invite straight through the store and returns the raw
+// code, which is how a test gets through the front door without an admin to
+// issue one. It is the same pair of writes the boot time bootstrap makes on an
+// empty database (spec 0015, AC-13).
+func (h *idHarness) invite(t *testing.T) string {
+	t.Helper()
+	raw, err := identity.NewSecret()
+	if err != nil {
+		t.Fatalf("drawing an invite code: %v", err)
+	}
+	if _, err := h.store.CreateInvite(t.Context(), store.NewInvite{
+		CodeHash:  identity.HashSecret(raw),
+		ExpiresAt: ids.Stamp(h.clock.Now().Add(identity.InviteLifetime)),
+	}); err != nil {
+		t.Fatalf("minting an invite: %v", err)
+	}
+	return raw
+}
+
+// registration is one register body carrying a fresh invite, which every
+// successful registration now needs (spec 0015, AC-1).
+func (h *idHarness) registration(t *testing.T, email, password string) map[string]string {
+	t.Helper()
+	return map[string]string{"invite": h.invite(t), "email": email, "password": password}
+}
+
 // registerAndVerify walks a person from nothing to a live session, which is the
 // thin thread this whole slice was built around.
 func (h *idHarness) registerAndVerify(t *testing.T, email string) *http.Cookie {
 	t.Helper()
 	if got := h.do(t, "POST", "/v1/auth/register",
-		map[string]string{"email": email, "password": goodPassword}, nil); got.Code != http.StatusAccepted {
+		h.registration(t, email, goodPassword), nil); got.Code != http.StatusAccepted {
 		t.Fatalf("registering %s: got %d, want 202: %s", email, got.Code, got.Body)
 	}
 	token := linkToken(t, h.mail.last(t).Body)
@@ -263,11 +289,13 @@ func TestCookieIsNotSecureOnPlainHTTP(t *testing.T) {
 // answers, and a different message to the address's real owner.
 func TestRegisteringATakenAddressIsIndistinguishable(t *testing.T) {
 	h := newIDHarness(t, true)
-	body := map[string]string{"email": "a@example.com", "password": goodPassword}
 
-	first := h.do(t, "POST", "/v1/auth/register", body, nil)
+	// A fresh invite each time: two people each holding their own, both typing
+	// the same address. The second one's invite is not spent, because no account
+	// was created (spec 0015, AC-10).
+	first := h.do(t, "POST", "/v1/auth/register", h.registration(t, "a@example.com", goodPassword), nil)
 	firstMail := h.mail.last(t)
-	second := h.do(t, "POST", "/v1/auth/register", body, nil)
+	second := h.do(t, "POST", "/v1/auth/register", h.registration(t, "a@example.com", goodPassword), nil)
 	secondMail := h.mail.last(t)
 
 	if first.Code != second.Code {
@@ -291,7 +319,14 @@ func TestRegisteringATakenAddressIsIndistinguishable(t *testing.T) {
 // AC-2: the unique index decides, not a read before the write.
 func TestConcurrentRegistrationsOfOneAddressMakeOneAccount(t *testing.T) {
 	h := newIDHarness(t, true)
-	body := map[string]string{"email": "a@example.com", "password": goodPassword}
+
+	// Each racer holds its own invite, drawn before the race so the minting is
+	// not what is being raced. Only one of the four can win the address, and the
+	// other three see the same 202 a fresh registration sees.
+	bodies := make([]map[string]string, 4)
+	for i := range bodies {
+		bodies[i] = h.registration(t, "a@example.com", goodPassword)
+	}
 
 	var wg sync.WaitGroup
 	codes := make([]int, 4)
@@ -299,7 +334,7 @@ func TestConcurrentRegistrationsOfOneAddressMakeOneAccount(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			codes[i] = h.do(t, "POST", "/v1/auth/register", body, nil).Code
+			codes[i] = h.do(t, "POST", "/v1/auth/register", bodies[i], nil).Code
 		}()
 	}
 	wg.Wait()
@@ -337,8 +372,7 @@ func TestRegistrationRefusesBadInput(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newIDHarness(t, true)
-			rec := h.do(t, "POST", "/v1/auth/register",
-				map[string]string{"email": tc.email, "password": tc.password}, nil)
+			rec := h.do(t, "POST", "/v1/auth/register", h.registration(t, tc.email, tc.password), nil)
 			if rec.Code != tc.status {
 				t.Fatalf("got %d, want %d: %s", rec.Code, tc.status, rec.Body)
 			}
@@ -381,8 +415,7 @@ func TestFirstRegisteredAccountIsAdmin(t *testing.T) {
 // all four failing cases answer in the same words.
 func TestLinkIsSingleUseAndPurposeBound(t *testing.T) {
 	h := newIDHarness(t, true)
-	h.do(t, "POST", "/v1/auth/register",
-		map[string]string{"email": "a@example.com", "password": goodPassword}, nil)
+	h.do(t, "POST", "/v1/auth/register", h.registration(t, "a@example.com", goodPassword), nil)
 	verifyToken := linkToken(t, h.mail.last(t).Body)
 
 	if got := h.do(t, "GET", "/v1/auth/verify?token="+verifyToken, nil, nil); got.Code != 200 {
@@ -419,8 +452,7 @@ func TestLinkIsSingleUseAndPurposeBound(t *testing.T) {
 // TestResendSupersedesTheLiveLink is AC-6 through the surface.
 func TestResendSupersedesTheLiveLink(t *testing.T) {
 	h := newIDHarness(t, true)
-	h.do(t, "POST", "/v1/auth/register",
-		map[string]string{"email": "a@example.com", "password": goodPassword}, nil)
+	h.do(t, "POST", "/v1/auth/register", h.registration(t, "a@example.com", goodPassword), nil)
 	first := linkToken(t, h.mail.last(t).Body)
 
 	if got := h.do(t, "POST", "/v1/auth/resend", map[string]string{"email": "a@example.com"}, nil); got.Code != 202 {
@@ -451,8 +483,7 @@ func TestSignInFailuresAreOneAnswer(t *testing.T) {
 	h.registerAndVerify(t, "live@example.com")
 
 	// An account registered but never verified.
-	h.do(t, "POST", "/v1/auth/register",
-		map[string]string{"email": "unverified@example.com", "password": goodPassword}, nil)
+	h.do(t, "POST", "/v1/auth/register", h.registration(t, "unverified@example.com", goodPassword), nil)
 
 	// A disabled one.
 	h.registerAndVerify(t, "disabled@example.com")
@@ -776,8 +807,7 @@ func TestPasswordResetEndsEverySession(t *testing.T) {
 	// A verify link presented to reset is refused in the same words as an
 	// unknown one. It comes from a second, still unverified account, because a
 	// verified one holds no live verification link to borrow.
-	h.do(t, "POST", "/v1/auth/register",
-		map[string]string{"email": "b@example.com", "password": goodPassword}, nil)
+	h.do(t, "POST", "/v1/auth/register", h.registration(t, "b@example.com", goodPassword), nil)
 	verifyToken := linkToken(t, h.mail.last(t).Body)
 	wrongPurpose := h.do(t, "POST", "/v1/auth/reset",
 		map[string]string{"token": verifyToken, "password": newPassword}, nil)
@@ -881,8 +911,7 @@ func TestMailFailureDoesNotFailTheRequest(t *testing.T) {
 	h := newIDHarness(t, true)
 	h.mail.fail = true
 
-	rec := h.do(t, "POST", "/v1/auth/register",
-		map[string]string{"email": "a@example.com", "password": goodPassword}, nil)
+	rec := h.do(t, "POST", "/v1/auth/register", h.registration(t, "a@example.com", goodPassword), nil)
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("got %d, want 202: %s", rec.Code, rec.Body)
 	}
@@ -898,8 +927,11 @@ func TestMailFailureDoesNotFailTheRequest(t *testing.T) {
 func TestNoMailerRefusesOnlyTheMailEndpoints(t *testing.T) {
 	h := newIDHarness(t, false)
 
+	// Registration carries a live invite, because the invite gate sits ahead of
+	// the mailer check: without one this endpoint would answer invite_invalid
+	// and never reach the case under test (spec 0015, Key invariants).
 	for _, tc := range []struct{ path, body string }{
-		{"/v1/auth/register", `{"email":"a@example.com","password":"a long enough password"}`},
+		{"/v1/auth/register", `{"invite":"` + h.invite(t) + `","email":"a@example.com","password":"a long enough password"}`},
 		{"/v1/auth/resend", `{"email":"a@example.com"}`},
 		{"/v1/auth/forgot", `{"email":"a@example.com"}`},
 	} {

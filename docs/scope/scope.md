@@ -56,7 +56,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | done |
 | 15 | Stranded deployment recovery | Slice 11 | done |
-| 16 | Invite only registration | Slice 12 | planned |
+| 16 | Invite only registration | Slice 12 | done |
 | 17 | Per account app cap | Slice 12 | planned |
 | 18 | Bounded app egress | Slice 12 | planned |
 | 19 | Account suspension | Slice 12 | planned |
@@ -332,10 +332,22 @@ The ordering is deliberate and it is not the usual tracer bullet shape. The publ
 
 Settled for these two slices, so no feature reopens them: the platform stays on your homelab cluster and is reached through a tunnel, so your home address never appears in DNS or a certificate; signup is invite only; there is no billing; apps become publicly reachable on the existing wildcard; egress is open outbound with the known abuse ports closed rather than deny by default; the domain stays `deploy.toyintest.org`; and the first months hold under ten people.
 
-### 16. Invite only registration · needs a decision
+### 16. Invite only registration · done
 Registration today accepts anyone who can open the page, which was safe only because reaching the page meant being on the tailnet. An invite becomes the thing that authorises an account, so opening the front door does not mean opening it to everyone.
 **Done when:** registration without a valid invite is refused with a closed reason code, an invite is single use and expires, you can issue and revoke invites from the admin page, spending one is recorded against the account it created, and the accounts that already exist are untouched.
-- [ ] Design it (spec): `/architect invite only registration`
+spec [0015](../specs/0015-invite-only-registration/index.md)
+- [x] Design it (spec): `/architect invite only registration`
+- [x] Build it: `/develop invite only registration`
+  - [x] The `00003` migration and the store layer: the `invites` table, its index, the queries and the adapter methods, purely additive — AC-12
+  - [x] The thin thread: the seven day lifetime, `invite_invalid` at 403, the check first in `Register`, and `SpendInviteAndCreateAccount` proving one invite from mint to account — AC-1, AC-3, AC-5, AC-11
+  - [x] The race and the taken address: the guarded update on the full live predicate, and the invite surviving an address that is spoken for — AC-4, AC-10
+  - [x] Both doors: `invite` on the JSON register, the hidden field, the referrer header, the bare page sentence, and a GET that never validates — AC-2, AC-16, AC-17, AC-18
+  - [x] The admin surface and the bootstrap: `/admin/invites` with mint, revoke and derived state, CSRF on both mutations, the startup mint, the audit rows and the leak crawl — AC-6 to AC-9, AC-13 to AC-15, AC-19
+code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/web/invites.go`, `internal/httpapi/inviteroutes.go`
+- [x] Verify it: `/check verify invite only registration`
+- [x] Test it: `/test invite only registration`
+- [x] Review it (fresh model): `/check review invite only registration`
+- [x] Document it: `/document invite only registration`
 
 ### 17. Per account app cap · Beta · needs a decision
 Nothing counts apps per account, so one account can create as many as the cluster will hold. Every quota built so far bounds what one app consumes, not how many an account may start. With under ten people this is about stopping one runaway account rather than sharing scarce capacity.

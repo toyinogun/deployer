@@ -74,4 +74,10 @@ var (
 	// ErrLinkInvalid covers an unknown, consumed, or expired single use email
 	// link, and one whose purpose does not match what it is being spent on.
 	ErrLinkInvalid = errors.New("store: link invalid")
+
+	// ErrInviteInvalid covers an unknown, spent, revoked, and expired
+	// registration invite. Deliberately indistinguishable, so a holder of a bad
+	// code cannot learn which kind they hold. It also comes back from the spend
+	// guard inside the account transaction, which is where a race is decided.
+	ErrInviteInvalid = errors.New("store: invite invalid")
 )

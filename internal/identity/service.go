@@ -68,7 +68,6 @@ type TokenView struct {
 // Store is the slice of persistence this package needs. internal/store satisfies
 // it through the adapter in that package.
 type Store interface {
-	CreateAccount(ctx context.Context, n NewAccount) (Account, error)
 	AccountByEmail(ctx context.Context, email string) (Account, error)
 	AccountByID(ctx context.Context, id string) (Account, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
@@ -81,6 +80,20 @@ type Store interface {
 
 	CreateLink(ctx context.Context, accountID, purpose, tokenHash string, expiresAt time.Time) error
 	ConsumeLink(ctx context.Context, tokenHash, purpose string) (accountID string, err error)
+
+	CreateInvite(ctx context.Context, n NewInvite) (id string, err error)
+	ListInvites(ctx context.Context) ([]InviteRow, error)
+	RevokeInvite(ctx context.Context, id string) error
+	LiveInvite(ctx context.Context, codeHash string) (id string, err error)
+	// SpendInviteAndCreateAccount owns both writes: it stamps the invite spent
+	// and inserts the account it created, in one transaction, and rolls both back
+	// on either failure. The two errors it can return have to survive this
+	// boundary rather than collapsing into one, because the layer above answers
+	// them differently: ErrInviteInvalid is a refusal the caller sees, and
+	// ErrEmailTaken is the case that must read exactly like a success.
+	SpendInviteAndCreateAccount(ctx context.Context, inviteID string, n NewAccount) (Account, error)
+	AnyAccountHasEmail(ctx context.Context) (bool, error)
+	AnyLiveBootstrapInvite(ctx context.Context) (bool, error)
 
 	MintToken(ctx context.Context, accountID, name, tokenHash, prefix string, expiresAt time.Time) (TokenView, error)
 	ListTokens(ctx context.Context, accountID string) ([]TokenView, error)
@@ -145,13 +158,30 @@ func NewService(s Store, m Mailer, c Clock, opts Options) *Service {
 // does any work.
 func (s *Service) Limits() *Limiter { return s.limits }
 
-// Register creates an account and mails it a verification link.
+// Register spends an invite, creates the account it authorised, and mails that
+// account a verification link.
 //
-// Registering an address that already has one is answered identically, and takes
-// comparable work: the password is hashed either way, the insert is attempted
-// either way, and one message is sent either way. What differs is only which
-// message the real owner of the address receives (AC-2).
-func (s *Service) Register(ctx context.Context, rawEmail, password, name string) error {
+// The invite lookup is the first statement, ahead of CheckEmail and
+// CheckPassword rather than merely ahead of the hash. A caller with no valid
+// invite is refused invite_invalid whatever else is wrong with their
+// submission, so the gate is never spoken past by a validation message and a
+// caller who holds nothing never costs the platform a key derivation (AC-1,
+// AC-11).
+//
+// Registering an address that already has an account is answered identically to
+// a fresh registration, and takes comparable work: the password is hashed either
+// way, the insert is attempted either way, and one message is sent either way.
+// What differs is only which message the real owner of the address receives, and
+// that the invite is not spent, because no account was created (AC-2, AC-10).
+func (s *Service) Register(ctx context.Context, invite, rawEmail, password, name string) error {
+	inviteID, err := s.store.LiveInvite(ctx, HashSecret(invite))
+	if errors.Is(err, ErrInviteInvalid) {
+		return Fail(CodeInviteInvalid, inviteRefusal)
+	}
+	if err != nil {
+		return err
+	}
+
 	email, err := CheckEmail(rawEmail)
 	if err != nil {
 		return err
@@ -168,15 +198,21 @@ func (s *Service) Register(ctx context.Context, rawEmail, password, name string)
 		return err
 	}
 
-	account, err := s.store.CreateAccount(ctx, NewAccount{
+	account, err := s.store.SpendInviteAndCreateAccount(ctx, inviteID, NewAccount{
 		Email:        email,
 		PasswordHash: hash,
 		DisplayName:  DisplayNameFor(name, email),
 	})
 	switch {
+	case errors.Is(err, ErrInviteInvalid):
+		// The invite ended between the lookup and the transaction: somebody else
+		// spent it, or an admin revoked it. The guard inside the transaction is
+		// what decides that, not the lookup above (AC-4, AC-5).
+		return Fail(CodeInviteInvalid, inviteRefusal)
 	case errors.Is(err, ErrEmailTaken):
-		// The address is spoken for. The only thing that happens differently is
-		// the message its real owner gets, which no caller can observe.
+		// The address is spoken for, so the transaction rolled back whole and the
+		// invite is still live. The only thing that happens differently is the
+		// message its real owner gets, which no caller can observe.
 		s.send(ctx, email, alreadyRegisteredSubject, alreadyRegisteredBody(s.baseURL))
 		return nil
 	case err != nil:

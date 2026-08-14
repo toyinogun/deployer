@@ -181,6 +181,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	}
 	identitySvc := identity.NewService(store.ForIdentity(st), mailerOrNil(sender), ids.SystemClock{},
 		identity.Options{PublicURL: cfg.PublicURL})
+	bootstrapInvite(ctx, identitySvc)
 
 	mux := http.NewServeMux()
 	httpapi.New(authenticator, as, uploadSvc, cfg.MaxUploadBytes).Register(mux)
@@ -222,6 +223,32 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		startReconciler(ctx, st, cfg, uploadSvc, cluster)
 	}
 	return mux
+}
+
+// bootstrapInvite gives an empty database a way in.
+//
+// Registration is invite only and only an admin can issue an invite, so a fresh
+// database has nobody who can let the first person in and the platform would be
+// permanently closed. This mints one invite and writes its link, but only when
+// nobody has registered and no live bootstrap invite is already outstanding, so
+// a restarting pod cannot leave several live ones behind (spec 0015, AC-13).
+//
+// This log line is one of exactly two places a raw invite code is ever allowed
+// to appear. It is a working credential in a pod log, which is understood: it
+// fires only on an empty database, and anyone reading these logs already has the
+// cluster. A failure here is a warning rather than a refusal to start, because
+// the platform still serves every existing account.
+func bootstrapInvite(ctx context.Context, svc *identity.Service) {
+	link, minted, err := svc.BootstrapInvite(ctx)
+	if err != nil {
+		slog.Warn("could not check whether this platform needs a bootstrap invite", "error", err)
+		return
+	}
+	if !minted {
+		return
+	}
+	slog.Info("this platform has no accounts, so it minted one invite to register the first one; "+
+		"it is single use and expires in seven days", "link", link)
 }
 
 // mailerOrNil keeps a nil sender nil through the interface, so the service sees

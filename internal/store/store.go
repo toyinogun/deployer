@@ -24,6 +24,17 @@ import (
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
 
+// MigrationCount is how many migrations the binary carries. It exists so a test
+// that has to roll the whole file back can ask rather than hardcode a number
+// that quietly stops matching the moment a migration is added.
+func MigrationCount() int {
+	files, err := fs.Glob(migrationsFS, "migrations/*.sql")
+	if err != nil {
+		panic("store: globbing the embedded migrations: " + err.Error())
+	}
+	return len(files)
+}
+
 // Store holds the open database and the clock every timestamp comes from.
 type Store struct {
 	db     *sql.DB

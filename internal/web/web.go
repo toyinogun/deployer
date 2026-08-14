@@ -125,6 +125,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/accounts/{id}/disable", s.adminDisable)
 	mux.HandleFunc("POST /admin/accounts/{id}/enable", s.adminEnable)
 	mux.HandleFunc("POST /admin/accounts/{id}/tokens/{tokenId}/revoke", s.adminRevokeToken)
+
+	mux.HandleFunc("GET /admin/invites", s.adminInvitesPage)
+	mux.HandleFunc("POST /admin/invites", s.adminInviteMint)
+	mux.HandleFunc("POST /admin/invites/{id}/revoke", s.adminInviteRevoke)
 }
 
 // root sends a visitor to the one page that is useful to them: the app list with

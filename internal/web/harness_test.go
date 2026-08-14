@@ -283,15 +283,42 @@ func (h *harness) post(t *testing.T, path string, form url.Values, cookie *http.
 	return rec
 }
 
+// invite mints one live invite straight through the store and returns the raw
+// code. Registration is invite only, and only an admin can issue one, so this is
+// how a test gets the first person through the door: the same pair of writes the
+// boot time bootstrap makes on an empty database (spec 0015, AC-13).
+func (h *harness) invite(t *testing.T) string {
+	t.Helper()
+	raw, err := identity.NewSecret()
+	if err != nil {
+		t.Fatalf("drawing an invite code: %v", err)
+	}
+	if _, err := h.store.CreateInvite(t.Context(), store.NewInvite{
+		CodeHash:  identity.HashSecret(raw),
+		ExpiresAt: ids.Stamp(h.clock.Now().Add(identity.InviteLifetime)),
+	}); err != nil {
+		t.Fatalf("minting an invite: %v", err)
+	}
+	return raw
+}
+
+// registration is one registration form carrying a fresh invite, which every
+// successful registration now needs (spec 0015, AC-1).
+func (h *harness) registration(t *testing.T, email string) url.Values {
+	t.Helper()
+	return url.Values{
+		"invite": {h.invite(t)}, "email": {email},
+		"password": {testPassword}, "display_name": {"Someone"},
+	}
+}
+
 // signIn walks an address from nothing to a live session over the pages
 // themselves: register, click the mailed link, sign in. The first account the
 // platform ever registers is its administrator, so the caller controls who is
 // admin by the order it signs people in.
 func (h *harness) signIn(t *testing.T, email string) *http.Cookie {
 	t.Helper()
-	if rec := h.post(t, "/register", url.Values{
-		"email": {email}, "password": {testPassword}, "display_name": {"Someone"},
-	}, nil, nil); rec.Code != http.StatusOK {
+	if rec := h.post(t, "/register", h.registration(t, email), nil, nil); rec.Code != http.StatusOK {
 		t.Fatalf("registering %s: got %d, want 200", email, rec.Code)
 	}
 	token := linkToken(t, h.mail.latest(t))

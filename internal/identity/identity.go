@@ -27,6 +27,10 @@ const (
 	// CodePasswordTooShort means the password was under the minimum length. It is
 	// the only composition rule there is.
 	CodePasswordTooShort Code = "password_too_short"
+	// CodeNoteTooLong means an invite's note was over NoteLimit characters. It is
+	// its own code rather than CodeEmailInvalid because the code is what a caller
+	// branches on, and no address was involved.
+	CodeNoteTooLong Code = "note_too_long"
 	// CodeCredentialsInvalid covers a wrong password, an unknown address, and a
 	// disabled account alike. They are deliberately indistinguishable.
 	CodeCredentialsInvalid Code = "credentials_invalid"
@@ -37,6 +41,14 @@ const (
 	// CodeLinkInvalid covers unknown, spent, expired, and wrong purpose links, in
 	// the same words for all four.
 	CodeLinkInvalid Code = "link_invalid"
+	// CodeInviteInvalid covers a missing, unknown, spent, revoked and expired
+	// registration invite, in the same words for all five.
+	//
+	// It is a 403 rather than the 400 CodeLinkInvalid carries, because this is an
+	// authorisation decision about whether the caller may register at all rather
+	// than a statement that their input was malformed. The closest existing
+	// pairing is CodeAdminRequired, which is also a 403.
+	CodeInviteInvalid Code = "invite_invalid"
 	// CodeAdminRequired means a live session that is not an admin's.
 	CodeAdminRequired Code = "admin_required"
 	// CodeTokenNameTaken means the account already holds a live token by that name.
@@ -91,6 +103,10 @@ const (
 	SessionLifetime = 30 * 24 * time.Hour
 	// LinkLifetime is how long a verification or reset link stays spendable.
 	LinkLifetime = 24 * time.Hour
+	// InviteLifetime is how long a registration invite stays spendable. Longer
+	// than a link because it is handed over by a person rather than mailed by the
+	// platform, and short enough that a forwarded one stops working on its own.
+	InviteLifetime = 7 * 24 * time.Hour
 	// MinTokenDays and MaxTokenDays bound a requested API token lifetime.
 	MinTokenDays = 1
 	MaxTokenDays = 365

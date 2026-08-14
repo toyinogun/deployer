@@ -1,0 +1,79 @@
+{{define "title"}}Invites{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>Invites</h1>
+  <p class="sub">Registration here is by invitation. Each link creates one account and stops working after seven days.</p>
+</header>
+
+{{if .Data.Minted}}
+{{/* The one and only time this link exists outside the clipboard it is about to
+     land in. It is in this response body and nowhere else: not in the database,
+     not in a later render, not in a log line (AC-6, AC-14). */}}
+<div class="card minted" role="alert">
+  <h2>Copy this invite link now</h2>
+  <p>This is the only time {{if .Data.MintedNote}}the link for <strong>{{.Data.MintedNote}}</strong>{{else}}this link{{end}} will be shown. Once you leave this page it cannot be shown again.</p>
+  <div class="copy-row">
+    <code class="token" id="minted-invite">{{.Data.Minted}}</code>
+    <button class="button" type="button" data-copy="minted-invite">Copy</button>
+  </div>
+  <p><a class="button secondary" href="/admin/invites">Done</a></p>
+</div>
+{{end}}
+
+{{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+
+<section class="card mint-card" aria-labelledby="mint-head">
+  <h2 id="mint-head">Issue an invite</h2>
+  <form method="post" action="/admin/invites" class="stack">
+    <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
+    <div class="field">
+      <label for="note">Note <span class="quiet">(optional)</span></label>
+      <input id="note" name="note" type="text" maxlength="200" placeholder="for Sam, from the meetup">
+      <p class="hint">Who you are sending it to, so you know which to revoke later. At most 200 characters.</p>
+    </div>
+    <button class="button" type="submit">Issue invite</button>
+  </form>
+</section>
+
+<section class="card" aria-labelledby="list-head">
+  <h2 id="list-head">Issued invites</h2>
+  {{if .Data.Invites}}
+  <table class="rows compact">
+    <thead>
+      <tr>
+        <th scope="col">Note</th>
+        <th scope="col">Issued by</th>
+        <th scope="col">Expires</th>
+        <th scope="col">State</th>
+        <th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody class="stagger">
+      {{range .Data.Invites}}
+      <tr>
+        <th scope="row" data-label="Note">{{if .Note}}{{.Note}}{{else}}<span class="quiet">no note</span>{{end}}</th>
+        <td data-label="Issued by">{{.IssuedBy}}</td>
+        <td data-label="Expires">{{when .ExpiresAt}}</td>
+        <td data-label="State">
+          {{if eq .State "live"}}<span class="badge">live</span>
+          {{else if eq .State "spent"}}<span class="badge quiet-badge">spent by {{.SpentBy}}</span>
+          {{else if eq .State "revoked"}}<span class="badge danger-badge">revoked</span>
+          {{else}}<span class="badge warn">expired</span>{{end}}
+        </td>
+        <td data-label="Actions" class="row-actions">
+          {{if eq .State "live"}}
+          <form method="post" action="/admin/invites/{{.ID}}/revoke">
+            <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+            <button class="button danger small" type="submit">Revoke</button>
+          </form>
+          {{end}}
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="empty-line">No invites yet. Issue one to let somebody join.</p>
+  {{end}}
+</section>
+{{end}}

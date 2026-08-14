@@ -20,23 +20,6 @@ func ForIdentity(s *Store) IdentityStore { return IdentityStore{s: s} }
 // Compile time proof that the adapter is what internal/identity asked for.
 var _ identity.Store = IdentityStore{}
 
-// CreateAccount registers a person, translating the losing insert into the
-// sentinel identity branches on.
-func (a IdentityStore) CreateAccount(ctx context.Context, n identity.NewAccount) (identity.Account, error) {
-	acc, err := a.s.CreateIdentityAccount(ctx, NewIdentityAccount{
-		Email:        n.Email,
-		PasswordHash: n.PasswordHash,
-		DisplayName:  n.DisplayName,
-	})
-	if errors.Is(err, ErrEmailTaken) {
-		return identity.Account{}, identity.ErrEmailTaken
-	}
-	if err != nil {
-		return identity.Account{}, err
-	}
-	return toIdentityAccount(acc), nil
-}
-
 // AccountByEmail reads one account by its address.
 func (a IdentityStore) AccountByEmail(ctx context.Context, email string) (identity.Account, error) {
 	acc, err := a.s.GetAccountByEmail(ctx, email)
@@ -132,6 +115,100 @@ func (a IdentityStore) ConsumeLink(ctx context.Context, tokenHash, purpose strin
 		return "", err
 	}
 	return tok.AccountID, nil
+}
+
+// CreateInvite mints one invite and returns its id.
+func (a IdentityStore) CreateInvite(ctx context.Context, n identity.NewInvite) (string, error) {
+	inv, err := a.s.CreateInvite(ctx, NewInvite{
+		CodeHash:  n.CodeHash,
+		Note:      n.Note,
+		CreatedBy: n.CreatedBy,
+		ExpiresAt: ids.Stamp(n.ExpiresAt),
+	})
+	if err != nil {
+		return "", err
+	}
+	return inv.ID, nil
+}
+
+// ListInvites reads every invite, newest first. The hash on the row never
+// crosses this boundary: the shape the identity package declared has no field
+// for it, so one cannot leak by being forgotten.
+func (a IdentityStore) ListInvites(ctx context.Context) ([]identity.InviteRow, error) {
+	rows, err := a.s.ListInvites(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]identity.InviteRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, identity.InviteRow{
+			ID:           r.ID,
+			Note:         deref(r.Note),
+			IssuerName:   deref(r.IssuerName),
+			SpenderEmail: deref(r.SpenderEmail),
+			ExpiresAt:    r.ExpiresAt,
+			ConsumedAt:   deref(r.ConsumedAt),
+			RevokedAt:    deref(r.RevokedAt),
+			CreatedAt:    r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
+// RevokeInvite pulls a live invite back. One already spent or expired is not
+// found, because the guard carries the same live predicate the spend does.
+func (a IdentityStore) RevokeInvite(ctx context.Context, id string) error {
+	if err := a.s.RevokeInvite(ctx, id); err != nil {
+		return mapNotFound(err)
+	}
+	return nil
+}
+
+// LiveInvite resolves a code hash to the invite it names, and only while that
+// invite is live.
+func (a IdentityStore) LiveInvite(ctx context.Context, codeHash string) (string, error) {
+	inv, err := a.s.LiveInvite(ctx, codeHash)
+	if errors.Is(err, ErrInviteInvalid) {
+		return "", identity.ErrInviteInvalid
+	}
+	if err != nil {
+		return "", err
+	}
+	return inv.ID, nil
+}
+
+// SpendInviteAndCreateAccount stamps the invite spent and writes the account it
+// created, in one transaction. The account id is drawn here, before the
+// transaction opens, so the guarded update and the insert can name each other.
+func (a IdentityStore) SpendInviteAndCreateAccount(ctx context.Context, inviteID string,
+	n identity.NewAccount,
+) (identity.Account, error) {
+	accountID := ids.New(ids.Account, a.s.clock.Now())
+	acc, err := a.s.SpendInviteAndCreateAccount(ctx, inviteID, accountID, NewIdentityAccount{
+		Email:        n.Email,
+		PasswordHash: n.PasswordHash,
+		DisplayName:  n.DisplayName,
+	})
+	switch {
+	case errors.Is(err, ErrInviteInvalid):
+		return identity.Account{}, identity.ErrInviteInvalid
+	case errors.Is(err, ErrEmailTaken):
+		return identity.Account{}, identity.ErrEmailTaken
+	case err != nil:
+		return identity.Account{}, err
+	}
+	return toIdentityAccount(acc), nil
+}
+
+// AnyAccountHasEmail reports whether a person has ever registered.
+func (a IdentityStore) AnyAccountHasEmail(ctx context.Context) (bool, error) {
+	return a.s.AnyAccountHasEmail(ctx)
+}
+
+// AnyLiveBootstrapInvite reports whether the platform already minted itself a
+// way in that nobody has spent.
+func (a IdentityStore) AnyLiveBootstrapInvite(ctx context.Context) (bool, error) {
+	return a.s.AnyLiveBootstrapInvite(ctx)
 }
 
 // MintToken stores an API token as its hash plus a non secret prefix. A name the

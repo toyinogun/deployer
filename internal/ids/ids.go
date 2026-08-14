@@ -29,6 +29,9 @@ const (
 	// Added by spec 0007, accounts and API tokens.
 	Session    Prefix = "ses"
 	EmailToken Prefix = "eml"
+
+	// Added by spec 0015, invite only registration.
+	Invite Prefix = "inv"
 )
 
 // entropy is monotonic so two ids drawn in the same millisecond still differ and

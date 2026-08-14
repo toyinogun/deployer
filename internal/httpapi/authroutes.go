@@ -13,16 +13,21 @@ import (
 // account, because any difference is a way to ask whether somebody is registered.
 const checkYourMail = "check your email for the next step"
 
-// register creates an account and mails it a verification link.
+// register spends an invite, creates the account it authorised, and mails that
+// account a verification link.
 //
 // The answer is a 202 with this body whether or not the address was free, and it
-// costs a full password hash either way (AC-2).
+// costs a full password hash either way (AC-2). A caller with no valid invite is
+// refused before any of that, in the same words and with the same status the
+// page surface answers with, because both call the one service method that holds
+// the check (spec 0015, AC-1, AC-2).
 func (i *Identity) register(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if !i.spend(w, r) {
 		return
 	}
 	var body struct {
+		Invite   string `json:"invite"`
 		Email    string `json:"email"`
 		Password string `json:"password"`
 		Name     string `json:"name"`
@@ -30,7 +35,7 @@ func (i *Identity) register(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if err := i.svc.Register(ctx, body.Email, body.Password, body.Name); err != nil {
+	if err := i.svc.Register(ctx, body.Invite, body.Email, body.Password, body.Name); err != nil {
 		i.fail(ctx, w, err)
 		return
 	}

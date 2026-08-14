@@ -97,9 +97,7 @@ func TestSignInFollowsNextOnlyWhenItIsLocal(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t, nil)
 			email := "next@example.test"
-			if rec := h.post(t, "/register", url.Values{
-				"email": {email}, "password": {testPassword},
-			}, nil, nil); rec.Code != http.StatusOK {
+			if rec := h.post(t, "/register", h.registration(t, email), nil, nil); rec.Code != http.StatusOK {
 				t.Fatalf("registering: got %d", rec.Code)
 			}
 			if rec := h.get(t, "/verify?token="+url.QueryEscape(linkToken(t, h.mail.latest(t))),
@@ -368,6 +366,7 @@ func TestStatusForPairsEachRefusalWithOneStatus(t *testing.T) {
 	}{
 		{identity.CodeEmailInvalid, http.StatusUnprocessableEntity},
 		{identity.CodePasswordTooShort, http.StatusUnprocessableEntity},
+		{identity.CodeNoteTooLong, http.StatusUnprocessableEntity},
 		{identity.CodeCredentialsInvalid, http.StatusUnauthorized},
 		{identity.CodeEmailUnverified, http.StatusForbidden},
 		{identity.CodeAdminRequired, http.StatusForbidden},

@@ -12,9 +12,7 @@ import (
 // mailed.
 func register(t *testing.T, h *harness, email string) string {
 	t.Helper()
-	rec := h.post(t, "/register", url.Values{
-		"email": {email}, "password": {testPassword}, "display_name": {"Someone"},
-	}, nil, nil)
+	rec := h.post(t, "/register", h.registration(t, email), nil, nil)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("registering %s: got %d, want 200", email, rec.Code)
 	}
@@ -61,12 +59,11 @@ func TestWrongCredentialsReRenderTheFormWithOneGenericMessage(t *testing.T) {
 func TestRegisteringAnAddressThatExistsLooksIdentical(t *testing.T) {
 	h := newHarness(t, nil)
 
-	first := h.post(t, "/register", url.Values{
-		"email": {"dup@example.test"}, "password": {testPassword},
-	}, nil, nil)
-	second := h.post(t, "/register", url.Values{
-		"email": {"dup@example.test"}, "password": {testPassword},
-	}, nil, nil)
+	// A fresh invite each time: two people each holding their own, both typing
+	// the same address. The second one's invite is not spent, because no account
+	// was created (spec 0015, AC-10).
+	first := h.post(t, "/register", h.registration(t, "dup@example.test"), nil, nil)
+	second := h.post(t, "/register", h.registration(t, "dup@example.test"), nil, nil)
 
 	if first.Code != second.Code {
 		t.Errorf("a new address gets %d and a duplicate gets %d, want the same", first.Code, second.Code)
