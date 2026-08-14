@@ -391,7 +391,7 @@ spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/susp
   - [x] The in flight case: the reconcile drive checking suspension at every phase boundary and ending the row with the reason code, build Job deleted — AC-14
   - [x] The surfaces and the leftovers: both admin routes through the one use case, the Suspend and Restore wording, the partial stop message, and the checks that nothing expires and no migration was added — AC-17, AC-18, AC-19, AC-20, AC-21, AC-23
 - [ ] Verify it: `/check verify account suspension`
-- [ ] Test it: `/test account suspension`
+- [x] Test it: `/test account suspension`
 - [ ] Review it (fresh model): `/check review account suspension`
 - [ ] Document it: `/document account suspension`
 

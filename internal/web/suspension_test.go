@@ -72,10 +72,96 @@ func TestAPartialStopIsRenderedRatherThanRedirected(t *testing.T) {
 	if !strings.Contains(got.Body.String(), app.Slug) {
 		t.Errorf("the page does not name the app that did not stop: %s", got.Body.String())
 	}
+	// Suspending is the direction something really does retry: the sweep scales a
+	// suspended account's apps down on every tick, so the promise is true here.
+	if !strings.Contains(got.Body.String(), "The platform keeps retrying on its own.") {
+		t.Errorf("a partial stop does not say the sweep keeps trying: %s", got.Body.String())
+	}
 	// The lockout landed anyway, which is the invariant the message exists to
 	// report rather than to qualify.
 	if got := h.get(t, "/apps", victim); got.Code != http.StatusSeeOther {
 		t.Errorf("a partial stop left the suspended account's session alive: /apps got %d", got.Code)
+	}
+}
+
+// TestAPartialRestoreNeverPromisesARetry is the other direction of the same
+// message, and the two are not symmetrical. The sweep only ever scales down, by
+// AC-8, and restore is the single caller that scales up, so nothing retries a
+// restore that half worked. Telling an admin the platform is handling it is how
+// an app stays down with nobody watching. covers: AC-6, AC-8
+func TestAPartialRestoreNeverPromisesARetry(t *testing.T) {
+	h := newHarness(t, nil)
+	admin := h.signIn(t, "first@example.test")
+	victim := h.signIn(t, "second@example.test")
+	target := h.accountID(t, victim)
+	app := h.deployedApp(t, target, "stubborn")
+
+	// Suspend cleanly first, so the refusal below is the restore's alone.
+	if got := h.post(t, "/admin/accounts/"+target+"/disable", url.Values{
+		"confirm_email": {"second@example.test"}, "csrf": {h.csrfFor(t, admin)},
+	}, admin, nil); got.Code != http.StatusSeeOther {
+		t.Fatalf("suspending: got %d, want 303: %s", got.Code, got.Body)
+	}
+	h.scaler.refuse[deploy.NamespaceName(app.Slug)] = true
+
+	got := h.post(t, "/admin/accounts/"+target+"/enable", url.Values{
+		"csrf": {h.csrfFor(t, admin)},
+	}, admin, nil)
+
+	if got.Code != http.StatusOK {
+		t.Fatalf("a partial restore: got %d, want 200 with a message", got.Code)
+	}
+	body := got.Body.String()
+	if !strings.Contains(body, app.Slug) {
+		t.Errorf("the page does not name the app that did not start again: %s", body)
+	}
+	if strings.Contains(body, "keeps retrying") {
+		t.Errorf("a partial restore promises a retry that nothing performs: %s", body)
+	}
+	if !strings.Contains(body, "Restore it again to retry.") {
+		t.Errorf("a partial restore does not tell the admin how to retry it: %s", body)
+	}
+}
+
+// TestPartialMessageSaysWhatHappensNextPerDirection pins both sentences and the
+// list they carry. The wording is the whole point of the function: the two
+// directions differ in what happens next, so a change that makes them read alike
+// is a regression even though the page still renders.
+func TestPartialMessageSaysWhatHappensNextPerDirection(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		suspending bool
+		slugs      []string
+		want       string
+	}{
+		{
+			name:       "suspending names the sweep, which really does retry",
+			suspending: true,
+			slugs:      []string{"one-abc123"},
+			want:       "The account is suspended, but these apps did not stop: one-abc123. The platform keeps retrying on its own.",
+		},
+		{
+			name:       "restoring points back at the control, because nothing else will",
+			suspending: false,
+			slugs:      []string{"one-abc123"},
+			want:       "The account is restored, but these apps did not start again: one-abc123. Restore it again to retry.",
+		},
+		{
+			name:       "every refused app is named, comma separated",
+			suspending: true,
+			slugs:      []string{"one-abc123", "two-def456", "three-ghi789"},
+			want: "The account is suspended, but these apps did not stop: " +
+				"one-abc123, two-def456, three-ghi789. The platform keeps retrying on its own.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := partialMessage(tt.suspending, tt.slugs); got != tt.want {
+				t.Errorf("partialMessage(%t, %v)\n got: %s\nwant: %s", tt.suspending, tt.slugs, got, tt.want)
+			}
+		})
 	}
 }
 

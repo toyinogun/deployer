@@ -11,22 +11,22 @@ admin page mid run is the one way to strand this.
 - [x] Suspend the account from the admin page, then `kubectl -n app-<slug> get deploy` for each of its apps → `READY 0/0`, `UP-TO-DATE 0` → AC-3
 - [x] `kubectl -n app-<slug> get svc,ingress,secret,networkpolicy` after the suspension → every object still present, unchanged → AC-22
 - [x] `curl -s -o /dev/null -w '%{http_code}' https://<slug>.deploy.toyintest.org` → the ingress answer with no pods behind it, and the hostname still resolves → AC-22
-- [ ] `SELECT disabled_at FROM accounts WHERE id = ?` → stamped; `SELECT COUNT(*) FROM sessions WHERE account_id = ? AND revoked_at IS NULL` → 0 → AC-2
+- [x] `SELECT disabled_at FROM accounts WHERE id = ?` → stamped; `SELECT COUNT(*) FROM sessions WHERE account_id = ? AND revoked_at IS NULL` → 0 → AC-2
 - [x] Call any MCP tool with that account's token → `account_suspended: <the static line>`, delivered as a tool result the client reports as a tool error, not as an HTTP 401 and not as a dropped connection → AC-9, AC-10
 - [x] Watch the same call at the HTTP level (`curl -i` against the MCP endpoint with the suspended token) → the response is a normal 200 JSON-RPC body carrying the error result, not a 401 → AC-9
-- [ ] After that refusal, check `apps`, `deployments`, and `uploads` → no new row of any kind → AC-9
+- [x] After that refusal, check `apps`, `deployments`, and `uploads` → no new row of any kind → AC-9
 - [x] `curl -X POST -H "Authorization: Bearer <suspended token>" <upload endpoint>` → 403 with `account_suspended` in the body → AC-11
 - [ ] Repeat with a made up token, a revoked token, and an expired token → all three answer 401 unauthorized, indistinguishable from each other → AC-12
-- [ ] `SELECT action, outcome, reason, target_type, target_id FROM audit_log ORDER BY id DESC LIMIT 5` after suspending → one `admin` row against the account plus one row per app stopped, all with reason `suspend` → AC-16
+- [x] `SELECT action, outcome, reason, target_type, target_id FROM audit_log ORDER BY id DESC LIMIT 5` after suspending → one `admin` row against the account plus one row per app stopped, all with reason `suspend` → AC-16
 - [x] Restore from the admin page, then `kubectl -n app-<slug> get deploy` → `READY 1/1` on each app → AC-4
-- [ ] `SELECT COUNT(*) FROM deployments WHERE app_id = ?` and `SELECT COUNT(*) FROM releases WHERE app_id = ?` before and after the restore → both unchanged, and `kubectl -n app-<slug> get deploy -o jsonpath='{..image}'` is the same digest → AC-4
+- [x] `SELECT COUNT(*) FROM deployments WHERE app_id = ?` and `SELECT COUNT(*) FROM releases WHERE app_id = ?` before and after the restore → both unchanged, and `kubectl -n app-<slug> get deploy -o jsonpath='{..image}'` is the same digest → AC-4
 - [x] `kubectl get jobs -n <build namespace>` during the restore → no build Job was created → AC-4
 - [x] Suspend, then `kubectl -n app-<slug> scale deploy <workload> --replicas=1` by hand, wait one `DEPLOYER_RECONCILE_INTERVAL` → back to 0 → AC-7, AC-8
 - [x] With that account suspended, confirm an unrelated active account's apps stay at 1 replica across several ticks → AC-8
-- [ ] Delete an app namespace by hand, then suspend and restore → both succeed, and the log names the missing workload rather than erroring → AC-5
+- [x] Delete an app namespace by hand, then suspend and restore → both succeed, and the log names the missing workload rather than erroring → AC-5
 - [x] Suspend, wait for a sweep tick to start, and restore during it (repeat a few times if the window is tight) → the app ends at 1 replica and stays there → AC-24
-- [ ] Start a deploy, let it reach the building phase, then suspend the account → the deployment ends `failed` with `failure_reason = 'account_suspended'`, and `kubectl get jobs -n <build namespace>` shows its Job gone → AC-14
-- [ ] `SELECT COUNT(*) FROM releases WHERE app_id = ?` after that → unchanged, so nothing was promoted → AC-14
+- [x] Start a deploy, let it reach the building phase, then suspend the account → the deployment ends `failed` with `failure_reason = 'account_suspended'`, and `kubectl get jobs -n <build namespace>` shows its Job gone → AC-14
+- [x] `SELECT COUNT(*) FROM releases WHERE app_id = ?` after that → unchanged, so nothing was promoted → AC-14
 - [x] Leave the account suspended for longer than one reconcile interval and re check → still suspended, apps still at 0, nothing restored it → AC-21
 - [x] `delete_app` on a suspended account's app, as the admin through the database or after a restore → the app deletes and the reaper removes its namespace on schedule → AC-23
 - [x] `git log --stat` on this change → no file added under `internal/store/migrations/`; run the previous image against the same database and confirm it starts → AC-1
@@ -38,9 +38,9 @@ admin page mid run is the one way to strand this.
 - [x] Type the wrong address into the confirmation → nothing changes, the apps keep serving, and the message says the address did not match → AC-18
 - [x] Break one app's namespace first (delete the Deployment, keep the namespace), then suspend → the account is suspended and the page names that app as not stopped → AC-6
 - [x] Sign in as the suspended person → the same answer a wrong password gives, with no hint the account exists or is suspended → AC-13
-- [ ] Suspend a second admin account → allowed; try to suspend your own row → refused, and the control is absent from your row → AC-17
+- [x] Suspend a second admin account → allowed; try to suspend your own row → refused, and the control is absent from your row → AC-17
 - [x] Suspend through the JSON admin route instead of the page → the same apps stop and the same audit rows appear → AC-19
-- [ ] Open the failed deployment from step 14 on the app page → it renders a plain sentence, not the raw code → AC-15
+- [x] Open the failed deployment from step 14 on the app page → it renders a plain sentence, with the code beside it in `<code class="reason-code">` as every reason does → AC-15
 - [x] Sign in as an ordinary account and POST to both admin routes → refused `admin_required` → AC-17
 
 ## Value sourcing coverage
@@ -48,7 +48,7 @@ admin page mid run is the one way to strand this.
 One step per row of the spec's Value sourcing table, exercising the edge that
 breaks if the source is wrong.
 
-- [ ] Give the account an app that has never deployed successfully (no `current_release_id`), then suspend and restore → it is skipped both ways with no error and no audit row, proving the live app predicate → AC-3
+- [x] Give the account an app that has never deployed successfully (no `current_release_id`), then suspend and restore → it is skipped both ways with no error and no audit row, proving the live app predicate → AC-3
 - [ ] Soft delete an app, then suspend → the deleted app is not scaled and not audited, proving `deleted_at IS NULL` is in the query → AC-3
 - [x] Restore and read the Deployment's replica count → exactly 1, the same number a fresh deploy composes, proving the shared constant → AC-4
 - [x] Suspend with two apps where one namespace is unreachable → the reachable one still stops, proving failures are collected rather than returned on the first → AC-6
@@ -62,14 +62,14 @@ Steps the implementation makes checkable that the design could not name yet.
 ### Commands
 
 - [x] `go test -race ./internal/suspend/ ./internal/kube/ ./internal/reconcile/ ./internal/mcp/ ./internal/auth/` → green; these hold the sweep re-read, the missing Deployment case, the mid build suspension, and the wire level refusal → AC-5, AC-9, AC-14, AC-24
-- [ ] `git log --oneline --name-only | grep internal/store/migrations` → nothing from this change, and `SELECT MAX(version_id) FROM goose_db_version` on the live database still reads 3 → AC-1
+- [x] `git log --oneline --name-only | grep internal/store/migrations` → nothing from this change, and `SELECT MAX(version_id) FROM goose_db_version` on the live database still reads 3 → AC-1
 - [x] `kubectl -n app-<slug> get deploy app -o jsonpath='{.spec.replicas}'` right after a suspend → `0`; after a restore → `1` → AC-3, AC-4
 - [x] `kubectl -n app-<slug> get ingress,svc,secret,networkpolicy` after a suspend → all still present and unchanged → AC-22
 
 ### On the cluster
 
 - [x] Suspend, then `kubectl -n app-<slug> scale deploy app --replicas=1` by hand → within one `DEPLOYER_RECONCILE_INTERVAL_SECONDS` tick it is back at 0, and the platform log carries no error → AC-7, AC-8
-- [ ] While a real build is running (watch for the build Job), suspend the owning account → the deployment ends `failed` with `account_suspended`, its build Job is gone, and no release was minted → AC-14
+- [x] While a real build is running (watch for the build Job), suspend the owning account → the deployment ends `failed` with `account_suspended`, its build Job is gone, and no release was minted → AC-14
 - [x] Restore an account while a sweep tick is in flight (restore repeatedly during one interval) → the apps come up and stay up → AC-24
 - [x] With a suspended account's token: `curl -sD- -X POST $DEPLOYER_PUBLIC_URL/v1/uploads -H "Authorization: Bearer $TOKEN" --data-binary @app.tar.gz` → `403` with `account_suspended`, not `401` → AC-11
 - [x] Same token against `/mcp` from a real agent → the tool answers `account_suspended` as a tool result and the connection stays open, rather than the client reporting a transport failure → AC-9, AC-10
@@ -129,3 +129,56 @@ Left unproved: everything needing the SQLite file (AC-16 audit rows, AC-2's
 `disabled_at` stamp, AC-4's deployment and release counts, AC-9's no rows
 written, AC-1's goose version), plus the expired token shape of AC-12 and the
 failed deployment's rendered sentence, AC-15.
+
+## What the re run on 2026-08-15 found
+
+Driven against the real cluster on branch image `sha256:955bd91a`, target account
+`rbverify`, with the SQLite file read three times through a pod on the
+`deployer-data` volume. All three `/debug` fixes hold at runtime:
+
+- **AC-5 holds.** Deleted `app-digesttwo-8hnpx6` outright, then suspended. The
+  other app went to zero, the vanished one was audited as stopped, and the
+  platform log carried **no ERROR line in fifty seconds**, where the same case
+  produced thirty seven a minute before the fix.
+- **AC-14 holds, to the second.** A real build was running when the suspension
+  landed at `22:17:21`. The deployment's `finished_at` is
+  `22:17:21.693`, `failure_reason` is `account_suspended`, its build Job was gone
+  within five seconds, and the app's release count stayed at 2. Before the fix
+  this deployment stayed in `building` for more than three minutes.
+- **The restore wording is right in the code and still unproved at runtime.**
+  Forcing a partial restore needs a scale that fails inside a live namespace, and
+  the only lever for that (deleting the app namespace's RoleBinding) is refused
+  here. `/test` closed the other half the same day: both sentences are now pinned
+  by `internal/web/suspension_test.go`, at the page level through a refusing
+  scaler and directly on `partialMessage` per direction.
+
+Also proved this run: AC-1 (`goose_db_version` still 3), AC-2 (`disabled_at`
+stamped, no live session), AC-16 (one account row plus one row per app, both
+directions), AC-17 (a direct form post on your own row answers 422 and leaves the
+session intact, a second admin suspends normally), AC-18 (a mismatch is audited
+`suspend: confirmation_mismatch` and changes nothing), AC-9 (row counts moved by
+exactly the one upload and one deployment the run itself created, so the refused
+calls wrote nothing), and AC-3's live app predicate (an app with a failed build
+and no release is absent from the audit rows entirely).
+
+AC-15 is met, but the step's wording was wrong. The page renders
+`Stopped because this account was suspended.` **and** the code beside it, because
+`_partials.html` renders `{{.Sentence}} <code class="reason-code">{{.Code}}</code>`
+for every reason and `internal/web/apps_test.go:249` asserts the code is present.
+The spec only asks that a plain sentence exists, which it does.
+
+Still owed, both needing a permission this run did not have:
+
+- **AC-12's expired token.** The tokens page enforces `min=1` on `expires_days`,
+  so an already expired token cannot be minted through any surface; it needs a
+  write to `api_tokens`. The other two shapes match exactly: a made up and a
+  revoked token both answer `401 {"error":"unauthorized"}`, byte identical.
+- **AC-3's soft deleted app.** `delete_app` is refused by the permission
+  classifier here, so `deleted_at IS NULL` in the query is still only proved by
+  its unit test.
+
+One unrelated thing seen in passing: the first `POST /v1/auth/login` with wrong
+credentials answered `{"code":"credentials_invalid","message":"sign in first"}`,
+and an identical retry answered the proper
+`that email address and password do not match an account`. One case, two
+sentences, the first of which is not about the caller's mistake.
