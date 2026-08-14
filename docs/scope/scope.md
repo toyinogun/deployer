@@ -392,7 +392,7 @@ spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/susp
   - [x] The surfaces and the leftovers: both admin routes through the one use case, the Suspend and Restore wording, the partial stop message, and the checks that nothing expires and no migration was added — AC-17, AC-18, AC-19, AC-20, AC-21, AC-23
 - [ ] Verify it: `/check verify account suspension`
 - [x] Test it: `/test account suspension`
-- [ ] Review it (fresh model): `/check review account suspension`
+- [x] Review it (fresh model): `/check review account suspension` — reviewed on sonnet, approve with nits
 - [ ] Document it: `/document account suspension`
 
 ### 20. Open internet hardening: login CSRF & control plane policy · needs a decision
