@@ -1,7 +1,7 @@
 # 0013. Web interface: server rendered pages over the identity and app surfaces
 
 **Date**: 2026-08-13
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
@@ -225,7 +225,7 @@ Ordered as a **Tracer Bullet**, because that is the project's approach: task 1 p
 10. [x] The tokens page, mint with the one time panel and copy control, and revoke. Satisfies **AC-21**, **AC-22**, **AC-23**.
 11. [x] The admin accounts page with disable behind a typed email confirmation, enable, and foreign token revoke. Satisfies **AC-24**, **AC-25**.
 12. [x] The accessibility and leak pass: labels, focus states, keyboard reachability, the no JavaScript check, and the crawl asserting nothing sensitive appears in any page or log line. Satisfies **AC-30**, **AC-31**.
-13. [ ] Deploy wiring: the `DEPLOYER_CSRF_KEY` sealed secret in `deploy/`, and the `deploy/AGENTS.md` note recording it. Satisfies **AC-1**. _The manifest wiring, the kustomization entry and the `deploy/AGENTS.md` note are in. The sealed value itself is still a placeholder: sealing needs the cluster's own public key, so it has to be produced against the cluster with the `kubeseal` command in `deploy/web-sealedsecret.yaml`. The control plane will not start until it is._
+13. [x] Deploy wiring: the `DEPLOYER_CSRF_KEY` sealed secret in `deploy/`, and the `deploy/AGENTS.md` note recording it. Satisfies **AC-1**. _The manifest wiring, the kustomization entry and the `deploy/AGENTS.md` note are in, and the value is sealed against the cluster: the `deployer-web` SealedSecret unseals and the control plane boots on it, which is itself the proof, since `internal/config` refuses a key under 32 bytes at startup. The `kubeseal` command at the top of `deploy/web-sealedsecret.yaml` is kept as the recipe for rotating it._
 
 ## Consequences
 
