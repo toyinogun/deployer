@@ -15,7 +15,7 @@ _Steps derived from spec 0013 acceptance criteria. `/check verify` runs these; `
 - [x] Sign out → cookie cleared, redirected to `/login`, and the back button does not show the previous page's data → AC-11
 - [x] Open a form, edit the hidden `csrf` value in devtools, submit → `403`, nothing changed, and an audit row is written → AC-12
 - [x] Submit a page POST from a page on another origin → `403` before the handler runs → AC-13
-- [ ] With 21 or more apps on the account, `/apps` shows twenty and a **Load more** control that appends the next page. Confirm no app of another account appears and a deleted app does not → AC-14
+- [x] With 21 or more apps on the account, `/apps` shows twenty and a **Load more** control that appends the next page. Confirm no app of another account appears and a deleted app does not → AC-14
 - [x] On an app whose most recent deploy failed: the list row and the overview both show the release still being served **and** the failure → AC-14, AC-15
 - [x] Open another account's app slug on all four app pages → the same not found page an unknown slug gives, with an audit row → AC-15
 - [x] Start a real deploy and watch the overview → the status region refreshes itself every three seconds and stops when the deploy ends, without a reload → AC-16
