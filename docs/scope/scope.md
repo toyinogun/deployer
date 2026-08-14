@@ -55,6 +55,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 12 | Rollback & release history | Slice 8 | done |
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | in-progress |
+| 15 | Stranded deployment recovery | Slice 11 | in-progress |
 
 ## Foundations
 
@@ -296,6 +297,23 @@ spec [0013](../specs/0013-web-interface/index.md)
 - [ ] Review it (fresh model): `/check review web interface`
 - [ ] Document it: `/document web interface`
 
+## Slice 11: Stranded deployment recovery
+
+### 15. Stranded deployment recovery · in-progress
+From spec 0014, which came out of a real incident rather than the plan. A deploy whose drive ends without writing the row terminal leaves the deployment sitting in `building`, so its app refuses deletes and the eventual failure is recorded as `timeout` when the build pod failed and said so minutes earlier. The reconcile tick learns to ask the cluster what the build Job actually did, and either ends the row with the true reason or hands it back to be resumed.
+**Done when:** a deployment whose drive dies is ended within a tick or two carrying the reason the Job gave, a build that had already succeeded is resumed rather than thrown away, and none of that costs a new setting, a new column, or a second writer of deployment state.
+spec [0014](../specs/0014-stranded-deployment-recovery.md)
+- [x] Design it (spec): `/architect stranded deployment recovery`
+- [ ] Build it: `/develop stranded deployment recovery`
+  - [ ] The claim: `ClaimNext` prefers queued work and falls back to adopting a stray, plus releasing a claim as one conditional write — AC-3, AC-5, AC-5a
+  - [ ] The check in the tick: the whole Job state table, ahead of the budget pass, with no new setting — AC-1, AC-2, AC-4, AC-4a, AC-5b, AC-6, AC-7, AC-8
+  - [ ] The proof: fake clientset coverage for every branch, the ordering, the fairness and the supersession race — AC-1 to AC-7, AC-9
+  - [ ] The invariant written where it is enforced: the single replica note beside the manifest in `deploy/AGENTS.md` — AC-7
+- [ ] Verify it: `/check verify stranded deployment recovery`
+- [ ] Test it: `/test stranded deployment recovery`
+- [ ] Review it (fresh model): `/check review stranded deployment recovery`
+- [ ] Document it: `/document stranded deployment recovery`
+
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
 
@@ -314,6 +332,7 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
 - **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · needs a decision
 - **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration · needs a decision
+- **Stranded recovery for `pushing` and `deploying`**: from spec 0014, which covers `building` only because a build Job is cheap, unambiguous evidence. The later phases need registry and workload evidence that is more expensive and easier to misread, and mistaking a rollout in progress for a stranded one would end a deploy that was going to succeed. They keep the deploy budget as their backstop, which is no worse than today · needs a decision
 - **A test that a tool description matches its behaviour**: every MCP tool description is contract rather than documentation, and nothing checks one against what the code does. From spec 0011, which adds two more, taking the gap to eight tools wide · needs a decision
 - **Write actions from the browser**: rollback, delete and configuration editing as page actions, which feature 14 deliberately left out to keep the pages read only for apps. From spec 0013, where rollback is named as the one with a real case behind it, since it is the thing you want at 2am · needs a decision
 - **An audited browser reveal of secret configuration values**: from spec 0013, weighed and refused so that `store.ListConfigForDeploy` keeps exactly two callers and a stolen session stays worth less than a stolen API token. Worth reopening only if reading a secret back becomes a real debugging need · needs a decision
