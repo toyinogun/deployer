@@ -60,14 +60,16 @@ func Open(opts Options) (*Store, error) {
 		opts.SuffixSource = domain.RandomSuffix
 	}
 
-	// Deliberately not _txlock=immediate. Taking the write lock at every BEGIN
-	// would fix the SQLITE_BUSY a read then write transaction hits when it
-	// upgrades its lock mid flight, but it would make every read only
-	// transaction queue behind the writer too, and a deployment drive working to
-	// a deadline can spend its whole budget waiting on that BEGIN and fail as an
-	// internal fault instead of as a timeout. The rule this platform holds
-	// instead: a transaction never reads and then writes. Anything that has to
-	// decide from existing rows does it in one statement.
+	// Deliberately not _txlock=immediate, which is a connection wide setting and
+	// so would make every read only transaction take the write lock at BEGIN too,
+	// queueing reads behind the writer: a deployment drive working to a deadline
+	// can spend its whole budget waiting there and fail as an internal fault
+	// instead of as a timeout. Write transactions do need the lock up front,
+	// because several of them read the row they are about to change and a
+	// deferred transaction cannot upgrade that read into a write once another
+	// connection has written. inTx takes it per transaction instead, so only the
+	// writers wait. See the comment there for why the busy timeout cannot cover
+	// this on its own.
 	dsn := fmt.Sprintf(
 		"file:%s?_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_pragma=busy_timeout(%d)",
 		opts.Path, opts.BusyTimeout.Milliseconds(),
@@ -155,24 +157,44 @@ func (s *Store) Close() error { return s.db.Close() }
 // now returns the current time as the database stores it.
 func (s *Store) now() string { return ids.Stamp(s.clock.Now()) }
 
-// inTx runs fn inside a single transaction and rolls back on any error, so a
-// state change and its event row are always applied together or not at all.
+// inTx runs fn inside a single write transaction and rolls back on any error, so
+// a state change and its event row are always applied together or not at all.
+//
+// It begins with BEGIN IMMEDIATE, which takes the write lock here rather than at
+// the first write inside fn. Every caller of this helper writes, and several of
+// them have to decide from the row they are changing, so they read first. A
+// deferred transaction that has already read cannot take the write lock once
+// another connection has written: SQLite answers SQLITE_BUSY straight away and
+// never calls the busy handler, because waiting would deadlock the writer that
+// needs this reader's snapshot released. The busy timeout cannot help there, and
+// the caller loses the write. Waiting at BEGIN is a wait the busy timeout does
+// serve. Read only paths never come through here, they use the pool directly and
+// stay deferred, so they still never queue behind a writer.
 func (s *Store) inTx(ctx context.Context, fn func(*sqlcgen.Queries) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
 	if err != nil {
+		return fmt.Errorf("store: taking a connection: %w", err)
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			// The rollback runs even when ctx is already done, otherwise the
+			// connection goes back to the pool with a transaction still open.
+			_, _ = conn.ExecContext(context.WithoutCancel(ctx), "ROLLBACK")
+		}
+		_ = conn.Close()
+	}()
+
+	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("store: beginning transaction: %w", err)
 	}
-	defer func() {
-		// Rollback after a successful commit is a no-op, so this is safe as the
-		// single unconditional cleanup path.
-		_ = tx.Rollback()
-	}()
-	if err := fn(s.q.WithTx(tx)); err != nil {
+	if err := fn(sqlcgen.New(conn)); err != nil {
 		return err
 	}
-	if err := tx.Commit(); err != nil {
+	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("store: committing transaction: %w", err)
 	}
+	committed = true
 	return nil
 }
 
