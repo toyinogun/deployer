@@ -52,7 +52,21 @@ type fakeData struct {
 	config     []store.ConfigEntry
 	ranConfig  map[string]string
 
+	// The per account cap spec 0016 added. appsHeld is what the usage line and
+	// the at cap notice are rendered from, and perAccountApps is the admin
+	// listing's grouped count, keyed by account id.
+	appsHeld       int
+	perAccountApps map[string]int
+
 	err error
+}
+
+func (f *fakeData) CountLiveAppsByAccount(_ context.Context, _ string) (int, error) {
+	return f.appsHeld, f.err
+}
+
+func (f *fakeData) CountLiveAppsPerAccount(_ context.Context) (map[string]int, error) {
+	return f.perAccountApps, f.err
 }
 
 func (f *fakeData) ListAppSummaryPage(_ context.Context, _ string, page store.Page) ([]store.AppSummary, error) {
@@ -239,6 +253,9 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 		CSRFKey:        []byte("a test csrf key"),
 		SecretLiterals: []string{"the-platform-credential"},
 		HasMailer:      true,
+		// Well clear of what these tests list, so a page test that is not about
+		// the cap never renders the at cap notice (spec 0016).
+		MaxAppsPerAccount: 10,
 	})
 	h.mux = http.NewServeMux()
 	h.srv.Register(h.mux)

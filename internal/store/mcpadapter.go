@@ -67,13 +67,24 @@ func (a MCPApps) Get(ctx context.Context, appID string) (mcp.App, error) {
 	return appRow(app), nil
 }
 
-// Create registers an app, deriving its permanent slug from the name.
-func (a MCPApps) Create(ctx context.Context, accountID, name string) (mcp.App, error) {
-	app, err := a.s.CreateApp(ctx, accountID, name)
+// Create registers an app, deriving its permanent slug from the name. A create
+// the account has no room for maps onto the tool surface's own sentinel, the
+// same way an in flight delete does: the store decided it inside the
+// transaction, and this adapter only renames the answer (spec 0016, AC-6).
+func (a MCPApps) Create(ctx context.Context, accountID, name string, limit int) (mcp.App, error) {
+	app, err := a.s.CreateApp(ctx, accountID, name, limit)
+	if errors.Is(err, ErrAppLimit) {
+		return mcp.App{}, mcp.ErrAppLimit
+	}
 	if err != nil {
 		return mcp.App{}, err
 	}
 	return appRow(app), nil
+}
+
+// Count is how many live apps the account holds right now.
+func (a MCPApps) Count(ctx context.Context, accountID string) (int, error) {
+	return a.s.CountLiveAppsByAccount(ctx, accountID)
 }
 
 // Config lists the app's keys the way a response may see them: a secret key

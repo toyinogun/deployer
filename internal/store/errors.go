@@ -23,6 +23,11 @@ var (
 	// ErrAppNameTaken means the account already has a live app with that name.
 	ErrAppNameTaken = errors.New("store: app name taken")
 
+	// ErrAppLimit means the account already holds as many live apps as it may.
+	// It is decided inside the transaction that would insert the row, so it is
+	// exact rather than a read two writers can both pass (spec 0016, AC-6).
+	ErrAppLimit = errors.New("store: app limit reached")
+
 	// ErrAppDeleted means the app exists but has been soft deleted.
 	ErrAppDeleted = errors.New("store: app deleted")
 

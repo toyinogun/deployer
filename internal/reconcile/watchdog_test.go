@@ -119,7 +119,7 @@ func (w *world) queuedDeploymentFor(t *testing.T, name string) store.Deployment 
 	t.Helper()
 	ctx := t.Context()
 
-	app, err := w.store.CreateApp(ctx, w.app.AccountID, name)
+	app, err := w.store.CreateApp(ctx, w.app.AccountID, name, 100)
 	if err != nil {
 		t.Fatalf("creating the app %s: %v", name, err)
 	}

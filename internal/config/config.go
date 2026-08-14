@@ -39,6 +39,9 @@ type Config struct {
 	AppQuotaMemory   string // per app memory ceiling, a Kubernetes quantity
 	AppQuotaPods     int    // per app pod ceiling
 
+	// Added by spec 0016, the per account app cap.
+	MaxAppsPerAccount int // how many live apps one account may hold
+
 	// Added by spec 0004, the first deploy end to end. Loaded and validated by
 	// loadFirstDeploy in firstdeploy.go.
 
@@ -184,6 +187,8 @@ func Load(getenv func(string) string) (Config, error) {
 		AppQuotaCPU:      optional("APP_QUOTA_CPU", "1"),
 		AppQuotaMemory:   optional("APP_QUOTA_MEMORY", "1Gi"),
 		AppQuotaPods:     5,
+
+		MaxAppsPerAccount: 10,
 	}
 
 	var errs []string
@@ -227,13 +232,27 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, fmt.Sprintf("%s must be greater than zero, got %q", q.key, q.value))
 		}
 	}
-	if raw := getenv("DEPLOYER_APP_QUOTA_PODS"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n <= 0 {
-			errs = append(errs, fmt.Sprintf("DEPLOYER_APP_QUOTA_PODS must be a positive integer, got %q", raw))
-		} else {
-			c.AppQuotaPods = n
+	// The two ceilings that are plain counts: how many pods one app may run, and
+	// how many live apps one account may hold. Both are optional, both keep their
+	// default when unset, and both fail the boot rather than the first deploy.
+	// There is no value meaning no cap (spec 0016, AC-7).
+	for _, n := range []struct {
+		key    string
+		target *int
+	}{
+		{"DEPLOYER_APP_QUOTA_PODS", &c.AppQuotaPods},
+		{"DEPLOYER_MAX_APPS_PER_ACCOUNT", &c.MaxAppsPerAccount},
+	} {
+		raw := getenv(n.key)
+		if raw == "" {
+			continue
 		}
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			errs = append(errs, fmt.Sprintf("%s must be a positive integer, got %q", n.key, raw))
+			continue
+		}
+		*n.target = parsed
 	}
 	// The claiming pod names itself through the downward API. A local run has no
 	// downward API, so the hostname stands in and the claim still records who.

@@ -55,6 +55,12 @@ type appsPageData struct {
 	// platform rather than an empty table (AC-26).
 	MCPEndpoint    string
 	UploadEndpoint string
+	// AppsUsed and AppLimit are the account's live app count and its ceiling,
+	// read from the same count deploy_app is refused against. AtLimit is derived
+	// at render time rather than stored (spec 0016, AC-10, AC-11).
+	AppsUsed int
+	AppLimit int
+	AtLimit  bool
 }
 
 func (s *Server) appsPage(w http.ResponseWriter, r *http.Request) {
@@ -69,10 +75,21 @@ func (s *Server) appsPage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Counted rather than taken from len(rows): the list is one page, and the
+	// usage line is about every app the account holds (AC-10).
+	used, err := s.data.CountLiveAppsByAccount(r.Context(), account.ID)
+	if err != nil {
+		s.internalError(w, r, err, "counting an account's apps for a page failed")
+		return
+	}
+
 	data := appsPageData{
 		Apps:           make([]appRow, 0, len(rows)),
 		MCPEndpoint:    s.opts.PublicURL + "/mcp",
 		UploadEndpoint: s.opts.PublicURL + "/v1/uploads",
+		AppsUsed:       used,
+		AppLimit:       s.opts.MaxAppsPerAccount,
+		AtLimit:        used >= s.opts.MaxAppsPerAccount,
 	}
 	for _, row := range rows {
 		data.Apps = append(data.Apps, appRow{

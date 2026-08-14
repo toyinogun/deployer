@@ -107,7 +107,7 @@ func TestRollbackToAnotherAppsReleaseIsRefused(t *testing.T) {
 	f := newFixture(t, s)
 	_, rel := deployToHealthy(t, s, f, f.upload.ID, "sha256:aaa")
 
-	other, err := s.CreateApp(ctx, f.account.ID, "Billing")
+	other, err := s.CreateApp(ctx, f.account.ID, "Billing", 100)
 	if err != nil {
 		t.Fatalf("creating the second app: %v", err)
 	}

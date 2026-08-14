@@ -271,7 +271,7 @@ func TestSlugsAreRetiredForever(t *testing.T) {
 		t.Fatalf("creating the account: %v", err)
 	}
 
-	first, err := s.CreateApp(ctx, acc.ID, "Checkout")
+	first, err := s.CreateApp(ctx, acc.ID, "Checkout", 100)
 	if err != nil {
 		t.Fatalf("creating the first app: %v", err)
 	}
@@ -292,7 +292,7 @@ func TestSlugsAreRetiredForever(t *testing.T) {
 		t.Error("the retired slug is free again, so another app could take the hostname")
 	}
 
-	second, err := s.CreateApp(ctx, acc.ID, "Checkout")
+	second, err := s.CreateApp(ctx, acc.ID, "Checkout", 100)
 	if err != nil {
 		t.Fatalf("reusing the name after a delete: %v", err)
 	}
@@ -337,7 +337,7 @@ func TestSlugCollisionRetries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("creating the account: %v", err)
 		}
-		first, err := s.CreateApp(ctx, acc.ID, "Checkout")
+		first, err := s.CreateApp(ctx, acc.ID, "Checkout", 100)
 		if err != nil {
 			t.Fatalf("creating the first app: %v", err)
 		}
@@ -347,7 +347,7 @@ func TestSlugCollisionRetries(t *testing.T) {
 		if err := s.SoftDeleteApp(ctx, first.ID); err != nil {
 			t.Fatalf("soft deleting: %v", err)
 		}
-		second, err := s.CreateApp(ctx, acc.ID, "Checkout")
+		second, err := s.CreateApp(ctx, acc.ID, "Checkout", 100)
 		if err != nil {
 			t.Fatalf("the retry did not rescue the create: %v", err)
 		}
@@ -363,14 +363,14 @@ func TestSlugCollisionRetries(t *testing.T) {
 		if err != nil {
 			t.Fatalf("creating the account: %v", err)
 		}
-		first, err := s.CreateApp(ctx, acc.ID, "Checkout")
+		first, err := s.CreateApp(ctx, acc.ID, "Checkout", 100)
 		if err != nil {
 			t.Fatalf("creating the first app: %v", err)
 		}
 		if err := s.SoftDeleteApp(ctx, first.ID); err != nil {
 			t.Fatalf("soft deleting: %v", err)
 		}
-		if _, err := s.CreateApp(ctx, acc.ID, "Checkout"); !errors.Is(err, store.ErrSlugTaken) {
+		if _, err := s.CreateApp(ctx, acc.ID, "Checkout", 100); !errors.Is(err, store.ErrSlugTaken) {
 			t.Fatalf("got %v, want ErrSlugTaken after the retries ran out", err)
 		}
 	})
@@ -403,7 +403,7 @@ func TestLiveNameIsUniquePerAccount(t *testing.T) {
 	ctx := t.Context()
 	s, _ := newStore(t)
 	f := newFixture(t, s)
-	if _, err := s.CreateApp(ctx, f.account.ID, "Checkout Service"); !errors.Is(err, store.ErrAppNameTaken) {
+	if _, err := s.CreateApp(ctx, f.account.ID, "Checkout Service", 100); !errors.Is(err, store.ErrAppNameTaken) {
 		t.Fatalf("got %v, want ErrAppNameTaken", err)
 	}
 }
@@ -457,7 +457,7 @@ func TestPagingWalksTheWholeList(t *testing.T) {
 	const total = 7
 	for i := range total {
 		clock.Advance(time.Second)
-		if _, err := s.CreateApp(ctx, acc.ID, "app"+string(rune('a'+i))); err != nil {
+		if _, err := s.CreateApp(ctx, acc.ID, "app"+string(rune('a'+i)), 100); err != nil {
 			t.Fatalf("creating app %d: %v", i, err)
 		}
 	}

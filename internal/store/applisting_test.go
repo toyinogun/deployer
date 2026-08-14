@@ -156,7 +156,7 @@ func TestADeletedAppsNameIsFreeButItsSlugIsNot(t *testing.T) {
 	if err := s.SoftDeleteApp(ctx, f.app.ID); err != nil {
 		t.Fatalf("deleting the app: %v", err)
 	}
-	again, err := s.CreateApp(ctx, f.account.ID, f.app.Name)
+	again, err := s.CreateApp(ctx, f.account.ID, f.app.Name, 100)
 	if err != nil {
 		t.Fatalf("creating an app under the deleted app's name: %v", err)
 	}
@@ -199,7 +199,7 @@ func TestTheListingHonoursTheLimitItIsGiven(t *testing.T) {
 	s, _ := newStore(t)
 	f := newFixture(t, s)
 	for _, name := range []string{"second", "third"} {
-		if _, err := s.CreateApp(ctx, f.account.ID, name); err != nil {
+		if _, err := s.CreateApp(ctx, f.account.ID, name, 100); err != nil {
 			t.Fatalf("creating %s: %v", name, err)
 		}
 	}
@@ -221,7 +221,7 @@ func TestLiveAppSlugsSkipsDeletedApps(t *testing.T) {
 	ctx := t.Context()
 	s, _ := newStore(t)
 	f := newFixture(t, s)
-	kept, err := s.CreateApp(ctx, f.account.ID, "kept")
+	kept, err := s.CreateApp(ctx, f.account.ID, "kept", 100)
 	if err != nil {
 		t.Fatalf("creating the second app: %v", err)
 	}

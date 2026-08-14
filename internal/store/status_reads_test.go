@@ -15,7 +15,7 @@ import (
 // own, because one upload backs one deployment.
 func secondApp(t *testing.T, s *store.Store, f fixture, name, uploadHash string) (store.App, store.Upload) {
 	t.Helper()
-	app, err := s.CreateApp(t.Context(), f.account.ID, name)
+	app, err := s.CreateApp(t.Context(), f.account.ID, name, 100)
 	if err != nil {
 		t.Fatalf("creating app %q: %v", name, err)
 	}

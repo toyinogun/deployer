@@ -3,6 +3,20 @@ INSERT INTO apps (id, account_id, name, slug, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?)
 RETURNING *;
 
+-- How many live apps an account holds, which is the whole of the per account
+-- cap: the predicate is the one every other app read already uses, so a soft
+-- deleted app frees a slot with no extra column and no reaper involvement
+-- (spec 0016, Data model sketch).
+-- name: CountLiveAppsByAccount :one
+SELECT COUNT(*) FROM apps WHERE account_id = @account_id AND deleted_at IS NULL;
+
+-- The same count for every account at once, for the admin listing. One grouped
+-- statement rather than a count per row (spec 0016, AC-12).
+-- name: CountLiveAppsPerAccount :many
+SELECT account_id, COUNT(*) AS app_count FROM apps
+WHERE deleted_at IS NULL
+GROUP BY account_id;
+
 -- name: GetApp :one
 SELECT * FROM apps WHERE id = @id AND deleted_at IS NULL;
 

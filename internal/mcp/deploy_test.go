@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -41,6 +42,23 @@ type stubApps struct {
 	inFlight  bool
 	deleteErr error
 	deleted   []string
+
+	// The per account cap spec 0016 added. held is what Count answers, which is
+	// what the ordinary refusal is decided from; createLimitErr makes Create
+	// answer ErrAppLimit the way the store's transaction does when a racing
+	// create got the last slot. countErr is a store fault on the count.
+	held           int
+	createLimitErr bool
+	countErr       error
+}
+
+// Count is the account's live app count. It answers held, so a test can put an
+// account at its ceiling without creating apps one at a time.
+func (s *stubApps) Count(_ context.Context, _ string) (int, error) {
+	if s.countErr != nil {
+		return 0, s.countErr
+	}
+	return s.held, nil
 }
 
 func (s *stubApps) ReleaseConfig(_ context.Context, _ string) (map[string]string, error) {
@@ -122,7 +140,10 @@ func (s *stubApps) Get(_ context.Context, appID string) (App, error) {
 	return App{}, ErrNoApp
 }
 
-func (s *stubApps) Create(_ context.Context, _, name string) (App, error) {
+func (s *stubApps) Create(_ context.Context, _, name string, _ int) (App, error) {
+	if s.createLimitErr {
+		return App{}, ErrAppLimit
+	}
 	s.created = append(s.created, name)
 	app := App{ID: "app_2", Slug: "new-b2c3d4", Name: name}
 	if s.existing == nil {
@@ -274,6 +295,9 @@ func server(apps Apps, deployments Deployments, up Upload) (*Server, *silentAudi
 		opts: Options{
 			PublicURL: "https://deployer.example.org",
 			AppDomain: "deploy.example.org",
+			// Well clear of anything these tests create, so a test that is not
+			// about the cap never trips it (spec 0016).
+			MaxAppsPerAccount: 10,
 		},
 	}, auditor
 }
@@ -397,5 +421,90 @@ func TestTheToolDescriptionCarriesTheUploadContract(t *testing.T) {
 		if !strings.Contains(description, want) {
 			t.Errorf("the description does not mention %q", want)
 		}
+	}
+}
+
+// TestTheToolDescriptionCarriesTheCapRule pins the half of the contract nothing
+// else tests: the description is the only place an agent learns that an account
+// has a ceiling and that deleting an app frees a slot (spec 0016, AC-13).
+func TestTheToolDescriptionCarriesTheCapRule(t *testing.T) {
+	// covers: AC-13
+	s, _ := server(&stubApps{}, &stubDeployments{}, liveUpload("acct_1"))
+	description := s.toolDescription()
+	for _, phrase := range []string{
+		"limited number of apps",
+		string(domain.ReasonAppLimitReached),
+		"frees a slot",
+	} {
+		if !strings.Contains(description, phrase) {
+			t.Errorf("the deploy_app description does not carry %q", phrase)
+		}
+	}
+	// The number itself is deliberately absent: one description serves every
+	// account, and the refusal and the apps page both carry the real figure.
+	if strings.Contains(description, "10") {
+		t.Errorf("the description names the configured number, which it must not")
+	}
+}
+
+// TestARaceLostAtTheCreateStillReadsAsTheCap covers the branch the read before
+// the create cannot reach. Another caller took the last slot between the count
+// and the insert, so the store's transaction refuses instead. The caller has to
+// see the same cap refusal, not an internal error, and both numbers have to read
+// as the cap, which is exactly true at that point (spec 0016, AC-3, AC-6).
+func TestARaceLostAtTheCreateStillReadsAsTheCap(t *testing.T) {
+	// covers: AC-3, AC-6
+	account := auth.Account{ID: "acc_1"}
+	// Well below the cap, so the read passes cleanly and only the create refuses.
+	// That is the whole point: this path is unreachable through the count.
+	apps := &stubApps{held: 3, createLimitErr: true}
+	deployments := &stubDeployments{}
+	s, auditor := server(apps, deployments, liveUpload(account.ID))
+
+	_, _, err := s.deploy(t.Context(), account, deployInput{Name: "new", UploadID: "upl_1"})
+	if err == nil || !strings.HasPrefix(err.Error(), string(domain.ReasonAppLimitReached)) {
+		t.Fatalf("error = %v, want %s", err, domain.ReasonAppLimitReached)
+	}
+	// The cap twice, not the stale 3 the read saw. An account told "3 of 10" and
+	// then refused would have no idea what to delete.
+	if !strings.Contains(err.Error(), "(10 of 10 used)") {
+		t.Errorf("the refusal reads %q, want the numbers to be the cap twice", err)
+	}
+	if deployments.created != 0 {
+		t.Errorf("the refused create started %d deployments, want none", deployments.created)
+	}
+	if len(auditor.rows) != 1 || auditor.rows[0].TargetID != "" || auditor.rows[0].Allowed {
+		t.Errorf("audit = %+v, want one denial with no target", auditor.rows)
+	}
+}
+
+// TestACountFaultIsAFaultNotARefusal pins the line the platform draws between
+// the two. A store that cannot say how many apps an account holds has failed;
+// dressing that as app_limit_reached would tell a caller to delete an app it has
+// no need to delete, and it would mask a fault as an access decision.
+func TestACountFaultIsAFaultNotARefusal(t *testing.T) {
+	// covers: AC-1
+	account := auth.Account{ID: "acc_1"}
+	apps := &stubApps{countErr: errors.New("the apps table is unreadable")}
+	deployments := &stubDeployments{}
+	s, auditor := server(apps, deployments, liveUpload(account.ID))
+
+	_, _, err := s.deploy(t.Context(), account, deployInput{Name: "new", UploadID: "upl_1"})
+	if err == nil || !strings.HasPrefix(err.Error(), string(domain.ReasonInternal)) {
+		t.Fatalf("error = %v, want %s", err, domain.ReasonInternal)
+	}
+	if strings.Contains(err.Error(), string(domain.ReasonAppLimitReached)) {
+		t.Errorf("a store fault reached the caller as a cap refusal: %q", err)
+	}
+	// The cause is logged and goes no further, so the store's own words never
+	// reach a caller.
+	if strings.Contains(err.Error(), "unreadable") {
+		t.Errorf("the refusal carries the wrapped store error: %q", err)
+	}
+	if len(apps.created) != 0 || deployments.created != 0 {
+		t.Errorf("created %v apps and %d deployments, want none", apps.created, deployments.created)
+	}
+	if len(auditor.rows) != 1 || auditor.rows[0].Allowed {
+		t.Errorf("audit = %+v, want one denial", auditor.rows)
 	}
 }

@@ -36,9 +36,25 @@ type ownershipHarness struct {
 	server *httptest.Server
 	store  *store.Store
 	a, b   person
+
+	// What the tool server is rebuilt from, so recap can stand a second one up
+	// on this same store under a different cap (spec 0016, AC-14).
+	auth      *auth.Authenticator
+	auditor   store.AuthStore
+	uploadSvc *uploads.Service
 }
 
 func newOwnershipHarness(t *testing.T) *ownershipHarness {
+	t.Helper()
+	// The real default. These tests create a handful of apps, so the per account
+	// cap never enters into what they are proving (spec 0016).
+	return newCappedHarness(t, 10)
+}
+
+// newCappedHarness is the same platform with the per account app cap set to a
+// chosen number, which is how a test reaches the ceiling without creating ten
+// apps to get there (spec 0016).
+func newCappedHarness(t *testing.T, cap int) *ownershipHarness {
 	t.Helper()
 	dir := t.TempDir()
 	st, err := store.Open(store.Options{Path: filepath.Join(dir, "deployer.db")})
@@ -58,18 +74,29 @@ func newOwnershipHarness(t *testing.T) *ownershipHarness {
 	authenticator := auth.NewAuthenticator(as, as).WithSessions(as, identity.SessionLifetime)
 	uploadSvc := uploads.NewService(store.ForUploads(st), filepath.Join(dir, "uploads"), 4096, nil)
 
-	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
-		forTool{svc: uploadSvc}, nil, acceptingCluster{}, mcp.Options{
-			PublicURL: "https://deploy.example.org",
-			AppDomain: "apps.example.org",
-		})
-	srv := httptest.NewServer(tools.Handler())
-	t.Cleanup(srv.Close)
-
-	h := &ownershipHarness{server: srv, store: st}
+	h := &ownershipHarness{store: st, auth: authenticator, auditor: as, uploadSvc: uploadSvc}
+	h.recap(t, cap)
 	h.a = h.enroll(t, "a@example.com")
 	h.b = h.enroll(t, "b@example.com")
 	return h
+}
+
+// recap stands the tool surface back up on the same store under a different
+// cap, which is what lowering the configured number under a running platform
+// actually is: new configuration, the same rows (spec 0016, AC-14).
+func (h *ownershipHarness) recap(t *testing.T, cap int) {
+	t.Helper()
+	if h.server != nil {
+		h.server.Close()
+	}
+	tools := mcp.New(h.auth, h.auditor, store.ForMCPApps(h.store), store.ForMCPDeployments(h.store),
+		forTool{svc: h.uploadSvc}, nil, acceptingCluster{}, mcp.Options{
+			PublicURL:         "https://deploy.example.org",
+			AppDomain:         "apps.example.org",
+			MaxAppsPerAccount: cap,
+		})
+	h.server = httptest.NewServer(tools.Handler())
+	t.Cleanup(h.server.Close)
 }
 
 // enroll registers a verified person and mints them an API token, which is the

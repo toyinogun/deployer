@@ -17,6 +17,10 @@ data:
   DEPLOYER_APP_QUOTA_CPU: "1"
   DEPLOYER_APP_QUOTA_MEMORY: 1Gi
   DEPLOYER_APP_QUOTA_PODS: "5"
+  # The two ceilings read together: the three above bound what one app consumes,
+  # this one bounds how many apps one account may start. Lowering it never takes
+  # an app away from an account already over it (spec 0016).
+  DEPLOYER_MAX_APPS_PER_ACCOUNT: "10"
   # The two build namespaces. They are two rather than one because they enforce
   # different pod security levels: Paketo Jobs fit `restricted` and run in the
   # first, rootless BuildKit is admitted only at `privileged` and runs alone in

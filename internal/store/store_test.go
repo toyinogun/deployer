@@ -53,7 +53,7 @@ func newFixture(t *testing.T, s *store.Store) fixture {
 	if err != nil {
 		t.Fatalf("creating the account: %v", err)
 	}
-	app, err := s.CreateApp(ctx, acc.ID, "Checkout Service")
+	app, err := s.CreateApp(ctx, acc.ID, "Checkout Service", 100)
 	if err != nil {
 		t.Fatalf("creating the app: %v", err)
 	}

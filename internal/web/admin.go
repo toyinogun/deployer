@@ -28,6 +28,9 @@ type adminAccountRow struct {
 	Disabled bool
 	Created  string
 	Tokens   []identity.TokenView
+	// Apps is how many live apps the account holds, read for every row at once
+	// rather than one query per row (spec 0016, AC-12).
+	Apps int
 	// Self is the signed in admin's own row, which renders no disable control:
 	// disabling yourself revokes the session you are reading the page with.
 	Self bool
@@ -168,6 +171,14 @@ func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, admin auth.
 		s.internalError(w, r, err, "listing accounts for a page failed")
 		return
 	}
+	// One grouped statement for every account's app count, not one per row: the
+	// token reads above are already per account, and adding a second per row
+	// query is what turns a tens of rows page into a slow one (AC-12).
+	appCounts, err := s.data.CountLiveAppsPerAccount(r.Context())
+	if err != nil {
+		s.internalError(w, r, err, "counting apps per account for the admin page failed")
+		return
+	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
 		AccountID: admin.ID, Action: auth.ActionAdmin,
 		TargetType: "accounts", Allowed: true, Reason: "list",
@@ -179,6 +190,8 @@ func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, admin auth.
 			ID: a.ID, Email: a.Email, Name: a.DisplayName,
 			Verified: a.Verified, IsAdmin: a.IsAdmin, Disabled: a.Disabled,
 			Created: a.CreatedAt, Self: a.ID == admin.ID,
+			// An account with no apps is absent from the map, which reads zero.
+			Apps: appCounts[a.ID],
 		}
 		tokens, err := s.svc.ListTokens(r.Context(), a.ID)
 		if err != nil {

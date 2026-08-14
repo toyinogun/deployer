@@ -28,6 +28,12 @@ import (
 // deploy rather than a failure.
 var ErrNoApp = errors.New("mcp: no such app")
 
+// ErrAppLimit means the account already holds as many live apps as it may, so
+// the app the deploy would have created was not created. It reaches this
+// package from the transaction that would have inserted the row, which is the
+// only place the answer is exact (spec 0016, AC-6).
+var ErrAppLimit = errors.New("mcp: app limit reached")
+
 // ErrNoUpload means the upload id resolved to nothing.
 var ErrNoUpload = errors.New("mcp: no such upload")
 
@@ -106,8 +112,12 @@ type Apps interface {
 	ByName(ctx context.Context, accountID, name string) (App, error)
 	// Get reads the app a deployment belongs to.
 	Get(ctx context.Context, appID string) (App, error)
-	// Create registers an app, deriving its permanent slug from the name.
-	Create(ctx context.Context, accountID, name string) (App, error)
+	// Create registers an app, deriving its permanent slug from the name. limit
+	// is how many live apps the account may hold; a create that would take it
+	// past that answers ErrAppLimit and writes nothing.
+	Create(ctx context.Context, accountID, name string, limit int) (App, error)
+	// Count is how many live apps the account holds right now.
+	Count(ctx context.Context, accountID string) (int, error)
 	// Config is the response shaped read: a secret key comes back with its flag
 	// and no value, decided in SQL rather than here, so no code path in this
 	// package can forget (spec 0010, AC-2).
@@ -183,6 +193,10 @@ type Pods interface {
 type Options struct {
 	PublicURL string
 	AppDomain string
+	// MaxAppsPerAccount is how many live apps one account may hold. A deploy of
+	// a name the account does not already have is refused once it is there
+	// (spec 0016, AC-1).
+	MaxAppsPerAccount int
 	// SecretLiterals are values the platform itself placed in an app's namespace
 	// and so knows for certain are secret, today the registry pull credential.
 	// They are the only redaction that can be exact (spec 0006, AC-6).
@@ -276,6 +290,11 @@ avoids crashing on a missing variable. Keys you do not name are left alone, and
 omitting config entirely changes nothing. Nothing you configure reaches the
 build: values exist only in the running container, so a private package
 registry is still out of reach at build time.
+
+An account may hold a limited number of apps at once. Deploying a name the
+account does not already have, once it is at that limit, is refused with
+app_limit_reached; deleting an app frees a slot straight away. Redeploying an
+app the account already has is never refused for this reason.
 
 The app must listen on the port given in the PORT environment variable, and can
 build links to itself from APP_URL, which the platform sets to its public
@@ -388,9 +407,9 @@ func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInpu
 		return nil, deployOutput{}, err
 	}
 
-	app, err := s.resolveApp(ctx, account.ID, in.Name)
+	app, err := s.resolveApp(ctx, account, in.Name)
 	if err != nil {
-		return nil, deployOutput{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, err)
+		return nil, deployOutput{}, err
 	}
 
 	// Written before the deployment row, through the same path set_config uses,
@@ -450,38 +469,75 @@ func (s *Server) checkUpload(ctx context.Context, account auth.Account, uploadID
 // resolveApp finds the account's app under that name, or creates it. The same
 // pair always resolves to the same row, which is what keeps the hostname an
 // agent has already handed someone working (AC-4).
-func (s *Server) resolveApp(ctx context.Context, accountID, name string) (App, error) {
-	app, err := s.apps.ByName(ctx, accountID, name)
+//
+// The per account cap is a rule about creating an app, never about deploying
+// one, so it is only reached on the branch that creates: an account at or over
+// its ceiling redeploys everything it already runs untouched (spec 0016, AC-4).
+// The error this returns is already the refusal the caller sees, audited, so
+// deploy hands it straight back.
+func (s *Server) resolveApp(ctx context.Context, account auth.Account, name string) (App, error) {
+	app, err := s.apps.ByName(ctx, account.ID, name)
 	if err == nil {
 		return app, nil
 	}
 	if !errors.Is(err, ErrNoApp) {
-		return App{}, fmt.Errorf("resolving the app: %w", err)
+		return App{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, fmt.Errorf("resolving the app: %w", err))
 	}
-	app, err = s.apps.Create(ctx, accountID, name)
+
+	// Read before the create so a caller at the ceiling is told the numbers
+	// rather than left to guess. The create counts again inside its own
+	// transaction, which is what actually decides a race (AC-6); this read is
+	// what makes the ordinary refusal legible.
+	held, err := s.apps.Count(ctx, account.ID)
 	if err != nil {
-		return App{}, fmt.Errorf("creating the app: %w", err)
+		return App{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, fmt.Errorf("counting the account's apps: %w", err))
+	}
+	limit := s.opts.MaxAppsPerAccount
+	if held >= limit {
+		return App{}, s.deny(ctx, account.ID, "", domain.ReasonAppLimitReached, nil, usedOfLimit(held, limit))
+	}
+
+	app, err = s.apps.Create(ctx, account.ID, name, limit)
+	if errors.Is(err, ErrAppLimit) {
+		return App{}, s.deny(ctx, account.ID, "", domain.ReasonAppLimitReached, nil, usedOfLimit(limit, limit))
+	}
+	if err != nil {
+		return App{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, fmt.Errorf("creating the app: %w", err))
 	}
 	return app, nil
 }
 
+// usedOfLimit is the detail a cap refusal carries: the account's own numbers,
+// and nothing about the platform or anyone else (spec 0016, AC-3).
+func usedOfLimit(held, limit int) string {
+	return fmt.Sprintf("%d of %d used", held, limit)
+}
+
 // deny records a refusal against deploy_app and turns it into the one line a
-// caller sees.
-func (s *Server) deny(ctx context.Context, accountID, appID string, reason domain.Reason, cause error) error {
+// caller sees. detail is optional and is passed straight to toolError.
+func (s *Server) deny(ctx context.Context, accountID, appID string, reason domain.Reason, cause error, detail ...string) error {
 	entry := auth.Audit{AccountID: accountID, Action: auth.ActionDeploy, Reason: string(reason)}
 	if appID != "" {
 		entry.TargetType, entry.TargetID = "app", appID
 	}
 	auth.Record(ctx, s.auditor, entry)
-	return toolError(auth.ActionDeploy, reason, cause)
+	return toolError(auth.ActionDeploy, reason, cause, detail...)
 }
 
 // toolError is the only shape a failure leaves this package in: a reason code
 // and its one sanitized line. The cause is logged here and goes no further, so
 // no build output, cluster message, or wrapped error reaches a caller (AC-16).
-func toolError(action string, reason domain.Reason, cause error) error {
+//
+// detail is at most one short phrase composed here, in parentheses after the
+// static line. It exists so a refusal can carry the caller's own numbers while
+// the domain message stays static and numberless; a call that passes none
+// composes exactly as it did before there was one (spec 0016, AC-3).
+func toolError(action string, reason domain.Reason, cause error, detail ...string) error {
 	if cause != nil {
 		slog.Error("an mcp tool failed", "tool", action, "reason", reason, "error", cause)
+	}
+	if len(detail) > 0 && detail[0] != "" {
+		return fmt.Errorf("%s: %s (%s)", reason, reason.Message(), detail[0])
 	}
 	return fmt.Errorf("%s: %s", reason, reason.Message())
 }
