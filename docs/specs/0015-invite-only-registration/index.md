@@ -1,7 +1,7 @@
 # 0015. Invite only registration
 
 **Date**: 2026-08-14
-**Status**: In Progress
+**Status**: Accepted
 
 The decision record (context, options considered, rationale) is in [rationale.md](rationale.md). The verify checklist is in [verify.md](verify.md).
 

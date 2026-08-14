@@ -56,7 +56,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | done |
 | 15 | Stranded deployment recovery | Slice 11 | done |
-| 16 | Invite only registration | Slice 12 | in-progress |
+| 16 | Invite only registration | Slice 12 | done |
 | 17 | Per account app cap | Slice 12 | planned |
 | 18 | Bounded app egress | Slice 12 | planned |
 | 19 | Account suspension | Slice 12 | planned |
@@ -332,7 +332,7 @@ The ordering is deliberate and it is not the usual tracer bullet shape. The publ
 
 Settled for these two slices, so no feature reopens them: the platform stays on your homelab cluster and is reached through a tunnel, so your home address never appears in DNS or a certificate; signup is invite only; there is no billing; apps become publicly reachable on the existing wildcard; egress is open outbound with the known abuse ports closed rather than deny by default; the domain stays `deploy.toyintest.org`; and the first months hold under ten people.
 
-### 16. Invite only registration · in-progress
+### 16. Invite only registration · done
 Registration today accepts anyone who can open the page, which was safe only because reaching the page meant being on the tailnet. An invite becomes the thing that authorises an account, so opening the front door does not mean opening it to everyone.
 **Done when:** registration without a valid invite is refused with a closed reason code, an invite is single use and expires, you can issue and revoke invites from the admin page, spending one is recorded against the account it created, and the accounts that already exist are untouched.
 spec [0015](../specs/0015-invite-only-registration/index.md)
