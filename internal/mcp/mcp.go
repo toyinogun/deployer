@@ -251,6 +251,17 @@ there, the source is built with Cloud Native Buildpacks, which need no
 configuration. Nothing here selects between them: remove the Dockerfile to get
 Buildpacks. deployment_status reports which one ran as build_path.
 
+Buildpacks cannot build a site that has no build step, so a plain HTML page
+uploaded on its own fails detection with build_failed. Give it a Dockerfile
+instead. This one serves a static site and satisfies both platform rules,
+because the image already runs as a non root user and already listens on 8080:
+
+  FROM nginxinc/nginx-unprivileged:1.29-alpine
+  COPY . /usr/share/nginx/html
+
+Plain nginx will not do: it runs as root and is refused with
+image_runs_as_root.
+
 A first build takes a few minutes, because both engines start cold and neither
 caches layers; a Buildpacks build of the same app again is faster.
 
