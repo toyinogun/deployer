@@ -17,6 +17,7 @@ import (
 	"github.com/toyinogun/deployer/internal/identity"
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 const goodPassword = "a long enough password"
@@ -114,7 +115,7 @@ func newIDHarness(t *testing.T, withMailer bool) *idHarness {
 	})
 
 	mux := http.NewServeMux()
-	httpapi.NewIdentity(svc, authenticator, as, "https://deploy.example.org", withMailer).Register(mux)
+	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(st), svc, nil, as), "https://deploy.example.org", withMailer).Register(mux)
 	return &idHarness{mux: mux, store: st, mail: box, clock: clock}
 }
 
@@ -276,7 +277,7 @@ func TestCookieIsNotSecureOnPlainHTTP(t *testing.T) {
 	svc := identity.NewService(store.ForIdentity(h.store), h.mail, h.clock,
 		identity.Options{PublicURL: "http://localhost:8080", Hasher: identity.NewHasherWith(2, 64, 1)})
 	mux := http.NewServeMux()
-	httpapi.NewIdentity(svc, authenticator, as, "http://localhost:8080", true).Register(mux)
+	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(h.store), svc, nil, as), "http://localhost:8080", true).Register(mux)
 	h.mux = mux
 
 	cookie := h.registerAndVerify(t, "a@example.com")

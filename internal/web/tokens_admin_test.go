@@ -223,7 +223,7 @@ func TestDisableNeedsTheTypedAddressToMatch(t *testing.T) {
 	if mismatched.Code != http.StatusUnprocessableEntity {
 		t.Errorf("a mismatched confirmation: got %d, want 422", mismatched.Code)
 	}
-	if !h.audit.hasReason(auth.ActionAdmin, "disable: confirmation_mismatch") {
+	if !h.audit.hasReason(auth.ActionAdmin, "suspend: confirmation_mismatch") {
 		t.Errorf("a mismatched confirmation wrote no confirmation_mismatch row: %+v", h.audit.all())
 	}
 	// Nothing changed: the account still signs in.
@@ -249,7 +249,7 @@ func TestDisableRevokesEverythingAndEnableLetsThemBackIn(t *testing.T) {
 		t.Fatalf("disabling: got %d, want 303: %s", disable.Code, disable.Body)
 	}
 	row, ok := h.audit.last(auth.ActionAdmin)
-	if !ok || !row.Allowed || row.TargetID != target || row.Reason != "disable" {
+	if !ok || !row.Allowed || row.TargetID != target || row.Reason != "suspend" {
 		t.Errorf("disabling wrote %+v, want an allowed disable row naming the target", row)
 	}
 	if got := h.get(t, "/apps", victim); got.Code != http.StatusSeeOther {

@@ -158,3 +158,23 @@ DELETE FROM app_config WHERE app_id = @app_id AND key = @key;
 -- transaction (spec 0011, AC-13).
 -- name: ClearConfig :exec
 DELETE FROM app_config WHERE app_id = @app_id;
+
+-- The apps a suspension stops and a restore starts again. A live app is one that
+-- is not soft deleted and has actually reached the cluster: an app that never
+-- deployed successfully has no workload to scale either way (spec 0018, AC-3).
+-- name: ListDeployedAppsByAccount :many
+SELECT id, slug FROM apps
+WHERE account_id = @account_id
+  AND deleted_at IS NULL
+  AND current_release_id IS NOT NULL
+ORDER BY slug;
+
+-- The same predicate, joined to every suspended account, which is what the sweep
+-- holds at zero replicas (spec 0018, AC-7).
+-- name: ListDeployedAppsOfSuspendedAccounts :many
+SELECT apps.id, apps.slug, apps.account_id FROM apps
+JOIN accounts ON accounts.id = apps.account_id
+WHERE accounts.disabled_at IS NOT NULL
+  AND apps.deleted_at IS NULL
+  AND apps.current_release_id IS NOT NULL
+ORDER BY apps.account_id, apps.slug;

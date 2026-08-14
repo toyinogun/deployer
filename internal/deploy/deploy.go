@@ -39,6 +39,13 @@ const (
 	// alone in its app's namespace, so there is nothing to disambiguate.
 	WorkloadName = "app"
 
+	// ServingReplicas is how many pods a live app runs. Exported because a
+	// restore from suspension scales back to exactly the number a deploy would
+	// have composed, and there is no per app replica count stored anywhere for it
+	// to read instead, so the two would drift the moment either changed
+	// (spec 0018, AC-4).
+	ServingReplicas = int32(1)
+
 	// ServicePort is where the Service listens, in front of ContainerPort.
 	ServicePort = int32(80)
 
@@ -222,7 +229,7 @@ func LimitRange(in Input) *corev1.LimitRange {
 // TCP probe rather than an HTTP one on purpose: the platform knows the port an
 // app was told to listen on and nothing about what it serves there (AC-14).
 func Deployment(in Input) *appsv1.Deployment {
-	replicas := int32(1)
+	replicas := ServingReplicas
 	return &appsv1.Deployment{
 		ObjectMeta: objectMeta(WorkloadName, in.Slug),
 		Spec: appsv1.DeploymentSpec{

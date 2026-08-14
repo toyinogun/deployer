@@ -12,6 +12,7 @@ import (
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 // maxIdentityBody caps a JSON request body on the identity surface. Every one of
@@ -25,6 +26,10 @@ type Identity struct {
 	svc     *identity.Service
 	auth    *auth.Authenticator
 	auditor auth.Auditor
+	// suspension is the one implementation of stopping an account and everything
+	// it runs. The admin page holds the same one, so neither surface can drift
+	// into its own meaning of suspended (spec 0018, AC-19).
+	suspension *suspend.Service
 	// secure is the cookie's Secure flag, derived from the public address rather
 	// than configured separately: a platform served over https must not hand out a
 	// cookie a plain http request would carry.
@@ -36,12 +41,14 @@ type Identity struct {
 
 // NewIdentity returns the identity surface. publicURL decides the cookie's Secure
 // flag; hasMailer decides whether the mail dependent endpoints work at all.
-func NewIdentity(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, publicURL string, hasMailer bool) *Identity {
+func NewIdentity(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor,
+	suspension *suspend.Service, publicURL string, hasMailer bool,
+) *Identity {
 	secure := false
 	if u, err := url.Parse(publicURL); err == nil && u.Scheme == "https" {
 		secure = true
 	}
-	return &Identity{svc: svc, auth: a, auditor: auditor, secure: secure, hasMailer: hasMailer}
+	return &Identity{svc: svc, auth: a, auditor: auditor, suspension: suspension, secure: secure, hasMailer: hasMailer}
 }
 
 // Register adds this package's identity routes to mux.

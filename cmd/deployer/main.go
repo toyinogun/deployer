@@ -24,6 +24,7 @@ import (
 	"github.com/toyinogun/deployer/internal/reconcile"
 	"github.com/toyinogun/deployer/internal/registry"
 	"github.com/toyinogun/deployer/internal/store"
+	"github.com/toyinogun/deployer/internal/suspend"
 	"github.com/toyinogun/deployer/internal/uploads"
 	"github.com/toyinogun/deployer/internal/web"
 )
@@ -185,7 +186,6 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 
 	mux := http.NewServeMux()
 	httpapi.New(authenticator, as, uploadSvc, cfg.MaxUploadBytes).Register(mux)
-	httpapi.NewIdentity(identitySvc, authenticator, as, cfg.PublicURL, sender != nil).Register(mux)
 
 	// One cluster client, shared by the loop that drives deploys and the tool
 	// surface that reads an app's own output back. Nil when there is no in
@@ -195,6 +195,12 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		slog.Warn("no Kubernetes access, so no deployment will be driven and no log can be read", "error", err)
 		cluster = nil
 	}
+
+	// The one implementation of suspending an account and letting it back in,
+	// shared by the JSON admin route, the admin page, and the sweep that holds a
+	// suspended account's apps at zero (spec 0018, AC-19).
+	suspensions := suspend.New(store.ForSuspend(st), identitySvc, suspendCluster(cluster), as)
+	httpapi.NewIdentity(identitySvc, authenticator, as, suspensions, cfg.PublicURL, sender != nil).Register(mux)
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
 		forTool{svc: uploadSvc}, podReader(cluster), clusterPort(cluster), mcp.Options{
@@ -212,7 +218,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// the same identity service and the same store this function already built,
 	// which is what keeps a rule from differing between a page and a tool
 	// (spec 0013, AC-4).
-	web.New(identitySvc, authenticator, as, st, webPods(cluster), web.Options{
+	web.New(identitySvc, authenticator, as, st, webPods(cluster), suspensions, web.Options{
 		PublicURL:         cfg.PublicURL,
 		AppDomain:         cfg.AppDomain,
 		CSRFKey:           []byte(cfg.CSRFKey),
@@ -223,6 +229,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 
 	if cluster != nil {
 		startReconciler(ctx, st, cfg, uploadSvc, cluster)
+		startSuspensionSweep(ctx, suspensions, cfg.ReconcileInterval)
 	}
 	return mux
 }
@@ -299,6 +306,38 @@ func startReconciler(ctx context.Context, st *store.Store, cfg config.Config, up
 		cluster, reconcileOptions(cfg))
 	go loop.Run(ctx)
 	slog.Info("reconcile loop started", "interval", cfg.ReconcileInterval, "build_namespace", cfg.BuildNamespace)
+}
+
+// suspendCluster is the cluster half of a suspension, or a nil interface when
+// there is no cluster. Returning the pointer directly would hand internal/suspend
+// a non nil interface holding a nil pointer, which is not the same thing and
+// would panic on the first scale.
+func suspendCluster(cluster *kube.Client) suspend.Cluster {
+	if cluster == nil {
+		return nil
+	}
+	return cluster
+}
+
+// startSuspensionSweep holds every suspended account's apps at zero replicas, at
+// boot and then on the reconcile cadence. It is what makes the cluster half of a
+// suspension eventually true rather than merely attempted, and it only ever
+// scales down (spec 0018, AC-7, AC-8).
+func startSuspensionSweep(ctx context.Context, svc *suspend.Service, interval time.Duration) {
+	go func() {
+		svc.SweepSuspended(ctx)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				svc.SweepSuspended(ctx)
+			}
+		}
+	}()
+	slog.Info("suspension sweep started", "interval", interval)
 }
 
 // reconcileOptions carries the validated configuration across to the reconcile
