@@ -59,7 +59,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 16 | Invite only registration | Slice 12 | done |
 | 17 | Per account app cap | Slice 12 | done |
 | 18 | Bounded app egress | Slice 12 | done |
-| 19 | Account suspension | Slice 12 | in-progress |
+| 19 | Account suspension | Slice 12 | done |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
 | 21 | Platform backup & restore | Slice 12 | planned |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | planned |
@@ -379,7 +379,7 @@ spec [0017](../specs/0017-bounded-app-egress/index.md) · code in `internal/conf
 - [x] Review it (fresh model): `/check review bounded app egress`
 - [x] Document it: `/document bounded app egress`
 
-### 19. Account suspension · in-progress
+### 19. Account suspension · done
 The control you reach for at 2am when one account is the problem. Ownership is already solid, so the hard part is deciding what suspended means for a running app and how it comes back.
 **Done when:** an admin can suspend an account from the page that already exists, its apps stop serving, its sessions and API tokens stop working, a deploy or any other tool call is refused with a closed reason code, unsuspending restores serving without a rebuild, and both directions are recorded in the audit trail.
 spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/suspend`, `internal/auth`, `internal/mcp`, `internal/kube`, `internal/store`, `internal/reconcile`, `internal/web`, `internal/httpapi`

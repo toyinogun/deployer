@@ -1,7 +1,7 @@
 # 0018. Account suspension: one switch that stops a person and everything they run
 
 **Date**: 2026-08-14
-**Status**: In Progress
+**Status**: Accepted
 
 The decision record (context, options considered, rationale) is in [rationale.md](rationale.md).
 
