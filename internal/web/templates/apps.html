@@ -3,7 +3,14 @@
 <header class="page-head">
   <h1>Apps</h1>
   <p class="sub">Everything this account owns. Deploys, rollbacks and deletes stay with your coding agent.</p>
+  {{/* The one place a person sees their ceiling, read from the same live count
+       deploy_app is refused against (AC-10). */}}
+  <p class="quiet">{{.Data.AppsUsed}} of {{.Data.AppLimit}} apps</p>
 </header>
+
+{{if .Data.AtLimit}}
+<p class="alert" role="status">You are at your limit of {{.Data.AppLimit}} apps. Deploying a new app will be refused until you delete one.</p>
+{{end}}
 
 {{if .Data.Apps}}
 <div class="card table-card">

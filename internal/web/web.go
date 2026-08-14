@@ -32,6 +32,13 @@ type Data interface {
 	ListReleasesByApp(ctx context.Context, appID string, page store.Page) ([]store.Release, error)
 	ListConfigForResponse(ctx context.Context, appID string) ([]store.ConfigEntry, error)
 	CurrentReleaseConfig(ctx context.Context, appID string) (map[string]string, error)
+	// CountLiveAppsByAccount is the same live count the deploy refusal is
+	// decided from, so the number a page shows and the number a tool enforces
+	// can never disagree (spec 0016, AC-10).
+	CountLiveAppsByAccount(ctx context.Context, accountID string) (int, error)
+	// CountLiveAppsPerAccount is that count for every account, in one grouped
+	// statement, for the admin listing (spec 0016, AC-12).
+	CountLiveAppsPerAccount(ctx context.Context) (map[string]int, error)
 }
 
 // Pods is the app output read, at the moment of the request. The same pair the
@@ -60,6 +67,9 @@ type Options struct {
 	// HasMailer is whether a sender is configured. The pages that exist only to
 	// send mail say so plainly when it is not.
 	HasMailer bool
+	// MaxAppsPerAccount is how many live apps one account may hold, the same
+	// number deploy_app is refused against (spec 0016, AC-10, AC-11).
+	MaxAppsPerAccount int
 }
 
 // Server is the page surface.

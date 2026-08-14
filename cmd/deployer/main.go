@@ -198,8 +198,9 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
 		forTool{svc: uploadSvc}, podReader(cluster), clusterPort(cluster), mcp.Options{
-			PublicURL: cfg.PublicURL,
-			AppDomain: cfg.AppDomain,
+			PublicURL:         cfg.PublicURL,
+			AppDomain:         cfg.AppDomain,
+			MaxAppsPerAccount: cfg.MaxAppsPerAccount,
 			// The registry pull credential is the one secret the platform placed
 			// in the app's namespace itself, so it is the one it can redact
 			// exactly (spec 0006, AC-6).
@@ -212,11 +213,12 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// which is what keeps a rule from differing between a page and a tool
 	// (spec 0013, AC-4).
 	web.New(identitySvc, authenticator, as, st, webPods(cluster), web.Options{
-		PublicURL:      cfg.PublicURL,
-		AppDomain:      cfg.AppDomain,
-		CSRFKey:        []byte(cfg.CSRFKey),
-		SecretLiterals: []string{cfg.RegistryPass},
-		HasMailer:      sender != nil,
+		PublicURL:         cfg.PublicURL,
+		AppDomain:         cfg.AppDomain,
+		CSRFKey:           []byte(cfg.CSRFKey),
+		SecretLiterals:    []string{cfg.RegistryPass},
+		HasMailer:         sender != nil,
+		MaxAppsPerAccount: cfg.MaxAppsPerAccount,
 	}).Register(mux)
 
 	if cluster != nil {

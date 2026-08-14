@@ -267,7 +267,7 @@ func TestAReleaseNumberResolvesOnlyWithinItsOwnApp(t *testing.T) {
 
 	_, mine := deployToHealthy(t, s, f, f.upload.ID, "sha256:aaa")
 
-	other, err := s.CreateApp(ctx, f.account.ID, "other")
+	other, err := s.CreateApp(ctx, f.account.ID, "other", 100)
 	if err != nil {
 		t.Fatalf("creating the second app: %v", err)
 	}

@@ -41,6 +41,23 @@ type stubApps struct {
 	inFlight  bool
 	deleteErr error
 	deleted   []string
+
+	// The per account cap spec 0016 added. held is what Count answers, which is
+	// what the ordinary refusal is decided from; createLimitErr makes Create
+	// answer ErrAppLimit the way the store's transaction does when a racing
+	// create got the last slot. countErr is a store fault on the count.
+	held           int
+	createLimitErr bool
+	countErr       error
+}
+
+// Count is the account's live app count. It answers held, so a test can put an
+// account at its ceiling without creating apps one at a time.
+func (s *stubApps) Count(_ context.Context, _ string) (int, error) {
+	if s.countErr != nil {
+		return 0, s.countErr
+	}
+	return s.held, nil
 }
 
 func (s *stubApps) ReleaseConfig(_ context.Context, _ string) (map[string]string, error) {
@@ -122,7 +139,10 @@ func (s *stubApps) Get(_ context.Context, appID string) (App, error) {
 	return App{}, ErrNoApp
 }
 
-func (s *stubApps) Create(_ context.Context, _, name string) (App, error) {
+func (s *stubApps) Create(_ context.Context, _, name string, _ int) (App, error) {
+	if s.createLimitErr {
+		return App{}, ErrAppLimit
+	}
 	s.created = append(s.created, name)
 	app := App{ID: "app_2", Slug: "new-b2c3d4", Name: name}
 	if s.existing == nil {
@@ -274,6 +294,9 @@ func server(apps Apps, deployments Deployments, up Upload) (*Server, *silentAudi
 		opts: Options{
 			PublicURL: "https://deployer.example.org",
 			AppDomain: "deploy.example.org",
+			// Well clear of anything these tests create, so a test that is not
+			// about the cap never trips it (spec 0016).
+			MaxAppsPerAccount: 10,
 		},
 	}, auditor
 }
@@ -397,5 +420,28 @@ func TestTheToolDescriptionCarriesTheUploadContract(t *testing.T) {
 		if !strings.Contains(description, want) {
 			t.Errorf("the description does not mention %q", want)
 		}
+	}
+}
+
+// TestTheToolDescriptionCarriesTheCapRule pins the half of the contract nothing
+// else tests: the description is the only place an agent learns that an account
+// has a ceiling and that deleting an app frees a slot (spec 0016, AC-13).
+func TestTheToolDescriptionCarriesTheCapRule(t *testing.T) {
+	// covers: AC-13
+	s, _ := server(&stubApps{}, &stubDeployments{}, liveUpload("acct_1"))
+	description := s.toolDescription()
+	for _, phrase := range []string{
+		"limited number of apps",
+		string(domain.ReasonAppLimitReached),
+		"frees a slot",
+	} {
+		if !strings.Contains(description, phrase) {
+			t.Errorf("the deploy_app description does not carry %q", phrase)
+		}
+	}
+	// The number itself is deliberately absent: one description serves every
+	// account, and the refusal and the apps page both carry the real figure.
+	if strings.Contains(description, "10") {
+		t.Errorf("the description names the configured number, which it must not")
 	}
 }

@@ -89,7 +89,7 @@ func setup(t *testing.T) *world {
 	if err != nil {
 		t.Fatalf("creating the account: %v", err)
 	}
-	app, err := st.CreateApp(ctx, account.ID, "hello")
+	app, err := st.CreateApp(ctx, account.ID, "hello", 100)
 	if err != nil {
 		t.Fatalf("creating the app: %v", err)
 	}

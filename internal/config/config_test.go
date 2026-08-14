@@ -184,6 +184,25 @@ func TestClusterSettingOverrides(t *testing.T) {
 	}
 }
 
+// Spec 0016, AC-7. The cap is optional, so an operator who sets nothing still
+// gets one, and the default is the number the pages and the refusal report.
+func TestMaxAppsPerAccountDefaultsAndOverrides(t *testing.T) {
+	c, err := Load(env(valid))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.MaxAppsPerAccount != 10 {
+		t.Errorf("MaxAppsPerAccount = %d with the variable unset, want 10", c.MaxAppsPerAccount)
+	}
+	c, err = Load(env(withValid(map[string]string{"DEPLOYER_MAX_APPS_PER_ACCOUNT": "3"})))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.MaxAppsPerAccount != 3 {
+		t.Errorf("MaxAppsPerAccount = %d, want 3", c.MaxAppsPerAccount)
+	}
+}
+
 func TestClusterSettingsRejectMalformedValues(t *testing.T) {
 	cases := []struct{ key, value string }{
 		{"DEPLOYER_APP_QUOTA_CPU", "banana"},
@@ -192,6 +211,11 @@ func TestClusterSettingsRejectMalformedValues(t *testing.T) {
 		{"DEPLOYER_APP_QUOTA_MEMORY", "0"},
 		{"DEPLOYER_APP_QUOTA_PODS", "banana"},
 		{"DEPLOYER_APP_QUOTA_PODS", "0"},
+		// Spec 0016, AC-7. There is no value meaning no cap, so zero and a
+		// negative number are mistakes rather than ways of turning it off.
+		{"DEPLOYER_MAX_APPS_PER_ACCOUNT", "banana"},
+		{"DEPLOYER_MAX_APPS_PER_ACCOUNT", "0"},
+		{"DEPLOYER_MAX_APPS_PER_ACCOUNT", "-1"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.key+"="+tc.value, func(t *testing.T) {

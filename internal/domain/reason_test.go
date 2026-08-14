@@ -29,14 +29,18 @@ var theSet = []domain.Reason{
 	domain.ReasonConfigFlagMissing,
 	domain.ReasonConfigTooManyKeys,
 	domain.ReasonConfigTooLarge,
+	domain.ReasonDeploymentInFlight,
+	domain.ReasonAppLimitReached,
 }
 
-// The set is closed at nineteen codes: nine failures, plus deployment_unknown,
+// The set is closed at twenty one codes: nine failures, plus deployment_unknown,
 // superseded (spec 0005, AC-11), app_unknown (spec 0006, AC-8), the six
-// configuration refusals (spec 0010), and release_unknown (spec 0011, AC-21).
-const codesInTheSet = 19
+// configuration refusals (spec 0010), release_unknown (spec 0011, AC-21),
+// deployment_in_flight (spec 0012, AC-15), and app_limit_reached
+// (spec 0016, AC-8).
+const codesInTheSet = 21
 
-func TestTheSetIsExactlyNineteenCodes(t *testing.T) {
+func TestTheSetIsExactlyTwentyOneCodes(t *testing.T) {
 	// covers: AC-11
 	t.Parallel()
 	if len(theSet) != codesInTheSet {
@@ -59,7 +63,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 	t.Parallel()
 	for _, r := range []domain.Reason{"", "unknown", "BUILD_FAILED", "build failed", "internal "} {
 		if r.Valid() {
-			t.Errorf("%q reads as valid but is not one of the nineteen codes", r)
+			t.Errorf("%q reads as valid but is not one of the twenty one codes", r)
 		}
 	}
 }
@@ -173,6 +177,9 @@ func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 		domain.ReasonConfigFlagMissing: "config_flag_missing",
 		domain.ReasonConfigTooManyKeys: "config_too_many_keys",
 		domain.ReasonConfigTooLarge:    "config_too_large",
+
+		domain.ReasonDeploymentInFlight: "deployment_in_flight",
+		domain.ReasonAppLimitReached:    "app_limit_reached",
 	}
 	if len(want) != len(theSet) {
 		t.Fatalf("the pinned map holds %d codes and the set holds %d", len(want), len(theSet))

@@ -57,7 +57,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | done |
 | 15 | Stranded deployment recovery | Slice 11 | done |
 | 16 | Invite only registration | Slice 12 | done |
-| 17 | Per account app cap | Slice 12 | planned |
+| 17 | Per account app cap | Slice 12 | in-progress |
 | 18 | Bounded app egress | Slice 12 | planned |
 | 19 | Account suspension | Slice 12 | planned |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
@@ -349,10 +349,19 @@ code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/w
 - [x] Review it (fresh model): `/check review invite only registration`
 - [x] Document it: `/document invite only registration`
 
-### 17. Per account app cap · Beta · needs a decision
+### 17. Per account app cap · Beta
 Nothing counts apps per account, so one account can create as many as the cluster will hold. Every quota built so far bounds what one app consumes, not how many an account may start. With under ten people this is about stopping one runaway account rather than sharing scarce capacity.
 **Done when:** an account at its cap is refused a new app with a closed reason code that names the cap, the refusal reads the same through an MCP tool and through the pages, the cap is `DEPLOYER_*` configuration validated at startup, a deleted app frees a slot, and accounts already over the cap keep what they have.
-- [ ] Design it (spec): `/architect per account app cap`
+spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/config`, `internal/domain`, `internal/store`, `internal/mcp`, `internal/web`
+- [x] Design it (spec): `/architect per account app cap`
+- [ ] Build it: `/develop per account app cap`
+  - [ ] The configured number, the reason code, and the live count read — AC-7, AC-8, AC-15
+  - [ ] The refusal through `deploy_app`, proved over the wire, with the tool description — AC-1, AC-2, AC-3, AC-4, AC-9, AC-13, AC-16
+  - [ ] Exactness: the count and the insert in one transaction, with a race test — AC-6
+  - [ ] The surfaces: apps page usage and notice, admin per account count — AC-10, AC-11, AC-12
+  - [ ] The edges: a delete frees a slot, an over cap account keeps everything, no migration — AC-5, AC-14, AC-17
+- [ ] Verify it: `/check verify per account app cap`
+- [ ] Test it: `/test per account app cap`
 
 ### 18. Bounded app egress · needs a decision
 Cluster traffic is fenced, but an app's outbound path to the internet is wide open. That is how a stranger's app mines coins or sends spam, and both cost you a relationship with your internet provider rather than just some CPU. Ports, not hostnames: an allow list by hostname is still deferred because it breaks every app that calls an API until its owner declares it.
@@ -414,6 +423,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **A per account cap on apps**: nothing counts apps per account, so one account can create as many as it likes and the ceiling is the cluster. Every quota built so far is per app namespace, which bounds what one app consumes and not how many an account may start. Raised by handing a second person an account: isolation between accounts is solid, capacity between them is shared and ungoverned, and registration is open to anyone who can reach the page. It has stayed invisible only because the tailnet has kept the number of accounts at one · promoted into feature 17
 - **Getting a new person from nothing to a connected agent**: joining the platform is still a developer's job, even though using it is not. Four steps stand between a new person and their first deploy: install Tailscale and accept a node share, register and verify, mint a token, and paste that token into an MCP client's configuration as a bearer header. Only the middle one is built. The web interface made the platform person friendly at its edges and left the joining unaddressed, which did not show while there was one account. The token paste is the step that actually goes wrong, because a token is a password that grants deploys on the cluster and pasting a secret into a config file is exactly what a non technical person mishandles. Raised 2026-08-14 by working out what handing an account to a friend costs. Worth being clear it may be the wrong problem to solve: anyone running Claude Code or Codex is already using a developer's tool, so the coding agent is a higher wall than the configuration. If it is worth solving, the shape is handing someone one thing rather than four, an invite link that mints the token and returns a ready configuration, and that is a new credential path with its own security model rather than a convenience. Features 16 and 23 take the two halves that do not need a new credential path, the invite and the copyable block; what stays here is the one click version that provisions the client for them · needs a decision
 - **Dark mode for the web interface**: from spec 0013, scoped out of feature 14. Cheap as a token swap under `prefers-color-scheme` only because the stylesheet defines every colour as a token from the start · needs a decision
+- **A per account override on the app cap**: a nullable `app_limit` on `accounts` plus an admin control, so one person can be given more room than the global number without moving everyone's ceiling. From spec 0016, which chose one global number deliberately: with under ten people the global figure is likely right for everyone, and the shape of the exception is a guess until it is not. Worth building the first time someone genuinely needs a different ceiling · needs a decision
+- **A shared guard on app creation**: spec 0016's cap is correct because `deploy_app` is the only path that creates an app row, and nothing enforces that property. A web create route, or any second caller, would silently bypass the cap. From spec 0016, which left it as a wrapper with one caller. It becomes real work the moment a second create path is proposed, and the write actions from the browser entry above is the likeliest source of one · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 

@@ -7,10 +7,11 @@ package domain
 // AC-16).
 type Reason string
 
-// The twenty codes. Nine are failures a deploy can end on; ReasonSuperseded
+// The twenty one codes. Nine are failures a deploy can end on; ReasonSuperseded
 // describes a cancellation, ReasonDeploymentUnknown, ReasonAppUnknown and
 // ReasonReleaseUnknown a refused readback, ReasonDeploymentInFlight a refused
-// delete, and the six config_ codes a refused configuration write.
+// delete, ReasonAppLimitReached a refused create, and the six config_ codes a
+// refused configuration write.
 const (
 	ReasonUploadInvalid   Reason = "upload_invalid"
 	ReasonUploadExpired   Reason = "upload_expired"
@@ -43,6 +44,12 @@ const (
 	// namespace out from under a build that is writing into it. Nothing is
 	// written and nothing is torn down (spec 0012, AC-15).
 	ReasonDeploymentInFlight Reason = "deployment_in_flight"
+	// ReasonAppLimitReached is why a deploy of a name the account does not
+	// already hold is refused: the account is at its ceiling for live apps.
+	// Nothing is written, and everything the account already runs keeps
+	// deploying. The message names no number, because the count and the cap
+	// travel as a composed detail beside it (spec 0016, AC-8).
+	ReasonAppLimitReached Reason = "app_limit_reached"
 
 	// The configuration refusals, added by spec 0010. Every one of them is
 	// decided before any write happens, so a refused call changes nothing.
@@ -88,6 +95,8 @@ var messages = map[Reason]string{
 
 	ReasonDeploymentInFlight: "that app has a deploy or rollback still running, so wait for it to finish and try again",
 
+	ReasonAppLimitReached: "this account is at its limit for apps, so delete one you no longer need",
+
 	ReasonConfigKeyInvalid:  "a configuration key must be upper case letters, digits, and underscores, not start with a digit, and appear once per call",
 	ReasonConfigKeyReserved: "PORT and APP_URL are set by the platform and cannot be configured",
 	ReasonConfigKeyUnknown:  "one of those keys is not set on this app, so nothing was removed",
@@ -96,7 +105,7 @@ var messages = map[Reason]string{
 	ReasonConfigTooLarge:    "a value may be at most 4 KB and an app's whole configuration at most 32 KB",
 }
 
-// Valid reports whether r is one of the twenty codes.
+// Valid reports whether r is one of the twenty one codes.
 func (r Reason) Valid() bool {
 	_, ok := messages[r]
 	return ok

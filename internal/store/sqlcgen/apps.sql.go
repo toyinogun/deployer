@@ -33,6 +33,57 @@ func (q *Queries) CountInFlightDeploymentsForApp(ctx context.Context, appID stri
 	return count, err
 }
 
+const countLiveAppsByAccount = `-- name: CountLiveAppsByAccount :one
+SELECT COUNT(*) FROM apps WHERE account_id = ?1 AND deleted_at IS NULL
+`
+
+// How many live apps an account holds, which is the whole of the per account
+// cap: the predicate is the one every other app read already uses, so a soft
+// deleted app frees a slot with no extra column and no reaper involvement
+// (spec 0016, Data model sketch).
+func (q *Queries) CountLiveAppsByAccount(ctx context.Context, accountID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countLiveAppsByAccount, accountID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countLiveAppsPerAccount = `-- name: CountLiveAppsPerAccount :many
+SELECT account_id, COUNT(*) AS app_count FROM apps
+WHERE deleted_at IS NULL
+GROUP BY account_id
+`
+
+type CountLiveAppsPerAccountRow struct {
+	AccountID string
+	AppCount  int64
+}
+
+// The same count for every account at once, for the admin listing. One grouped
+// statement rather than a count per row (spec 0016, AC-12).
+func (q *Queries) CountLiveAppsPerAccount(ctx context.Context) ([]CountLiveAppsPerAccountRow, error) {
+	rows, err := q.db.QueryContext(ctx, countLiveAppsPerAccount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CountLiveAppsPerAccountRow{}
+	for rows.Next() {
+		var i CountLiveAppsPerAccountRow
+		if err := rows.Scan(&i.AccountID, &i.AppCount); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const createApp = `-- name: CreateApp :one
 INSERT INTO apps (id, account_id, name, slug, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?)

@@ -102,7 +102,7 @@ func TestQueuedWorkIsClaimedAheadOfAnOlderStrandedRow(t *testing.T) {
 		t.Fatalf("releasing the claim: %v", err)
 	}
 	// A second app, because one deployment in flight per app is a schema rule.
-	other, err := s.CreateApp(ctx, f.account.ID, "Billing Service")
+	other, err := s.CreateApp(ctx, f.account.ID, "Billing Service", 100)
 	if err != nil {
 		t.Fatalf("creating the second app: %v", err)
 	}

@@ -30,7 +30,7 @@ func TestTransitionUnderConcurrentWriters(t *testing.T) {
 	const writers = 24
 	deps := make([]string, 0, writers)
 	for i := range writers {
-		app, err := s.CreateApp(ctx, f.account.ID, fmt.Sprintf("busy app %d", i))
+		app, err := s.CreateApp(ctx, f.account.ID, fmt.Sprintf("busy app %d", i), 100)
 		if err != nil {
 			t.Fatalf("creating the app: %v", err)
 		}

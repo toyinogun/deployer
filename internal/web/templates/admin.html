@@ -2,7 +2,7 @@
 {{define "content"}}
 <header class="page-head">
   <h1>Accounts</h1>
-  <p class="sub">Everyone registered on this platform. This page carries no visibility over anybody's apps.</p>
+  <p class="sub">Everyone registered on this platform. It shows how many apps each account holds, and nothing else about them.</p>
 </header>
 
 {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
@@ -13,7 +13,7 @@
 <section class="card account-card" aria-labelledby="account-{{.ID}}">
   <header class="account-head">
     <h2 id="account-{{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.Email}}{{end}}</h2>
-    <p class="quiet">{{.Email}} · joined {{when .Created}}</p>
+    <p class="quiet">{{.Email}} · joined {{when .Created}} · {{.Apps}} app{{if ne .Apps 1}}s{{end}}</p>
     <p class="badges">
       {{if .IsAdmin}}<span class="badge">admin</span>{{end}}
       {{if .Verified}}<span class="badge quiet-badge">verified</span>{{else}}<span class="badge warn">unverified</span>{{end}}

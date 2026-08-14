@@ -20,49 +20,100 @@ const slugAttempts = 5
 // slug is globally unique across every app row that has ever existed, soft
 // deleted ones included, so a retired hostname is never reused. A suffix
 // collision is retried with a fresh suffix up to slugAttempts times.
-func (s *Store) CreateApp(ctx context.Context, accountID, name string) (App, error) {
+//
+// limit is how many live apps the account may hold. It is counted once at the
+// top of the same transaction that inserts the row, which opens with BEGIN
+// IMMEDIATE and so takes the write lock before the count runs: that ordering is
+// what makes the cap exact rather than a read two writers can both pass
+// (spec 0016, AC-6). The slug retry loop lives inside that one transaction
+// because a fresh suffix cannot change how many apps the account holds, so it
+// never recounts.
+func (s *Store) CreateApp(ctx context.Context, accountID, name string, limit int) (App, error) {
 	now := s.now()
-	var lastErr error
-	for range slugAttempts {
-		app, err := s.q.CreateApp(ctx, sqlcgen.CreateAppParams{
-			ID:        ids.New(ids.App, s.clock.Now()),
-			AccountID: accountID,
-			Name:      name,
-			Slug:      domain.DeriveSlugWithSuffix(name, s.suffix()),
-			CreatedAt: now,
-			UpdatedAt: now,
-		})
-		switch {
-		case err == nil:
-			return app, nil
-		case isUniqueViolation(err):
-			// Either the slug collided, which a fresh suffix fixes, or the
-			// account already has a live app by this name, which it does not.
-			taken, checkErr := s.nameTaken(ctx, accountID, name)
-			if checkErr != nil {
-				return App{}, checkErr
-			}
-			if taken {
-				return App{}, ErrAppNameTaken
-			}
-			lastErr = err
-		default:
-			return App{}, fmt.Errorf("store: creating app %q: %w", name, err)
+	var created App
+	err := s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		held, err := q.CountLiveAppsByAccount(ctx, accountID)
+		if err != nil {
+			return fmt.Errorf("store: counting apps for account %s: %w", accountID, err)
 		}
+		if held >= int64(limit) {
+			return ErrAppLimit
+		}
+		var lastErr error
+		for range slugAttempts {
+			app, err := q.CreateApp(ctx, sqlcgen.CreateAppParams{
+				ID:        ids.New(ids.App, s.clock.Now()),
+				AccountID: accountID,
+				Name:      name,
+				Slug:      domain.DeriveSlugWithSuffix(name, s.suffix()),
+				CreatedAt: now,
+				UpdatedAt: now,
+			})
+			switch {
+			case err == nil:
+				created = app
+				return nil
+			case isUniqueViolation(err):
+				// Either the slug collided, which a fresh suffix fixes, or the
+				// account already has a live app by this name, which it does not.
+				taken, checkErr := nameTaken(ctx, q, accountID, name)
+				if checkErr != nil {
+					return checkErr
+				}
+				if taken {
+					return ErrAppNameTaken
+				}
+				lastErr = err
+			default:
+				return fmt.Errorf("store: creating app %q: %w", name, err)
+			}
+		}
+		return fmt.Errorf("store: %d slug attempts for %q all collided: %w", slugAttempts, name, errors.Join(ErrSlugTaken, lastErr))
+	})
+	if err != nil {
+		return App{}, err
 	}
-	return App{}, fmt.Errorf("store: %d slug attempts for %q all collided: %w", slugAttempts, name, errors.Join(ErrSlugTaken, lastErr))
+	return created, nil
+}
+
+// CountLiveAppsByAccount is how many live apps the account holds. It is the
+// number the cap is compared against and the number both surfaces display, read
+// fresh every time rather than stored anywhere (spec 0016, Key invariants).
+func (s *Store) CountLiveAppsByAccount(ctx context.Context, accountID string) (int, error) {
+	n, err := s.q.CountLiveAppsByAccount(ctx, accountID)
+	if err != nil {
+		return 0, fmt.Errorf("store: counting apps for account %s: %w", accountID, err)
+	}
+	return int(n), nil
+}
+
+// CountLiveAppsPerAccount is the same count for every account that holds at
+// least one app, in one grouped statement. An account with no apps is absent
+// from the map, which reads as zero (spec 0016, AC-12).
+func (s *Store) CountLiveAppsPerAccount(ctx context.Context) (map[string]int, error) {
+	rows, err := s.q.CountLiveAppsPerAccount(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("store: counting apps per account: %w", err)
+	}
+	out := make(map[string]int, len(rows))
+	for _, r := range rows {
+		out[r.AccountID] = int(r.AppCount)
+	}
+	return out, nil
 }
 
 // nameTaken reports whether the account already has a live app with this name.
-func (s *Store) nameTaken(ctx context.Context, accountID, name string) (bool, error) {
-	var n int
-	err := s.db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM apps WHERE account_id = ? AND name = ? AND deleted_at IS NULL`,
-		accountID, name).Scan(&n)
+// It takes the queries handle rather than the pool so the check runs inside
+// whatever transaction its caller opened.
+func nameTaken(ctx context.Context, q *sqlcgen.Queries, accountID, name string) (bool, error) {
+	_, err := q.GetAppByName(ctx, sqlcgen.GetAppByNameParams{AccountID: accountID, Name: name})
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
 	if err != nil {
 		return false, fmt.Errorf("store: checking whether %q is taken: %w", name, err)
 	}
-	return n > 0, nil
+	return true, nil
 }
 
 // GetApp reads one live app. A soft deleted app reads as not found.
