@@ -55,7 +55,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 12 | Rollback & release history | Slice 8 | done |
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | in-progress |
-| 15 | Stranded deployment recovery | Slice 11 | in-progress |
+| 15 | Stranded deployment recovery | Slice 11 | done |
 
 ## Foundations
 
@@ -299,7 +299,7 @@ spec [0013](../specs/0013-web-interface/index.md)
 
 ## Slice 11: Stranded deployment recovery
 
-### 15. Stranded deployment recovery · in-progress
+### 15. Stranded deployment recovery · done
 From spec 0014, which came out of a real incident rather than the plan: a lost SQLite write left a deployment sitting in `building`, so its app refused deletes and the failure was eventually recorded as `timeout`. The reconcile tick learns to ask the cluster what the build Job actually did, and either ends the row with the true reason or hands it back to be resumed. Narrowed on 2026-08-14 after `/check verify` and `/check review` both found the first framing overclaimed: restarts are already covered by the startup sweep and a dying Job by `awaitBuild`, so this check is a backstop for two internal faults, a state write that did not land and a startup sweep that did not run.
 **Done when:** a deployment stranded by one of those two faults is ended at the next tick carrying the reason the Job gave rather than at the deploy budget, a build that had already succeeded is resumed rather than thrown away, the supersession race is visible in the logs, and none of it costs a new setting, a new column, or a second writer of deployment state.
 spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `internal/reconcile`, `internal/store`, `deploy`
@@ -314,7 +314,7 @@ spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `int
 - [x] Verify it: `/check verify stranded deployment recovery`
 - [x] Test it: `/test stranded deployment recovery`
 - [x] Review it (fresh model): `/check review stranded deployment recovery`
-- [ ] Document it: `/document stranded deployment recovery`
+- [x] Document it: `/document stranded deployment recovery`
 
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
