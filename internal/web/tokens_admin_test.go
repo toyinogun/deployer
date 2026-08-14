@@ -44,6 +44,38 @@ func TestMintingShowsTheRawValueExactlyOnce(t *testing.T) {
 	}
 }
 
+// TestMintingRefusesAnExpiryItCannotHonour covers both ways expires_days can be
+// wrong: text the handler rejects itself, and a number the service refuses. Both
+// answer 422 and leave the person on the page with the reason, and neither mints.
+// covers: AC-22
+func TestMintingRefusesAnExpiryItCannotHonour(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		days string
+	}{
+		{"not a number", "soon"},
+		{"beyond the ceiling", "366"},
+		{"negative", "-1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t, nil)
+			cookie := h.signIn(t, "expiry@example.test")
+
+			rec := h.post(t, "/tokens", url.Values{
+				"name": {"unminted marker"}, "expires_days": {tc.days}, "csrf": {h.csrfFor(t, cookie)},
+			}, cookie, nil)
+			if rec.Code != http.StatusUnprocessableEntity {
+				t.Fatalf("minting with expires_days=%q: got %d, want 422", tc.days, rec.Code)
+			}
+			// The assertion is that nothing was minted, not only that the
+			// response was 422.
+			if again := h.get(t, "/tokens", cookie).Body.String(); strings.Contains(again, "unminted marker") {
+				t.Error("a token was minted despite the refusal")
+			}
+		})
+	}
+}
+
 // TestTheTokenListLeaksNeitherValueNorHash is AC-21's closing clause. A prefix
 // is not a credential; a hash is what an offline attack starts from.
 // covers: AC-21
