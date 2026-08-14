@@ -177,6 +177,13 @@ type failOnce struct {
 	// listNonTerminal fails the next listing, once, which is the startup sweep
 	// reading nothing and leaving every in flight row unattended.
 	listNonTerminal bool
+	// releaseClaim fails the next release, once: the check decides to hand a row
+	// back and loses that write.
+	releaseClaim bool
+	// releaseCalls counts every release attempt. The loop runs on one goroutine,
+	// so a plain int is enough, and it is what makes "not retried inside the
+	// tick" an assertion rather than an inference from the row's state.
+	releaseCalls int
 }
 
 func (f *failOnce) Transition(ctx context.Context, id string, to domain.State, reason, detail string) error {
@@ -193,6 +200,15 @@ func (f *failOnce) ListNonTerminal(ctx context.Context) ([]reconcile.Deployment,
 		return nil, errors.New("the database was busy")
 	}
 	return f.ReconcileStore.ListNonTerminal(ctx)
+}
+
+func (f *failOnce) ReleaseClaim(ctx context.Context, id string) (bool, error) {
+	f.releaseCalls++
+	if f.releaseClaim {
+		f.releaseClaim = false
+		return false, errors.New("the database was busy")
+	}
+	return f.ReconcileStore.ReleaseClaim(ctx, id)
 }
 
 func TestARowStrandedByAFailedStateWriteIsEndedOnTheNextTick(t *testing.T) {
@@ -245,6 +261,44 @@ func TestRowsLeftUnattendedByAFailedStartupSweepAreRecoveredByTheTick(t *testing
 	r.Tick(ctx)
 
 	w.failedWith(t, domain.ReasonBuildFailed)
+}
+
+func TestAReleaseThatFailsChangesNothingAndIsNotRetriedInTheSameTick(t *testing.T) {
+	// covers: AC-5b
+	// The check decides to hand a succeeded build back and the write does not
+	// land. That is the check recursing into the exact fault it exists for, so
+	// the rule is one attempt per tick and no repair inside this one: the row is
+	// left exactly as it stood, and the next tick reads the Job again and reaches
+	// the same decision. A retry here would be the loop trying to out write a
+	// database that just told it no.
+	w := setup(t)
+	f := &failOnce{
+		ReconcileStore: store.ForReconcile(w.store),
+		releaseClaim:   true,
+	}
+	w.deployments = f
+	w.strand(t)
+	w.buildEnds(batchv1.JobComplete)
+	w.appComesUp()
+	ctx := t.Context()
+	r := w.reconciler(fakeRegistry{digest: testDigest, user: "1000"})
+
+	r.Tick(ctx)
+
+	w.stillBuilding(t)
+	if f.releaseCalls != 1 {
+		t.Errorf("release attempts in one tick = %d, want 1: a failed release is not retried inside the tick", f.releaseCalls)
+	}
+
+	// Self healing rather than lost: the next tick asks the cluster the same
+	// question, gets the same answer, and this time the release lands.
+	r.Tick(ctx)
+
+	dep := w.reload(t)
+	if dep.State != string(domain.StateHealthy) {
+		t.Fatalf("state = %s, want healthy (failure reason %v): the next tick should reach the same decision and finish the build",
+			dep.State, dep.FailureReason)
+	}
 }
 
 func TestASupersessionThatBeatsTheReleaseLeavesTheRowEnded(t *testing.T) {
