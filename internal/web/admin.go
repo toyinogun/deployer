@@ -134,19 +134,20 @@ func (s *Server) adminSetDisabled(w http.ResponseWriter, r *http.Request, admin 
 }
 
 // partialMessage is the sentence shown when the account changed state but the
-// cluster refused some of its apps. The sweep is named because it is the honest
-// answer to what happens next.
+// cluster refused some of its apps.
+//
+// What happens next differs by direction, so the sentence does too. The sweep
+// retries a stop on every tick, so a suspension really does keep trying. Nothing
+// retries a start: the sweep only ever scales down, by AC-8, and restore is the
+// single caller that scales up. Telling an admin the platform is retrying a
+// restore it will never retry is how an app stays down with nobody watching.
 func partialMessage(suspending bool, slugs []string) string {
-	verb := "stop"
-	if !suspending {
-		verb = "start again"
-	}
-	state := "suspended"
-	if !suspending {
-		state = "restored"
+	verb, state, next := "start again", "restored", "Restore it again to retry."
+	if suspending {
+		verb, state, next = "stop", "suspended", "The platform keeps retrying on its own."
 	}
 	return "The account is " + state + ", but these apps did not " + verb + ": " +
-		strings.Join(slugs, ", ") + ". The platform keeps retrying on its own."
+		strings.Join(slugs, ", ") + ". " + next
 }
 
 // adminRevokeToken kills another account's token, which is the one thing an
