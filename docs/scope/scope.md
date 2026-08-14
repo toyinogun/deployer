@@ -346,7 +346,7 @@ spec [0015](../specs/0015-invite-only-registration/index.md)
 code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/web/invites.go`, `internal/httpapi/inviteroutes.go`
 - [x] Verify it: `/check verify invite only registration`
 - [x] Test it: `/test invite only registration`
-- [ ] Review it (fresh model): `/check review invite only registration`
+- [x] Review it (fresh model): `/check review invite only registration`
 - [ ] Document it: `/document invite only registration`
 
 ### 17. Per account app cap · Beta · needs a decision
