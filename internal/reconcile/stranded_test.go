@@ -1,13 +1,17 @@
 package reconcile_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 
 	"github.com/toyinogun/deployer/internal/build"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/reconcile"
 	"github.com/toyinogun/deployer/internal/store"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
 )
@@ -151,4 +155,125 @@ func TestARowThatKeepsStrandingIsStillEndedByTheDeployBudget(t *testing.T) {
 	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}, spent).Tick(t.Context())
 
 	w.failedWith(t, domain.ReasonTimeout)
+}
+
+// failOnce is the real store with one named call failing the first time it is
+// made. Everything else, including every other call of that same method, is the
+// real SQLite store answering for itself.
+//
+// This is not mocking the store, which the project rule forbids, and the
+// distinction matters because the next reader will check it against that rule:
+// no store semantics are invented here. A passthrough returning a real error on
+// one call fakes no behaviour, and it is the only way to reach the two faults
+// spec 0014 exists for, both of which are internal to the platform. Forcing a
+// genuine SQLite failure does not work: Tick reads ListNonTerminal before the
+// check and skips the check when that read fails, so a broken connection would
+// fail the read the test needs to succeed.
+type failOnce struct {
+	store.ReconcileStore
+	// transitionTo is the state whose write fails, once. The drive writes several
+	// transitions, and only the one ending the row is the fault being modelled.
+	transitionTo domain.State
+	// listNonTerminal fails the next listing, once, which is the startup sweep
+	// reading nothing and leaving every in flight row unattended.
+	listNonTerminal bool
+}
+
+func (f *failOnce) Transition(ctx context.Context, id string, to domain.State, reason, detail string) error {
+	if to == f.transitionTo {
+		f.transitionTo = ""
+		return errors.New("the database was busy")
+	}
+	return f.ReconcileStore.Transition(ctx, id, to, reason, detail)
+}
+
+func (f *failOnce) ListNonTerminal(ctx context.Context) ([]reconcile.Deployment, error) {
+	if f.listNonTerminal {
+		f.listNonTerminal = false
+		return nil, errors.New("the database was busy")
+	}
+	return f.ReconcileStore.ListNonTerminal(ctx)
+}
+
+func TestARowStrandedByAFailedStateWriteIsEndedOnTheNextTick(t *testing.T) {
+	// covers: AC-1, AC-2
+	// The core fault: the build fails, the reason is computed, and the write that
+	// would have recorded it does not land. Nothing else notices, so without this
+	// check the row sits in building until the deploy budget and is then recorded
+	// as timeout rather than as the build failure it was.
+	w := setup(t)
+	w.deployments = &failOnce{
+		ReconcileStore: store.ForReconcile(w.store),
+		transitionTo:   domain.StateFailed,
+	}
+	w.buildEnds(batchv1.JobFailed)
+	ctx := t.Context()
+	r := w.reconciler(fakeRegistry{digest: testDigest, user: "1000"})
+
+	// The drive that dies: it builds, learns the build failed, and loses the write.
+	r.Tick(ctx)
+	if dep := w.reload(t); dep.State != string(domain.StateBuilding) {
+		t.Fatalf("state = %s, want building: the fault this test rests on did not happen", dep.State)
+	}
+
+	// The next tick asks the cluster what the Job did and ends the row on that.
+	r.Tick(ctx)
+
+	w.failedWith(t, domain.ReasonBuildFailed)
+}
+
+func TestRowsLeftUnattendedByAFailedStartupSweepAreRecoveredByTheTick(t *testing.T) {
+	// covers: AC-1
+	// The second fault, and the one where this check is the only recovery there
+	// is: Sweep's listing errors, it logs one warning and returns, and the ticker
+	// starts with every in flight row unattended.
+	w := setup(t)
+	w.deployments = &failOnce{
+		ReconcileStore:  store.ForReconcile(w.store),
+		listNonTerminal: true,
+	}
+	w.strand(t)
+	w.buildEnds(batchv1.JobFailed)
+	ctx := t.Context()
+	r := w.reconciler(fakeRegistry{digest: testDigest, user: "1000"})
+
+	r.Sweep(ctx)
+	if dep := w.reload(t); dep.State != string(domain.StateBuilding) {
+		t.Fatalf("state = %s, want building: the sweep was supposed to have failed", dep.State)
+	}
+
+	r.Tick(ctx)
+
+	w.failedWith(t, domain.ReasonBuildFailed)
+}
+
+func TestASupersessionThatBeatsTheReleaseLeavesTheRowEnded(t *testing.T) {
+	// covers: AC-5a, AC-10
+	w := setup(t)
+	w.strand(t)
+	ctx := t.Context()
+	// The Job read answers succeeded and, in the same breath, something else ends
+	// the row: exactly the window between the read and the release.
+	w.clientset.PrependReactor("get", "jobs", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if _, err := w.store.Transition(ctx, w.deployment.ID, domain.StateCancelled, "", ""); err != nil {
+			t.Errorf("superseding the deployment: %v", err)
+		}
+		name := action.(k8stesting.GetAction).GetName()
+		return true, &batchv1.Job{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: action.GetNamespace()},
+			Status: batchv1.JobStatus{Conditions: []batchv1.JobCondition{
+				{Type: batchv1.JobComplete, Status: corev1.ConditionTrue},
+			}},
+		}, nil
+	})
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}).Tick(ctx)
+
+	dep := w.reload(t)
+	if dep.State != string(domain.StateCancelled) {
+		t.Fatalf("state = %s, want cancelled: a row something else ended must never be reopened", dep.State)
+	}
+	if dep.ClaimedAt == nil {
+		t.Error("the claim was cleared on a row the guard could not have matched")
+	}
 }

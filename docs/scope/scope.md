@@ -300,8 +300,8 @@ spec [0013](../specs/0013-web-interface/index.md)
 ## Slice 11: Stranded deployment recovery
 
 ### 15. Stranded deployment recovery · in-progress
-From spec 0014, which came out of a real incident rather than the plan. A deploy whose drive ends without writing the row terminal leaves the deployment sitting in `building`, so its app refuses deletes and the eventual failure is recorded as `timeout` when the build pod failed and said so minutes earlier. The reconcile tick learns to ask the cluster what the build Job actually did, and either ends the row with the true reason or hands it back to be resumed.
-**Done when:** a deployment whose drive dies is ended within a tick or two carrying the reason the Job gave, a build that had already succeeded is resumed rather than thrown away, and none of that costs a new setting, a new column, or a second writer of deployment state.
+From spec 0014, which came out of a real incident rather than the plan: a lost SQLite write left a deployment sitting in `building`, so its app refused deletes and the failure was eventually recorded as `timeout`. The reconcile tick learns to ask the cluster what the build Job actually did, and either ends the row with the true reason or hands it back to be resumed. Narrowed on 2026-08-14 after `/check verify` and `/check review` both found the first framing overclaimed: restarts are already covered by the startup sweep and a dying Job by `awaitBuild`, so this check is a backstop for two internal faults, a state write that did not land and a startup sweep that did not run.
+**Done when:** a deployment stranded by one of those two faults is ended at the next tick carrying the reason the Job gave rather than at the deploy budget, a build that had already succeeded is resumed rather than thrown away, the supersession race is visible in the logs, and none of it costs a new setting, a new column, or a second writer of deployment state.
 spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `internal/reconcile`, `internal/store`, `deploy`
 - [x] Design it (spec): `/architect stranded deployment recovery`
 - [x] Build it: `/develop stranded deployment recovery`
@@ -309,9 +309,11 @@ spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `int
   - [x] The check in the tick: the whole Job state table, ahead of the budget pass, with no new setting — AC-1, AC-2, AC-4, AC-4a, AC-5b, AC-6, AC-7, AC-8
   - [x] The proof: fake clientset coverage for every branch, the ordering, the fairness and the supersession race — AC-1 to AC-7, AC-9
   - [x] The invariant written where it is enforced: the single replica note beside the manifest in `deploy/AGENTS.md` — AC-7
+  - [x] The race made visible: `ReleaseClaim` returns whether it released a row, and the loop logs the no-op apart from the success — AC-10
+  - [x] The two faults tested: a passthrough over the real store failing one call, covering a `Transition` that errors and a `ListNonTerminal` that errors on the startup sweep — AC-1, AC-2
 - [ ] Verify it: `/check verify stranded deployment recovery`
 - [ ] Test it: `/test stranded deployment recovery`
-- [ ] Review it (fresh model): `/check review stranded deployment recovery`
+- [x] Review it (fresh model): `/check review stranded deployment recovery`
 - [ ] Document it: `/document stranded deployment recovery`
 
 ## Deferred

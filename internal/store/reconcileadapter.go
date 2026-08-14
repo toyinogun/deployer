@@ -77,9 +77,10 @@ func (a ReconcileStore) ClaimNext(ctx context.Context, claimedBy string) (reconc
 }
 
 // ReleaseClaim hands a stranded deployment back to the loop, leaving its state
-// alone. A row something else already ended is left as it stands, which the
-// store's own guard decides rather than this adapter.
-func (a ReconcileStore) ReleaseClaim(ctx context.Context, id string) error {
+// alone, and reports whether a row was actually released. A row something else
+// already ended is left as it stands, which the store's own guard decides rather
+// than this adapter.
+func (a ReconcileStore) ReleaseClaim(ctx context.Context, id string) (bool, error) {
 	return a.s.ReleaseBuildingClaim(ctx, id)
 }
 

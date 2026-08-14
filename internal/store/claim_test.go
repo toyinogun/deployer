@@ -25,8 +25,12 @@ func TestReleasingAClaimLetsTheLoopAdoptTheRow(t *testing.T) {
 	f := newFixture(t, s)
 	dep := stranded(t, s, f)
 
-	if err := s.ReleaseBuildingClaim(ctx, dep.ID); err != nil {
+	ok, err := s.ReleaseBuildingClaim(ctx, dep.ID)
+	if err != nil {
 		t.Fatalf("releasing the claim: %v", err)
+	}
+	if !ok {
+		t.Error("the release reported that it changed nothing, on a row it did release")
 	}
 
 	released, err := s.GetDeployment(ctx, dep.ID)
@@ -55,7 +59,7 @@ func TestReleasingAClaimLetsTheLoopAdoptTheRow(t *testing.T) {
 }
 
 func TestReleasingAClaimOnARowSomethingElseEndedWritesNothing(t *testing.T) {
-	// covers: spec 0014 AC-5a
+	// covers: spec 0014 AC-5a, AC-10
 	ctx := t.Context()
 	s, _ := newStore(t)
 	f := newFixture(t, s)
@@ -63,8 +67,14 @@ func TestReleasingAClaimOnARowSomethingElseEndedWritesNothing(t *testing.T) {
 	// The supersession that lands between the cluster read and the release.
 	mustTransition(t, s, dep.ID, domain.StateCancelled)
 
-	if err := s.ReleaseBuildingClaim(ctx, dep.ID); err != nil {
+	ok, err := s.ReleaseBuildingClaim(ctx, dep.ID)
+	if err != nil {
 		t.Fatalf("releasing the claim: %v", err)
+	}
+	// Reported rather than swallowed, so the loop can log the race apart from a
+	// real release instead of calling both a success (AC-10).
+	if ok {
+		t.Error("the release reported success on a row its guard could not have matched")
 	}
 
 	after, err := s.GetDeployment(ctx, dep.ID)
@@ -88,7 +98,7 @@ func TestQueuedWorkIsClaimedAheadOfAnOlderStrandedRow(t *testing.T) {
 	// The stray comes first, so its id sorts ahead of the queued row's: only the
 	// state preference can put the queued one in front.
 	stray := stranded(t, s, f)
-	if err := s.ReleaseBuildingClaim(ctx, stray.ID); err != nil {
+	if _, err := s.ReleaseBuildingClaim(ctx, stray.ID); err != nil {
 		t.Fatalf("releasing the claim: %v", err)
 	}
 	// A second app, because one deployment in flight per app is a schema rule.

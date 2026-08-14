@@ -74,3 +74,18 @@ Covering `building` only is a deliberate trade rather than an oversight. A build
 
 Releasing a successful build rather than failing it follows from the same logic that makes the startup sweep resume rather than discard. A build that succeeded is real work, and `Drive` already knows how to pick a row up from its current state. Widening `ClaimNext` is what lets the existing loop do that, and it introduces no new transition, which keeps the state machine's shape intact.
 
+
+## What the gates found, 2026-08-14
+
+The spec above was written before the check was built, and it overclaimed. `/check verify` could not trigger `recoverStranded` on the cluster, and `/check review`, on a second model with no knowledge of that run, reached the same conclusion from the code alone. Both are recorded in `docs/reviews/2026-08-14-feat-stranded-deployment-recovery.md`.
+
+The mistake is visible in the Context above, in one sentence. The incident that started this was a lost SQLite write. The spec then wrote the requirement as "a drive that returns without writing the terminal state", which sounds like the same thing and is not: it silently took in every way a drive can end early, including a crash and a restart. Those are the cases `Sweep` and `awaitBuild` already own, and they are the ones the acceptance criteria, the summary and the verify steps were then written around. The evidence was one narrow fault and the spec generalised past it without noticing, which is how a feature ends up with a verify step nobody can run.
+
+What was actually confirmed on the cluster, by log line rather than by outcome:
+
+- Deleting a build Job while the drive is alive is answered by `awaitBuild`, whose message is `the build job no longer exists`. The row failed in 4.5 seconds with `build_failed`, so the user visible promise held, and the new check had nothing to do with it.
+- Killing the control plane pod mid build is answered by the startup `Sweep`, whose message is `resuming a deployment left in flight`. `Run` calls `Sweep` before the ticker starts and `Sweep` blocks the one goroutine until every in flight row is driven, so no row is ever unattended when a tick begins.
+
+Reading every exit from `Drive` afterwards leaves two faults that do strand a row while the process lives, both internal and neither externally inducible: a `Transition` write failing inside `fail()`, which is the original incident, and `ListNonTerminal` failing inside `Sweep`, which makes the startup sweep return without driving anything. The check is kept for those two. The alternative on the table was reverting the branch, and it was refused because both faults cost a full deploy budget today and the check costs a filter over a listing already in hand.
+
+The lesson worth keeping, beyond this spec: the verify steps were written from the spec's claims rather than from the code's reachability, so they described an experiment that could not distinguish the new path from the old one. A verify step that passes whether or not the feature exists is not a verify step. Naming the log line each path emits, as the two bullets above do, is what made the difference here.

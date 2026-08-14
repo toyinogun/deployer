@@ -463,20 +463,23 @@ func (s *Store) ClaimNext(ctx context.Context, claimedBy string) (Deployment, er
 }
 
 // ReleaseBuildingClaim hands a claimed deployment back so the loop can adopt and
-// resume it, and does nothing at all unless the row is still in `building`.
+// resume it, and does nothing at all unless the row is still in `building`. It
+// reports whether a row was actually released, so the caller can tell a release
+// apart from a guard that legitimately matched nothing (spec 0014, AC-10).
 //
 // The guard is the whole point: a supersession can land between the cluster read
 // that decided to release and this write, and a row something else ended must
 // never be reopened (spec 0014, AC-5a). Both claim columns are cleared, because
 // ClaimNext decides what is unclaimed from claimed_at alone.
-func (s *Store) ReleaseBuildingClaim(ctx context.Context, deploymentID string) error {
-	if _, err := s.q.ReleaseBuildingClaim(ctx, sqlcgen.ReleaseBuildingClaimParams{
+func (s *Store) ReleaseBuildingClaim(ctx context.Context, deploymentID string) (bool, error) {
+	rows, err := s.q.ReleaseBuildingClaim(ctx, sqlcgen.ReleaseBuildingClaimParams{
 		Now: s.now(),
 		ID:  deploymentID,
-	}); err != nil {
-		return fmt.Errorf("store: releasing the claim on deployment %s: %w", deploymentID, err)
+	})
+	if err != nil {
+		return false, fmt.Errorf("store: releasing the claim on deployment %s: %w", deploymentID, err)
 	}
-	return nil
+	return rows > 0, nil
 }
 
 // GetDeployment reads one deployment.

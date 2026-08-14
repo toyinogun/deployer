@@ -109,8 +109,9 @@ type Deployments interface {
 	// ReleaseClaim hands a deployment back so a later tick adopts and resumes it,
 	// leaving its state untouched. It is a no op on a row that is no longer
 	// building, so a supersession that landed in the meantime is never reopened
-	// (spec 0014, AC-5a).
-	ReleaseClaim(ctx context.Context, id string) error
+	// (spec 0014, AC-5a). It reports whether a row was actually released, so that
+	// no op is visible in the logs rather than only in a test (AC-10).
+	ReleaseClaim(ctx context.Context, id string) (bool, error)
 	// ListNonTerminal returns everything still in flight, which the sweep reads.
 	ListNonTerminal(ctx context.Context) ([]Deployment, error)
 	// Transition moves a deployment, writing the row and one event together.
@@ -383,12 +384,21 @@ func (r *Reconciler) recoverStranded(ctx context.Context, deps []Deployment) {
 		case build.JobSucceeded:
 			// Real work worth resuming rather than throwing away, so the claim goes
 			// back and a later tick adopts the row and drives it on from building.
-			if err := r.deployments.ReleaseClaim(ctx, dep.ID); err != nil {
+			released, err := r.deployments.ReleaseClaim(ctx, dep.ID)
+			if err != nil {
 				// Not retried inside this tick: the next one reads the Job again and
 				// reaches the same decision, which is what makes this self healing
 				// against exactly the class of fault it exists to survive (AC-5b).
 				slog.ErrorContext(ctx, "handing a stranded deployment back failed",
 					"deployment", dep.ID, "error", err)
+				continue
+			}
+			if !released {
+				// The guard matched nothing, so something ended the row between the
+				// Job read and the write. Logged apart from a real release, because
+				// this is the AC-5a race actually happening in production (AC-10).
+				slog.InfoContext(ctx, "a stranded deployment was ended by something else before it could be handed back",
+					"deployment", dep.ID)
 				continue
 			}
 			slog.InfoContext(ctx, "handed a stranded deployment back to be resumed",
