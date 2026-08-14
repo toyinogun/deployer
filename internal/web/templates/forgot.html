@@ -1,0 +1,20 @@
+{{define "title"}}Reset your password{{end}}
+{{define "content"}}
+<div class="card auth-card">
+  <p class="brand">Deployer</p>
+  <h1>Reset your password</h1>
+  {{if .Data.MailDown}}
+  <p class="alert" role="alert">No mail sender is configured on this platform, so a reset link cannot be sent yet.</p>
+  {{end}}
+  {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+  <p>Give the address on your account and we will send a link to set a new password.</p>
+  <form method="post" action="/forgot" class="stack">
+    <div class="field">
+      <label for="email">Email address</label>
+      <input id="email" name="email" type="email" autocomplete="username" required value="{{.Data.Email}}">
+    </div>
+    <button class="button" type="submit">Send a reset link</button>
+  </form>
+  <p class="quiet"><a href="/login">Back to sign in</a></p>
+</div>
+{{end}}

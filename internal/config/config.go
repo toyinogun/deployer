@@ -131,6 +131,15 @@ type Config struct {
 	// OrphanGrace is how old an app namespace must be before the reaper will
 	// consider it orphaned. Default fifteen minutes.
 	OrphanGrace time.Duration
+
+	// Added by spec 0013, the web interface. Loaded and validated by loadWeb in
+	// web.go.
+
+	// CSRFKey is the secret every page form's synchroniser token is derived
+	// under, as the HMAC SHA256 of the session id. It is never stored per form
+	// and never leaves the process, so rotating it only invalidates the forms
+	// that are open at that moment.
+	CSRFKey string
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -269,6 +278,9 @@ func Load(getenv func(string) string) (Config, error) {
 	missing = append(missing, deployMissing...)
 	errs = append(errs, deployErrs...)
 	errs = append(errs, loadIdentity(getenv, &c)...)
+	webMissing, webErrs := loadWeb(getenv, &c)
+	missing = append(missing, webMissing...)
+	errs = append(errs, webErrs...)
 	errs = append(errs, loadIsolation(getenv, &c)...)
 	errs = append(errs, loadLifecycle(getenv, &c)...)
 

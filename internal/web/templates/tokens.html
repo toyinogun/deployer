@@ -1,0 +1,77 @@
+{{define "title"}}API tokens{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>API tokens</h1>
+  <p class="sub">What a coding agent carries to reach this platform.</p>
+</header>
+
+{{if .Data.Minted}}
+{{/* The one and only time this value exists outside the person's clipboard. It
+     is in this response body and nowhere else: not in a URL, not in a later
+     render, not in a log line (AC-22). */}}
+<div class="card minted" role="alert">
+  <h2>Copy this token now</h2>
+  <p>This is the only time <strong>{{.Data.MintedName}}</strong> will be shown. Once you leave this page it cannot be shown again.</p>
+  <div class="copy-row">
+    <code class="token" id="minted-token">{{.Data.Minted}}</code>
+    <button class="button" type="button" data-copy="minted-token">Copy</button>
+  </div>
+  <p><a class="button secondary" href="/tokens">Done</a></p>
+</div>
+{{end}}
+
+{{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+
+<div class="cards two">
+  <section class="card" aria-labelledby="mint-head">
+    <h2 id="mint-head">Mint a token</h2>
+    <form method="post" action="/tokens" class="stack">
+      <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
+      <div class="field">
+        <label for="name">Name</label>
+        <input id="name" name="name" type="text" required placeholder="laptop agent">
+        <p class="hint">What is carrying it, so you know which to revoke later.</p>
+      </div>
+      <div class="field">
+        <label for="expires_days">Expires in days <span class="quiet">(optional)</span></label>
+        <input id="expires_days" name="expires_days" type="number" min="1" inputmode="numeric">
+        <p class="hint">Leave empty for a token that does not expire.</p>
+      </div>
+      <button class="button" type="submit">Mint token</button>
+    </form>
+  </section>
+
+  <section class="card" aria-labelledby="live-head">
+    <h2 id="live-head">Live tokens</h2>
+    {{if .Data.Tokens}}
+    <table class="rows compact">
+      <thead>
+        <tr>
+          <th scope="col">Name</th>
+          <th scope="col">Prefix</th>
+          <th scope="col">Last used</th>
+          <th scope="col"><span class="visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody class="stagger">
+        {{range .Data.Tokens}}
+        <tr>
+          <th scope="row" data-label="Name">{{.Name}}</th>
+          <td data-label="Prefix"><code>{{.Prefix}}</code></td>
+          <td data-label="Last used">{{if .LastUsedAt}}{{when .LastUsedAt}}{{else}}<span class="quiet">never</span>{{end}}</td>
+          <td data-label="Actions" class="row-actions">
+            <form method="post" action="/tokens/{{.ID}}/revoke">
+              <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+              <button class="button danger small" type="submit">Revoke</button>
+            </form>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+    {{else}}
+    <p class="empty-line">No live tokens on this account. Mint one to point an agent here.</p>
+    {{end}}
+  </section>
+</div>
+{{end}}

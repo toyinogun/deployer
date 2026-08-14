@@ -1,0 +1,20 @@
+{{define "title"}}Set a new password{{end}}
+{{define "content"}}
+<div class="card auth-card">
+  <p class="brand">Deployer</p>
+  <h1>Set a new password</h1>
+  {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+  <form method="post" action="/reset" class="stack">
+    {{/* The link's token rides in a hidden field rather than staying in the
+         address bar, so the new URL after submitting carries nothing. */}}
+    <input type="hidden" name="token" value="{{.Data.Token}}">
+    <div class="field">
+      <label for="password">New password</label>
+      <input id="password" name="password" type="password" autocomplete="new-password" required>
+      <p class="hint">At least 12 characters.</p>
+    </div>
+    <button class="button" type="submit">Set password</button>
+  </form>
+  <p class="hint">Setting a new password signs out every other session on this account.</p>
+</div>
+{{end}}

@@ -1,0 +1,88 @@
+{{define "title"}}Accounts{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>Accounts</h1>
+  <p class="sub">Everyone registered on this platform. This page carries no visibility over anybody's apps.</p>
+</header>
+
+{{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+
+{{if .Data.Accounts}}
+<div class="stagger">
+{{range .Data.Accounts}}
+<section class="card account-card" aria-labelledby="account-{{.ID}}">
+  <header class="account-head">
+    <h2 id="account-{{.ID}}">{{if .Name}}{{.Name}}{{else}}{{.Email}}{{end}}</h2>
+    <p class="quiet">{{.Email}} · joined {{when .Created}}</p>
+    <p class="badges">
+      {{if .IsAdmin}}<span class="badge">admin</span>{{end}}
+      {{if .Verified}}<span class="badge quiet-badge">verified</span>{{else}}<span class="badge warn">unverified</span>{{end}}
+      {{if .Disabled}}<span class="badge danger-badge">disabled</span>{{end}}
+    </p>
+  </header>
+
+  <div class="account-actions">
+    {{if .Self}}
+      <p class="hint">This is you. Disabling your own account would sign you out of the session you are reading this with.</p>
+    {{else if .Disabled}}
+      <form method="post" action="/admin/accounts/{{.ID}}/enable">
+        <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+        <button class="button secondary small" type="submit">Enable</button>
+      </form>
+    {{else}}
+      {{/* Typing the address is a confirmation, not an authorization: disabling
+           revokes every session and link this account holds, which is too much
+           to hang on one misclick in a dense table (AC-25). */}}
+      <form method="post" action="/admin/accounts/{{.ID}}/disable" class="confirm-row">
+        <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+        <div class="field">
+          <label for="confirm-{{.ID}}">Type <strong>{{.Email}}</strong> to disable</label>
+          <input id="confirm-{{.ID}}" name="confirm_email" type="email" autocomplete="off"
+                 data-confirm="{{.Email}}" required>
+        </div>
+        <button class="button danger small" type="submit">Disable account</button>
+      </form>
+    {{end}}
+  </div>
+
+  {{if .Tokens}}
+  <table class="rows compact">
+    <caption class="visually-hidden">Tokens held by {{.Email}}</caption>
+    <thead>
+      <tr>
+        <th scope="col">Token</th>
+        <th scope="col">Prefix</th>
+        <th scope="col">Last used</th>
+        <th scope="col"><span class="visually-hidden">Actions</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      {{$account := .ID}}
+      {{range .Tokens}}
+      <tr>
+        <th scope="row" data-label="Token">{{.Name}}</th>
+        <td data-label="Prefix"><code>{{.Prefix}}</code></td>
+        <td data-label="Last used">{{if .LastUsedAt}}{{when .LastUsedAt}}{{else}}<span class="quiet">never</span>{{end}}</td>
+        <td data-label="Actions" class="row-actions">
+          <form method="post" action="/admin/accounts/{{$account}}/tokens/{{.ID}}/revoke">
+            <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+            <button class="button danger small" type="submit">Revoke</button>
+          </form>
+        </td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="empty-line">This account holds no live tokens.</p>
+  {{end}}
+</section>
+{{end}}
+</div>
+{{else}}
+<div class="card empty">
+  <h2>No accounts</h2>
+  <p>Nobody has registered on this platform yet.</p>
+</div>
+{{end}}
+{{end}}

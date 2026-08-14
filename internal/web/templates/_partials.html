@@ -1,0 +1,39 @@
+{{/* The furniture more than one page uses. html/template gives no component
+     model, so shared page parts are partials and the stylesheet carries the
+     rest. That is the accepted cost of not bringing a frontend toolchain in. */}}
+
+{{define "pagehead"}}
+<header class="page-head">
+  <h1>{{.Title}}</h1>
+  {{if .Sub}}<p class="sub">{{.Sub}}</p>{{end}}
+</header>
+{{end}}
+
+{{define "apptabs"}}
+<nav class="tabs" aria-label="This app">
+  <a href="/apps/{{.Slug}}"{{if eq .Current "overview"}} aria-current="page"{{end}}>Overview</a>
+  <a href="/apps/{{.Slug}}/releases"{{if eq .Current "releases"}} aria-current="page"{{end}}>Releases</a>
+  <a href="/apps/{{.Slug}}/logs"{{if eq .Current "logs"}} aria-current="page"{{end}}>Logs</a>
+  <a href="/apps/{{.Slug}}/config"{{if eq .Current "config"}} aria-current="page"{{end}}>Configuration</a>
+</nav>
+{{end}}
+
+{{/* One deployment's outcome, wherever it is shown. superseded arrives here
+     already carried as cancelled by the state machine, so this renders it as
+     cancelled without a rule of its own (AC-17). */}}
+{{define "deploystate"}}
+{{if .Present}}
+  <span class="state state-{{.State}}">{{.State}}</span>
+  {{if .Sentence}}
+    <span class="reason">{{.Sentence}} <code class="reason-code">{{.Code}}</code></span>
+  {{end}}
+{{else}}
+  <span class="state state-none">never deployed</span>
+{{end}}
+{{end}}
+
+{{define "loadmore"}}
+{{if .}}
+<p class="load-more"><a class="button secondary" href="?cursor={{.}}">Load more</a></p>
+{{end}}
+{{end}}

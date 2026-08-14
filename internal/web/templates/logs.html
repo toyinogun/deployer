@@ -1,0 +1,23 @@
+{{define "title"}}{{.Data.Name}} logs{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>{{.Data.Name}}</h1>
+  <p class="sub">What this app printed, read just now. Nothing here is stored.</p>
+</header>
+{{template "apptabs" (tabs .Data.Slug "logs")}}
+
+{{if .Data.Empty}}
+<div class="card empty">
+  <h2>Nothing to show</h2>
+  <p>{{.Data.Empty}}</p>
+</div>
+{{else}}
+{{if .Data.Truncated}}
+<p class="hint">Older lines were dropped to keep this page a readable size.</p>
+{{end}}
+<div class="card log-card">
+  <pre class="log" tabindex="0" aria-label="Recent output from {{.Data.Name}}">{{range .Data.Entries}}<span class="log-line"><span class="log-at">{{.At}}</span> {{.Message}}</span>
+{{end}}</pre>
+</div>
+{{end}}
+{{end}}

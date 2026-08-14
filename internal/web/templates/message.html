@@ -1,0 +1,18 @@
+{{define "title"}}{{.Data.Title}}{{end}}
+{{define "content"}}
+{{if .Shell.SignedIn}}
+<header class="page-head"><h1>{{.Data.Title}}</h1></header>
+<div class="card">
+  <p>{{.Data.Message}}</p>
+  {{if .Data.Action}}<p><a class="button" href="{{.Data.Action}}">{{.Data.ActionLabel}}</a></p>{{end}}
+</div>
+{{else}}
+<div class="card auth-card">
+  <p class="brand">Deployer</p>
+  <h1>{{.Data.Title}}</h1>
+  <p>{{.Data.Message}}</p>
+  {{if .Data.Action}}<p><a class="button" href="{{.Data.Action}}">{{.Data.ActionLabel}}</a></p>{{end}}
+  <p class="quiet"><a href="/login">Back to sign in</a></p>
+</div>
+{{end}}
+{{end}}

@@ -77,6 +77,20 @@ const (
 	// delete removed an app and everything it was serving, which is worth a row
 	// even when it was allowed.
 	ActionAppDelete = "app_delete"
+
+	// The page actions, added by spec 0013 (AC-12, AC-15, AC-20).
+
+	// ActionPageCSRF is one page POST refused because its synchroniser token was
+	// missing or wrong, or because its origin was not this platform's. Only the
+	// refusal is recorded: a form that verified is not an access decision.
+	ActionPageCSRF = "page_csrf"
+	// ActionConfigReveal is one browser reveal of a configuration value that is
+	// not flagged secret. Both outcomes are recorded, because a reveal read a
+	// value back out of the platform, which is worth a row even when allowed.
+	ActionConfigReveal = "config_reveal"
+	// ActionAppView is one page read of an app the caller does not own, recorded
+	// only when refused. A read of your own app is not an access decision.
+	ActionAppView = "app_view"
 )
 
 // TargetAppConfig is the target type a configuration change is recorded against.

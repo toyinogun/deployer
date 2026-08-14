@@ -242,6 +242,7 @@ func startServer(t *testing.T, dbPath string) string {
 	t.Setenv("DEPLOYER_BUILDKIT_IMAGE", "moby/buildkit@sha256:"+strings.Repeat("c", 64))
 	t.Setenv("DEPLOYER_BUILDKIT_UID", "1000")
 	t.Setenv("DEPLOYER_BUILDKIT_GID", "1000")
+	t.Setenv("DEPLOYER_CSRF_KEY", strings.Repeat("k", 32))
 
 	done := make(chan error, 1)
 	go func() { done <- run() }()
@@ -351,17 +352,33 @@ func TestRun_livenessStaysOkWhileReadinessFailsOnABrokenDatabase(t *testing.T) {
 	}
 }
 
-// The probes are registered on the method and path, so anything else is a 404
-// and no other surface is accidentally exposed on the platform's own port.
-func TestRun_servesNothingBesidesTheProbes(t *testing.T) {
+// The root now carries the page surface (spec 0013), so a bare GET / is the
+// pages' own redirect to sign in rather than a 404. What still must not exist is
+// a path no surface claims: that is the assertion this test kept.
+func TestRun_servesNothingBesidesTheProbesAndThePages(t *testing.T) {
 	addr := startServer(t, filepath.Join(t.TempDir(), "deployer.db"))
+	// The pages need the open store behind them, so this waits the same way a
+	// caller would: before readiness every root path answers 503, not a page.
+	if got := awaitStatus(t, addr, "/readyz", 15*time.Second, http.StatusOK); got != http.StatusOK {
+		t.Fatalf("/readyz: want %d, got %d", http.StatusOK, got)
+	}
 
 	got, err := get(t, addr, "/")
 	if err != nil {
 		t.Fatalf("GET /: %v", err)
 	}
+	// The helper's client follows redirects, so this is the sign in page the
+	// root sends a signed out visitor to.
+	if got != http.StatusOK {
+		t.Fatalf("GET /: want %d, got %d", http.StatusOK, got)
+	}
+
+	got, err = get(t, addr, "/nothing-claims-this")
+	if err != nil {
+		t.Fatalf("GET /nothing-claims-this: %v", err)
+	}
 	if got != http.StatusNotFound {
-		t.Fatalf("GET /: want %d, got %d", http.StatusNotFound, got)
+		t.Fatalf("GET /nothing-claims-this: want %d, got %d", http.StatusNotFound, got)
 	}
 }
 
@@ -392,6 +409,7 @@ func TestReconcileOptions_carriesEveryDurationAcrossFromTheConfig(t *testing.T) 
 			"DEPLOYER_BUILDKIT_IMAGE":    "moby/buildkit@sha256:" + strings.Repeat("c", 64),
 			"DEPLOYER_BUILDKIT_UID":      "1000",
 			"DEPLOYER_BUILDKIT_GID":      "1000",
+			"DEPLOYER_CSRF_KEY":          strings.Repeat("k", 32),
 		}[k]
 	})
 	if err != nil {
