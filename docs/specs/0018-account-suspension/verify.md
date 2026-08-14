@@ -54,3 +54,33 @@ breaks if the source is wrong.
 - [ ] Suspend with two apps where one namespace is unreachable → the reachable one still stops, proving failures are collected rather than returned on the first → AC-6
 - [ ] Add a second suspended account, then watch one sweep tick → both accounts' apps are held at zero from the single joined read → AC-7
 - [ ] Present a valid token for an active account immediately after the `ResolveToken` change → it still works, proving only the disabled filter moved → AC-12
+
+## Added after the build · 2026-08-14
+
+Steps the implementation makes checkable that the design could not name yet.
+
+### Commands
+
+- [ ] `go test -race ./internal/suspend/ ./internal/kube/ ./internal/reconcile/ ./internal/mcp/ ./internal/auth/` → green; these hold the sweep re-read, the missing Deployment case, the mid build suspension, and the wire level refusal → AC-5, AC-9, AC-14, AC-24
+- [ ] `git log --oneline --name-only | grep internal/store/migrations` → nothing from this change, and `SELECT MAX(version_id) FROM goose_db_version` on the live database still reads 3 → AC-1
+- [ ] `kubectl -n app-<slug> get deploy app -o jsonpath='{.spec.replicas}'` right after a suspend → `0`; after a restore → `1` → AC-3, AC-4
+- [ ] `kubectl -n app-<slug> get ingress,svc,secret,networkpolicy` after a suspend → all still present and unchanged → AC-22
+
+### On the cluster
+
+- [ ] Suspend, then `kubectl -n app-<slug> scale deploy app --replicas=1` by hand → within one `DEPLOYER_RECONCILE_INTERVAL_SECONDS` tick it is back at 0, and the platform log carries no error → AC-7, AC-8
+- [ ] While a real build is running (watch for the build Job), suspend the owning account → the deployment ends `failed` with `account_suspended`, its build Job is gone, and no release was minted → AC-14
+- [ ] Restore an account while a sweep tick is in flight (restore repeatedly during one interval) → the apps come up and stay up → AC-24
+- [ ] With a suspended account's token: `curl -sD- -X POST $DEPLOYER_PUBLIC_URL/v1/uploads -H "Authorization: Bearer $TOKEN" --data-binary @app.tar.gz` → `403` with `account_suspended`, not `401` → AC-11
+- [ ] Same token against `/mcp` from a real agent → the tool answers `account_suspended` as a tool result and the connection stays open, rather than the client reporting a transport failure → AC-9, AC-10
+
+### Notes from the build
+
+- The two store reads shipped as `ListDeployedAppsByAccount` and
+  `ListDeployedAppsOfSuspendedAccounts`, not the `ListLiveApps*` names the build
+  plan used. `LiveAppSlugs` already exists on a different predicate (soft delete
+  only), so reusing `Live` for a predicate that also requires a release would
+  have made two queries with the same word mean two things.
+- AC-17's self refusal was a rendering choice before this change, not a refusal:
+  the page rendered no control on your own row, but a direct form post went
+  through. Both surfaces now refuse it in the handler. Worth exercising by hand.
