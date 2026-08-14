@@ -335,7 +335,7 @@ Settled for these two slices, so no feature reopens them: the platform stays on 
 ### 16. Invite only registration · in-progress
 Registration today accepts anyone who can open the page, which was safe only because reaching the page meant being on the tailnet. An invite becomes the thing that authorises an account, so opening the front door does not mean opening it to everyone.
 **Done when:** registration without a valid invite is refused with a closed reason code, an invite is single use and expires, you can issue and revoke invites from the admin page, spending one is recorded against the account it created, and the accounts that already exist are untouched.
-spec [0015](../specs/0015-invite-only-registration.md)
+spec [0015](../specs/0015-invite-only-registration/index.md)
 - [x] Design it (spec): `/architect invite only registration`
 - [x] Build it: `/develop invite only registration`
   - [x] The `00003` migration and the store layer: the `invites` table, its index, the queries and the adapter methods, purely additive — AC-12
