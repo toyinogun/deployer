@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -17,6 +18,7 @@ import (
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/logs"
 	"github.com/toyinogun/deployer/internal/store"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 // The pages run over a real SQLite file, the real identity service and the real
@@ -201,6 +203,24 @@ type harness struct {
 	mail  *mailbox
 	clock *ids.FixedClock
 	store *store.Store
+	// scaler stands in for the cluster the suspension path scales through. A test
+	// that cares sets refuse before acting; every other test never looks at it.
+	scaler *fakeScaler
+}
+
+// fakeScaler records what the suspension path asked the cluster for, and can
+// refuse one namespace so the partial outcome has a way to happen.
+type fakeScaler struct {
+	scaled map[string]int32
+	refuse map[string]bool
+}
+
+func (f *fakeScaler) ScaleWorkload(_ context.Context, namespace, _ string, replicas int32) error {
+	if f.refuse[namespace] {
+		return errors.New("the cluster refused this namespace")
+	}
+	f.scaled[namespace] = replicas
+	return nil
 }
 
 // newHarness builds the pages. pods nil is the no cluster credential case the
@@ -247,16 +267,18 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 	if pods != nil {
 		podsIface = pods
 	}
-	h.srv = New(svc, authenticator, h.audit, h.data, podsIface, Options{
-		PublicURL:      testPublicURL,
-		AppDomain:      testAppDomain,
-		CSRFKey:        []byte("a test csrf key"),
-		SecretLiterals: []string{"the-platform-credential"},
-		HasMailer:      true,
-		// Well clear of what these tests list, so a page test that is not about
-		// the cap never renders the at cap notice (spec 0016).
-		MaxAppsPerAccount: 10,
-	})
+	h.scaler = &fakeScaler{scaled: map[string]int32{}, refuse: map[string]bool{}}
+	h.srv = New(svc, authenticator, h.audit, h.data, podsIface,
+		suspend.New(store.ForSuspend(st), svc, h.scaler, h.audit), Options{
+			PublicURL:      testPublicURL,
+			AppDomain:      testAppDomain,
+			CSRFKey:        []byte("a test csrf key"),
+			SecretLiterals: []string{"the-platform-credential"},
+			HasMailer:      true,
+			// Well clear of what these tests list, so a page test that is not about
+			// the cap never renders the at cap notice (spec 0016).
+			MaxAppsPerAccount: 10,
+		})
 	h.mux = http.NewServeMux()
 	h.srv.Register(h.mux)
 	return h

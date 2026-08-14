@@ -63,13 +63,27 @@ func TestResolveTokenOnlyAcceptsALiveToken(t *testing.T) {
 		}
 	}
 
-	// A disabled account locks out a token that is otherwise perfectly good.
+	// A suspended account's good token still resolves here, carrying the stamp.
+	// The query stopped filtering it out on purpose: telling a live token on a
+	// suspended account apart from a dead token is what lets a surface answer
+	// account_suspended, and that decision is made once, in auth.Authenticate,
+	// rather than twice (spec 0018, AC-12).
 	if _, err := s.DB().ExecContext(ctx, `UPDATE accounts SET disabled_at = ? WHERE id = ?`,
 		ids.Stamp(testStart), acc.ID); err != nil {
-		t.Fatalf("disabling the account: %v", err)
+		t.Fatalf("suspending the account: %v", err)
 	}
-	if _, _, err := s.ResolveToken(ctx, "hash-live"); !errors.Is(err, store.ErrTokenInvalid) {
-		t.Errorf("a disabled account still resolves: %v", err)
+	suspended, _, err := s.ResolveToken(ctx, "hash-live")
+	if err != nil {
+		t.Fatalf("a suspended account's live token no longer resolves: %v", err)
+	}
+	if suspended.DisabledAt == nil {
+		t.Error("the resolved account carries no disabled_at, so nothing above can tell it apart")
+	}
+	// The token shapes that must stay indistinguishable still are.
+	for _, hash := range []string{"hash-unknown", "hash-revoked", "hash-expired"} {
+		if _, _, err := s.ResolveToken(ctx, hash); !errors.Is(err, store.ErrTokenInvalid) {
+			t.Errorf("resolving %q on a suspended account returned %v, want ErrTokenInvalid", hash, err)
+		}
 	}
 }
 

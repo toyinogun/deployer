@@ -2,11 +2,13 @@ package web
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 // adminPageData is the accounts list. An admin sees who registered and may
@@ -44,11 +46,13 @@ func (s *Server) adminAccountsPage(w http.ResponseWriter, r *http.Request) {
 	s.renderAdmin(w, r, admin, sess, http.StatusOK, "")
 }
 
-// adminDisable locks an account out, revoking every session and link it holds.
+// adminDisable suspends an account: it revokes every session and link it holds,
+// and stops every app it runs.
 //
 // The typed email is a confirmation, not an authorization: it is compared
 // against the account the path names so that a misclick on a dense table cannot
-// sign somebody else out of everything (AC-25).
+// sign somebody else out of everything and take their apps down with it
+// (AC-25; spec 0018, AC-18).
 func (s *Server) adminDisable(w http.ResponseWriter, r *http.Request) {
 	admin, sess, ok := s.adminSession(w, r)
 	if !ok {
@@ -58,6 +62,19 @@ func (s *Server) adminDisable(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	target := r.PathValue("id")
+	// Suspending yourself revokes the session reading this page and stops your
+	// own apps, with nobody left signed in to undo either. The page renders no
+	// control for your own row, but a form post is not the page, so the refusal
+	// lives here too (spec 0018, AC-17).
+	if target == admin.ID {
+		auth.Record(r.Context(), s.auditor, auth.Audit{
+			AccountID: admin.ID, Action: auth.ActionAdmin,
+			TargetType: "account", TargetID: target, Reason: "suspend: self",
+		})
+		s.renderAdmin(w, r, admin, sess, http.StatusUnprocessableEntity,
+			"You cannot suspend your own account. It would sign you out and stop your apps with nobody left to undo it.")
+		return
+	}
 
 	account, err := s.svc.AccountByID(r.Context(), target)
 	if err != nil {
@@ -68,17 +85,18 @@ func (s *Server) adminDisable(w http.ResponseWriter, r *http.Request) {
 	if !strings.EqualFold(typed, account.Email) {
 		auth.Record(r.Context(), s.auditor, auth.Audit{
 			AccountID: admin.ID, Action: auth.ActionAdmin,
-			TargetType: "account", TargetID: target, Reason: "disable: confirmation_mismatch",
+			TargetType: "account", TargetID: target, Reason: "suspend: confirmation_mismatch",
 		})
 		s.renderAdmin(w, r, admin, sess, http.StatusUnprocessableEntity,
-			"That address did not match the account you were disabling, so nothing changed.")
+			"That address did not match the account you were suspending, so nothing changed.")
 		return
 	}
-	s.adminSetDisabled(w, r, admin, sess, target, true, "disable")
+	s.adminSetDisabled(w, r, admin, sess, target, true, "suspend")
 }
 
-// adminEnable lets a disabled account back in. Revocation is one way, so the
-// sessions it held before stay dead.
+// adminEnable restores a suspended account and starts its apps again on the
+// image each was already serving. Revocation is one way, so the sessions it held
+// before stay dead.
 func (s *Server) adminEnable(w http.ResponseWriter, r *http.Request) {
 	admin, sess, ok := s.adminSession(w, r)
 	if !ok {
@@ -87,23 +105,76 @@ func (s *Server) adminEnable(w http.ResponseWriter, r *http.Request) {
 	if !s.checkCSRF(w, r, admin, sess) {
 		return
 	}
-	s.adminSetDisabled(w, r, admin, sess, r.PathValue("id"), false, "enable")
+	s.adminSetDisabled(w, r, admin, sess, r.PathValue("id"), false, "restore")
 }
 
 // adminSetDisabled is both state changes, which differ only in the flag and the
-// word recorded. It writes the same audit row its JSON equivalent writes.
+// word recorded. Both go through internal/suspend, which writes the audit rows
+// its JSON equivalent writes and scales the same apps.
+//
+// A partial outcome is a third answer beside success and failure: the account is
+// suspended either way, and the page says which apps did not stop rather than
+// redirecting as though everything had (spec 0018, AC-6).
 func (s *Server) adminSetDisabled(w http.ResponseWriter, r *http.Request, admin auth.Account, sess auth.Session,
 	target string, disabled bool, action string,
 ) {
-	if err := s.svc.SetDisabled(r.Context(), target, disabled); err != nil {
+	suspending := disabled
+	change := s.suspension.Restore
+	if suspending {
+		change = s.suspension.Suspend
+	}
+	result, err := change(r.Context(), admin.ID, target)
+	if errors.Is(err, suspend.ErrAppsUnlisted) {
+		// The account changed state and nothing was scaled. Rendering this as a
+		// plain failure would tell the admin nothing happened, which on a restore
+		// is how every one of the account's apps stays at zero unwatched.
+		slog.ErrorContext(r.Context(), "listing an account's apps for a suspension failed",
+			"error", err, "account", target, "direction", action)
+		s.renderAdmin(w, r, admin, sess, http.StatusOK, unlistedMessage(suspending))
+		return
+	}
+	if err != nil {
 		s.adminFailure(w, r, admin, sess, target, action, err)
 		return
 	}
-	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
-		TargetType: "account", TargetID: target, Allowed: true, Reason: action,
-	})
+	if len(result.NotStopped) > 0 {
+		s.renderAdmin(w, r, admin, sess, http.StatusOK, partialMessage(suspending, result.NotStopped))
+		return
+	}
 	http.Redirect(w, r, "/admin/accounts", http.StatusSeeOther)
+}
+
+// partialMessage is the sentence shown when the account changed state but the
+// cluster refused some of its apps.
+//
+// What happens next differs by direction, so the sentence does too. The sweep
+// retries a stop on every tick, so a suspension really does keep trying. Nothing
+// retries a start: the sweep only ever scales down, by AC-8, and restore is the
+// single caller that scales up. Telling an admin the platform is retrying a
+// restore it will never retry is how an app stays down with nobody watching.
+func partialMessage(suspending bool, slugs []string) string {
+	verb, state, next := "start again", "restored", "Restore it again to retry."
+	if suspending {
+		verb, state, next = "stop", "suspended", "The platform keeps retrying on its own."
+	}
+	return "The account is " + state + ", but these apps did not " + verb + ": " +
+		strings.Join(slugs, ", ") + ". " + next
+}
+
+// unlistedMessage is the sentence shown when the account changed state but its
+// apps could not be read at all, so none of them were scaled. It names no app
+// because the list is exactly what failed.
+//
+// It splits by direction for the reason partialMessage does, and the restore
+// half matters more here: a partial restore leaves one app down, this leaves
+// every one of them down.
+func unlistedMessage(suspending bool) string {
+	if suspending {
+		return "The account is suspended, but its apps could not be listed, so none were stopped. " +
+			"The platform keeps retrying on its own."
+	}
+	return "The account is restored, but its apps could not be listed, so they are all still stopped. " +
+		"Restore it again to retry."
 }
 
 // adminRevokeToken kills another account's token, which is the one thing an

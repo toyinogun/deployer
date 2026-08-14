@@ -59,7 +59,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 16 | Invite only registration | Slice 12 | done |
 | 17 | Per account app cap | Slice 12 | done |
 | 18 | Bounded app egress | Slice 12 | done |
-| 19 | Account suspension | Slice 12 | planned |
+| 19 | Account suspension | Slice 12 | done |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
 | 21 | Platform backup & restore | Slice 12 | planned |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | planned |
@@ -379,10 +379,21 @@ spec [0017](../specs/0017-bounded-app-egress/index.md) · code in `internal/conf
 - [x] Review it (fresh model): `/check review bounded app egress`
 - [x] Document it: `/document bounded app egress`
 
-### 19. Account suspension · needs a decision
+### 19. Account suspension · done
 The control you reach for at 2am when one account is the problem. Ownership is already solid, so the hard part is deciding what suspended means for a running app and how it comes back.
 **Done when:** an admin can suspend an account from the page that already exists, its apps stop serving, its sessions and API tokens stop working, a deploy or any other tool call is refused with a closed reason code, unsuspending restores serving without a rebuild, and both directions are recorded in the audit trail.
-- [ ] Design it (spec): `/architect account suspension`
+spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/suspend`, `internal/auth`, `internal/mcp`, `internal/kube`, `internal/store`, `internal/reconcile`, `internal/web`, `internal/httpapi`
+- [x] Design it (spec): `/architect account suspension`
+- [x] Build it: `/develop account suspension`
+  - [x] The refusal thread, end to end first: the new closed reason code, token resolution telling a suspended account from a dead token, one gate refusing every MCP tool as a tool result, the upload endpoint at 403, proved through the real HTTP handler — AC-9, AC-10, AC-11, AC-12, AC-13, AC-15
+  - [x] The cluster half: `ScaleWorkload` in `internal/kube`, the two store reads, and the `internal/suspend` use case that stops and restores an account's live apps, collecting partial failures as data — AC-1, AC-2, AC-3, AC-4, AC-5, AC-6, AC-16, AC-22
+  - [x] The safety net: the sweep holding suspended accounts at zero on the reconcile cadence, re-reading state before each write so a concurrent restore survives — AC-7, AC-8, AC-24
+  - [x] The in flight case: the reconcile drive checking suspension at every phase boundary and ending the row with the reason code, build Job deleted — AC-14
+  - [x] The surfaces and the leftovers: both admin routes through the one use case, the Suspend and Restore wording, the partial stop message, and the checks that nothing expires and no migration was added — AC-17, AC-18, AC-19, AC-20, AC-21, AC-23
+- [x] Verify it: `/check verify account suspension` — three runs against the real cluster, the last one closing AC-12's expired token and AC-3's soft deleted app
+- [x] Test it: `/test account suspension`
+- [x] Review it (fresh model): `/check review account suspension` — reviewed on sonnet, approve with nits
+- [x] Document it: `/document account suspension`
 
 ### 20. Open internet hardening: login CSRF & control plane policy · needs a decision
 Two hardening items were weighed and skipped on tailnet grounds and are named as such in their specs. From spec 0013: the pre authentication posts carry no synchroniser token, because there is no session to bind one to. From spec 0008: nothing stops a workload elsewhere on the cluster reaching the platform API at all, since tokens guard it.
@@ -429,6 +440,8 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Stranded recovery for `pushing` and `deploying`**: from spec 0014, which covers `building` only because a build Job is cheap, unambiguous evidence. The later phases need registry and workload evidence that is more expensive and easier to misread, and mistaking a rollout in progress for a stranded one would end a deploy that was going to succeed. They keep the deploy budget as their backstop, which is no worse than today · needs a decision
 - **A test that a tool description matches its behaviour**: every MCP tool description is contract rather than documentation, and nothing checks one against what the code does. From spec 0011, which adds two more, taking the gap to eight tools wide · needs a decision
 - **Write actions from the browser**: rollback, delete and configuration editing as page actions, which feature 14 deliberately left out to keep the pages read only for apps. From spec 0013, where rollback is named as the one with a real case behind it, since it is the thing you want at 2am · needs a decision
+- **Telling a suspended person anything at all**: from spec 0018, which deliberately says nothing to the account it stops. No email on suspension, no notice page on the app's hostname, and a visitor gets a bare ingress error. Worth reopening if suspension is ever used on someone who was not abusing the platform · needs a decision
+- **Reclaiming a suspended account's storage**: from spec 0018. Suspension stops the pods and leaves the uploads, releases, and database rows exactly where they are, so a suspended account still costs disk. That is a retention decision rather than part of the control · needs a decision
 - **An audited browser reveal of secret configuration values**: from spec 0013, weighed and refused so that `store.ListConfigForDeploy` keeps exactly two callers and a stolen session stays worth less than a stolen API token. Worth reopening only if reading a secret back becomes a real debugging need · needs a decision
 - **Static sites without a Dockerfile**: a plain HTML page uploaded on its own fails Buildpacks detection in about nine seconds, so the simplest thing a non technical person can ask an agent for is the one thing the platform cannot build unaided. Proved on the cluster 2026-08-14, and `testdata/sample-static` records it. `deploy_app`'s description now names the Dockerfile to use, which lets an agent correct itself on the first failure, and that may well be enough. Building it in would mean the platform composing a Dockerfile for a source tree it recognises as static, which is the first time it would author a build rather than run one the caller supplied · needs a decision
 - **A per account cap on apps**: nothing counts apps per account, so one account can create as many as it likes and the ceiling is the cluster. Every quota built so far is per app namespace, which bounds what one app consumes and not how many an account may start. Raised by handing a second person an account: isolation between accounts is solid, capacity between them is shared and ungoverned, and registration is open to anyone who can reach the page. It has stayed invisible only because the tailnet has kept the number of accounts at one · promoted into feature 17

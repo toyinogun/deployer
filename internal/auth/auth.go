@@ -31,8 +31,16 @@ var (
 	ErrNoAccount = errors.New("auth: no such account")
 
 	// ErrTokenInvalid covers unknown, revoked, and expired tokens, and tokens
-	// belonging to a disabled account. They are deliberately indistinguishable.
+	// belonging to an account that never confirmed its address. They are
+	// deliberately indistinguishable.
 	ErrTokenInvalid = errors.New("auth: token invalid")
+
+	// ErrAccountSuspended is a good token on an account an admin suspended. It is
+	// deliberately distinguishable from ErrTokenInvalid: the caller already holds
+	// a valid credential for that account, so it learns only about itself, and
+	// telling it apart is what lets a surface answer account_suspended instead of
+	// a blank credential error (spec 0018, AC-12).
+	ErrAccountSuspended = errors.New("auth: account suspended")
 )
 
 // Account is the caller identity, carrying only what this package reads.
@@ -79,7 +87,9 @@ type Store interface {
 	// CreateAccount registers a caller identity.
 	CreateAccount(ctx context.Context, name string) (Account, error)
 	// ResolveToken turns a token hash into the account it belongs to, or
-	// ErrTokenInvalid. Unknown, revoked, expired and disabled are the same error.
+	// ErrTokenInvalid. Unknown, revoked and expired are the same error. A
+	// suspended account resolves normally, carrying Disabled, so Authenticate
+	// can tell it apart (spec 0018, AC-12).
 	ResolveToken(ctx context.Context, tokenHash string) (Account, Token, error)
 	// RevokeTokensNamed kills every live token an account holds under one name,
 	// returning how many it killed.

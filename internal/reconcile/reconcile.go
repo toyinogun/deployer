@@ -84,6 +84,11 @@ func (d Deployment) Rollback() bool { return d.SourceReleaseID != "" }
 type App struct {
 	ID   string
 	Slug string
+	// AccountSuspended is whether an admin has suspended the account that owns
+	// this app. It is read by the drive's phase boundary check and nothing else,
+	// and it never reaches a composed manifest: internal/deploy composes from
+	// Input, which does not carry it (spec 0018, AC-14).
+	AccountSuspended bool
 }
 
 // Upload is the tarball a build fetches.
@@ -520,8 +525,10 @@ func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
 		if runCtx.Err() != nil {
 			fail = &failure{domain.ReasonTimeout, runCtx.Err()}
 		}
-		if fail.reason == domain.ReasonTimeout {
-			// The budget is what ran out, so the build goes with it (AC-15).
+		if fail.reason == domain.ReasonTimeout || fail.reason == domain.ReasonAccountSuspended {
+			// The budget is what ran out, so the build goes with it (AC-15). A
+			// suspension is the same shape: nothing it built is promoted, and the
+			// Job it was running goes with the deployment (spec 0018, AC-14).
 			r.deleteBuildJob(ctx, dep)
 		}
 		r.fail(ctx, dep.ID, fail)
@@ -533,11 +540,34 @@ func (r *Reconciler) Drive(ctx context.Context, dep Deployment) {
 	}
 }
 
-// overBudget is the phase boundary check: a drive never starts another phase
-// once the deploy budget is spent (AC-14).
+// overBudget is half the phase boundary check: a drive never starts another
+// phase once the deploy budget is spent (AC-14).
 func overBudget(ctx context.Context) *failure {
 	if ctx.Err() != nil {
 		return &failure{domain.ReasonTimeout, ctx.Err()}
+	}
+	return nil
+}
+
+// blocked is the whole phase boundary check: the deploy budget, and whether the
+// account was suspended since the last phase.
+//
+// The account is re-read here rather than carried from the read at drive entry,
+// which is the specific bug this exists to avoid: a drive blocks in awaitBuild
+// and awaitReady for minutes, so a suspension that lands during a build accepted
+// a moment earlier would otherwise be missed entirely and the app would come up
+// under a suspended account (spec 0018, AC-14).
+func (r *Reconciler) blocked(ctx context.Context, appID string) *failure {
+	if fail := overBudget(ctx); fail != nil {
+		return fail
+	}
+	app, err := r.apps.Get(ctx, appID)
+	if err != nil {
+		return &failure{domain.ReasonInternal, fmt.Errorf("re-reading the app: %w", err)}
+	}
+	if app.AccountSuspended {
+		return &failure{domain.ReasonAccountSuspended,
+			errors.New("the owning account was suspended while this deployment was running")}
 	}
 	return nil
 }
@@ -554,7 +584,7 @@ func (r *Reconciler) run(ctx context.Context, dep *Deployment, upload Upload, up
 	}
 
 	if dep.State == domain.StateQueued {
-		if fail := overBudget(ctx); fail != nil {
+		if fail := r.blocked(ctx, dep.AppID); fail != nil {
 			return fail
 		}
 		// An explicit two way branch, not a fall through: a claimed rollback is
@@ -569,7 +599,7 @@ func (r *Reconciler) run(ctx context.Context, dep *Deployment, upload Upload, up
 		}
 	}
 	if dep.State == domain.StateBuilding {
-		if fail := overBudget(ctx); fail != nil {
+		if fail := r.blocked(ctx, dep.AppID); fail != nil {
 			return fail
 		}
 		if fail := r.awaitBuild(ctx, dep); fail != nil {
@@ -577,14 +607,14 @@ func (r *Reconciler) run(ctx context.Context, dep *Deployment, upload Upload, up
 		}
 	}
 	if dep.State == domain.StatePushing {
-		if fail := overBudget(ctx); fail != nil {
+		if fail := r.blocked(ctx, dep.AppID); fail != nil {
 			return fail
 		}
 		if fail := r.resolveImage(ctx, dep, app); fail != nil {
 			return fail
 		}
 	}
-	if fail := overBudget(ctx); fail != nil {
+	if fail := r.blocked(ctx, dep.AppID); fail != nil {
 		return fail
 	}
 	return r.deployApp(ctx, dep, app)
@@ -720,7 +750,7 @@ func (r *Reconciler) awaitBuild(ctx context.Context, dep *Deployment) *failure {
 			// sweep exists to catch.
 			return &failure{domain.ReasonBuildFailed, errors.New("the build job no longer exists")}
 		}
-		if fail := r.wait(ctx, buildCtx, domain.ReasonBuildFailed); fail != nil {
+		if fail := r.wait(ctx, buildCtx, dep.AppID, domain.ReasonBuildFailed); fail != nil {
 			return fail
 		}
 	}
@@ -852,7 +882,7 @@ func (r *Reconciler) awaitReady(ctx context.Context, app App) *failure {
 		if ready {
 			return nil
 		}
-		if fail := r.wait(ctx, readyCtx, domain.ReasonAppNeverReady); fail != nil {
+		if fail := r.wait(ctx, readyCtx, app.ID, domain.ReasonAppNeverReady); fail != nil {
 			return fail
 		}
 	}
@@ -860,11 +890,19 @@ func (r *Reconciler) awaitReady(ctx context.Context, app App) *failure {
 
 // wait sleeps one tick, and turns a deadline into the right reason: the phase's
 // own when the phase ran out, and timeout when the whole call did.
-func (r *Reconciler) wait(ctx, phase context.Context, onPhaseDeadline domain.Reason) *failure {
+//
+// A tick is a phase boundary as much as the gaps between phases are, and this is
+// the one the drive spends its real time in: awaitBuild and awaitReady sit here
+// for tens of seconds at a stretch. Checking only at the boundaries either side
+// of those loops leaves the whole build unwatched, which is how a suspended
+// account's deployment stayed in building with its Job alive until the build's
+// own budget ran out (spec 0018, AC-14). So the same check runs per tick, in the
+// place the deploy budget is already consulted.
+func (r *Reconciler) wait(ctx, phase context.Context, appID string, onPhaseDeadline domain.Reason) *failure {
 	select {
 	case <-time.After(r.opts.ReconcileInterval):
 		if phase.Err() == nil {
-			return nil
+			return r.blocked(ctx, appID)
 		}
 	case <-phase.Done():
 	}

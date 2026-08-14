@@ -344,6 +344,67 @@ func (c *Client) updateDeployment(ctx context.Context, d *appsv1.Deployment) err
 	return nil
 }
 
+// ScaleWorkload sets a Deployment's replica count, leaving everything else about
+// it alone. It is this package's first write that is neither a create nor a full
+// spec replacement, and it exists so a suspension can stop an app without
+// touching its image, its configuration, or anything else it would need to come
+// back (spec 0018, AC-4).
+//
+// The Deployment is read before it is written, which is the rule for every quota
+// tracked object, and a Deployment that is not there is success rather than an
+// error: the namespace may be gone, or the app may never have reached the
+// cluster at all, and neither is a fault of the caller asking for zero pods
+// (AC-5). Writing a count a Deployment already carries is a no op, so this is
+// safe to run on every sweep tick forever.
+//
+// Not there wears two faces, and only one of them is not found. The control
+// plane's rights over an app's objects come from a RoleBinding it creates inside
+// that app's own namespace, so that its reach is exactly the namespaces that
+// exist (deploy/rbac.yaml, ClusterRole/deployer-app). When the namespace goes,
+// the binding goes with it, and the API answers forbidden instead. Forbidden is
+// therefore only success once the namespace is confirmed gone: inside a
+// namespace that is still there it means the binding is broken, and an app the
+// platform failed to stop has to be reported rather than counted as stopped.
+func (c *Client) ScaleWorkload(ctx context.Context, namespace, name string, replicas int32) error {
+	api := c.cs.AppsV1().Deployments(namespace)
+	current, err := api.Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	if apierrors.IsForbidden(err) {
+		gone, nsErr := c.namespaceGone(ctx, namespace)
+		if nsErr != nil {
+			return fmt.Errorf("kube: reading deployment %s/%s: %w", namespace, name, nsErr)
+		}
+		if gone {
+			return nil
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("kube: reading deployment %s/%s: %w", namespace, name, err)
+	}
+	current.Spec.Replicas = &replicas
+	if _, err := api.Update(ctx, current, metav1.UpdateOptions{}); err != nil {
+		return fmt.Errorf("kube: scaling deployment %s/%s to %d: %w", namespace, name, replicas, err)
+	}
+	return nil
+}
+
+// namespaceGone reports whether a namespace is absent, which is what tells a
+// refusal caused by a deleted namespace apart from a refusal caused by a broken
+// binding. Namespaces are cluster scoped and the control plane holds get on them
+// outright, so this answer survives the app namespace it is asking about.
+func (c *Client) namespaceGone(ctx context.Context, name string) (bool, error) {
+	_, err := c.cs.CoreV1().Namespaces().Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return true, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("kube: reading namespace %s: %w", name, err)
+	}
+	return false, nil
+}
+
 // WorkloadReady reports whether a Deployment's new pods are serving, which is
 // the platform's whole definition of an app being up.
 //

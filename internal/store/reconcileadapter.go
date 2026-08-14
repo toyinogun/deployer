@@ -139,7 +139,14 @@ func (a ReconcileStore) Get(ctx context.Context, id string) (reconcile.App, erro
 	if err != nil {
 		return reconcile.App{}, err
 	}
-	return reconcile.App{ID: app.ID, Slug: app.Slug}, nil
+	// The owning account's suspension travels with the app, because the drive
+	// re-reads this at every phase boundary to decide whether to keep going
+	// (spec 0018, AC-14).
+	acc, err := a.s.GetAccount(ctx, app.AccountID)
+	if err != nil {
+		return reconcile.App{}, err
+	}
+	return reconcile.App{ID: app.ID, Slug: app.Slug, AccountSuspended: acc.DisabledAt != nil}, nil
 }
 
 // ConfigForDeploy reads the app's configuration as the Secret's data. Secret

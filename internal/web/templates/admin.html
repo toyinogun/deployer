@@ -17,30 +17,31 @@
     <p class="badges">
       {{if .IsAdmin}}<span class="badge">admin</span>{{end}}
       {{if .Verified}}<span class="badge quiet-badge">verified</span>{{else}}<span class="badge warn">unverified</span>{{end}}
-      {{if .Disabled}}<span class="badge danger-badge">disabled</span>{{end}}
+      {{if .Disabled}}<span class="badge danger-badge">suspended</span>{{end}}
     </p>
   </header>
 
   <div class="account-actions">
     {{if .Self}}
-      <p class="hint">This is you. Disabling your own account would sign you out of the session you are reading this with.</p>
+      <p class="hint">This is you. Suspending your own account would sign you out of the session you are reading this with.</p>
     {{else if .Disabled}}
       <form method="post" action="/admin/accounts/{{.ID}}/enable">
         <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
-        <button class="button secondary small" type="submit">Enable</button>
+        <button class="button secondary small" type="submit">Restore</button>
       </form>
     {{else}}
-      {{/* Typing the address is a confirmation, not an authorization: disabling
-           revokes every session and link this account holds, which is too much
-           to hang on one misclick in a dense table (AC-25). */}}
+      {{/* Typing the address is a confirmation, not an authorization: suspending
+           revokes every session and link this account holds and stops every app
+           it runs, which is too much to hang on one misclick in a dense table
+           (AC-25; spec 0018, AC-18). */}}
       <form method="post" action="/admin/accounts/{{.ID}}/disable" class="confirm-row">
         <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
         <div class="field">
-          <label for="confirm-{{.ID}}">Type <strong>{{.Email}}</strong> to disable</label>
+          <label for="confirm-{{.ID}}">Type <strong>{{.Email}}</strong> to suspend. This signs the account out everywhere and stops its apps serving.</label>
           <input id="confirm-{{.ID}}" name="confirm_email" type="email" autocomplete="off"
                  data-confirm="{{.Email}}" required>
         </div>
-        <button class="button danger small" type="submit">Disable account</button>
+        <button class="button danger small" type="submit">Suspend account</button>
       </form>
     {{end}}
   </div>

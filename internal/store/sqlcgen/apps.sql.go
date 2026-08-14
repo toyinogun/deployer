@@ -487,6 +487,85 @@ func (q *Queries) ListConfigForResponse(ctx context.Context, appID string) ([]Li
 	return items, nil
 }
 
+const listDeployedAppsByAccount = `-- name: ListDeployedAppsByAccount :many
+SELECT id, slug FROM apps
+WHERE account_id = ?1
+  AND deleted_at IS NULL
+  AND current_release_id IS NOT NULL
+ORDER BY slug
+`
+
+type ListDeployedAppsByAccountRow struct {
+	ID   string
+	Slug string
+}
+
+// The apps a suspension stops and a restore starts again. A live app is one that
+// is not soft deleted and has actually reached the cluster: an app that never
+// deployed successfully has no workload to scale either way (spec 0018, AC-3).
+func (q *Queries) ListDeployedAppsByAccount(ctx context.Context, accountID string) ([]ListDeployedAppsByAccountRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDeployedAppsByAccount, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeployedAppsByAccountRow{}
+	for rows.Next() {
+		var i ListDeployedAppsByAccountRow
+		if err := rows.Scan(&i.ID, &i.Slug); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDeployedAppsOfSuspendedAccounts = `-- name: ListDeployedAppsOfSuspendedAccounts :many
+SELECT apps.id, apps.slug, apps.account_id FROM apps
+JOIN accounts ON accounts.id = apps.account_id
+WHERE accounts.disabled_at IS NOT NULL
+  AND apps.deleted_at IS NULL
+  AND apps.current_release_id IS NOT NULL
+ORDER BY apps.account_id, apps.slug
+`
+
+type ListDeployedAppsOfSuspendedAccountsRow struct {
+	ID        string
+	Slug      string
+	AccountID string
+}
+
+// The same predicate, joined to every suspended account, which is what the sweep
+// holds at zero replicas (spec 0018, AC-7).
+func (q *Queries) ListDeployedAppsOfSuspendedAccounts(ctx context.Context) ([]ListDeployedAppsOfSuspendedAccountsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDeployedAppsOfSuspendedAccounts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDeployedAppsOfSuspendedAccountsRow{}
+	for rows.Next() {
+		var i ListDeployedAppsOfSuspendedAccountsRow
+		if err := rows.Scan(&i.ID, &i.Slug, &i.AccountID); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const liveAppSlugs = `-- name: LiveAppSlugs :many
 SELECT slug FROM apps WHERE deleted_at IS NULL
 `

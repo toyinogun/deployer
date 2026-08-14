@@ -18,6 +18,7 @@ import (
 	"github.com/toyinogun/deployer/internal/identity"
 	"github.com/toyinogun/deployer/internal/logs"
 	"github.com/toyinogun/deployer/internal/store"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 // Data is every read a page makes. It is declared here, where it is used, and
@@ -79,7 +80,12 @@ type Server struct {
 	auditor auth.Auditor
 	data    Data
 	pods    Pods
-	opts    Options
+	// suspension is the one implementation of stopping an account and everything
+	// it runs. The JSON admin route holds the same one, which is what keeps the
+	// two surfaces from drifting into two meanings of suspended (spec 0018,
+	// AC-19).
+	suspension *suspend.Service
+	opts       Options
 
 	// origin is PublicURL reduced to scheme and host, precomputed because every
 	// POST compares against it.
@@ -92,8 +98,10 @@ type Server struct {
 // New returns the page surface. data is the store, pods may be nil when there is
 // no cluster credential, which the logs page renders as an empty state rather
 // than refusing to start.
-func New(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, data Data, pods Pods, opts Options) *Server {
-	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, opts: opts}
+func New(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, data Data, pods Pods,
+	suspension *suspend.Service, opts Options,
+) *Server {
+	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, suspension: suspension, opts: opts}
 	if u, err := url.Parse(opts.PublicURL); err == nil && u.Host != "" {
 		s.origin = u.Scheme + "://" + u.Host
 		s.secure = u.Scheme == "https"

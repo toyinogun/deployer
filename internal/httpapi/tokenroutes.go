@@ -122,19 +122,27 @@ func (i *Identity) adminListAccounts(w http.ResponseWriter, r *http.Request) {
 	writeJSON(ctx, w, http.StatusOK, map[string]any{"accounts": bodies})
 }
 
-// adminDisable locks an account out, revoking its sessions and links with it.
+// adminDisable suspends an account: it revokes its sessions and links, and stops
+// every app it runs.
 func (i *Identity) adminDisable(w http.ResponseWriter, r *http.Request) {
-	i.setDisabled(w, r, true, "disable")
+	i.setDisabled(w, r, true, "suspend")
 }
 
-// adminEnable lets a disabled account back in. Revocation is one way, so the
-// sessions it held before stay dead.
+// adminEnable restores a suspended account and starts its apps again on the
+// image each was already serving. Revocation is one way, so the sessions it held
+// before stay dead.
 func (i *Identity) adminEnable(w http.ResponseWriter, r *http.Request) {
-	i.setDisabled(w, r, false, "enable")
+	i.setDisabled(w, r, false, "restore")
 }
 
 // setDisabled is both admin state changes, which differ only in the flag and the
-// word recorded.
+// word recorded. Both go through internal/suspend, the same use case the admin
+// page calls, so the two surfaces stop the same apps and write the same audit
+// rows (spec 0018, AC-19).
+//
+// A partial outcome is answered with 200 and the slugs rather than 204, because
+// the account did change state and the caller has something to act on
+// (spec 0018, AC-6).
 func (i *Identity) setDisabled(w http.ResponseWriter, r *http.Request, disabled bool, action string) {
 	ctx := r.Context()
 	admin, ok := i.adminSession(w, r)
@@ -142,7 +150,24 @@ func (i *Identity) setDisabled(w http.ResponseWriter, r *http.Request, disabled 
 		return
 	}
 	target := r.PathValue("id")
-	if err := i.svc.SetDisabled(ctx, target, disabled); err != nil {
+	// Suspending yourself revokes the session or token making the call and stops
+	// your own apps, with nobody left signed in to undo either. The same refusal
+	// the page makes, because both surfaces answer for the same rule
+	// (spec 0018, AC-17, AC-19).
+	if disabled && target == admin.ID {
+		auth.Record(ctx, i.auditor, auth.Audit{
+			AccountID: admin.ID, Action: auth.ActionAdmin,
+			TargetType: "account", TargetID: target, Reason: "suspend: self",
+		})
+		writeError(ctx, w, http.StatusUnprocessableEntity, "an admin cannot suspend their own account")
+		return
+	}
+	change := i.suspension.Restore
+	if disabled {
+		change = i.suspension.Suspend
+	}
+	result, err := change(ctx, admin.ID, target)
+	if err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
 			AccountID: admin.ID, Action: auth.ActionAdmin,
@@ -151,10 +176,10 @@ func (i *Identity) setDisabled(w http.ResponseWriter, r *http.Request, disabled 
 		i.fail(ctx, w, err)
 		return
 	}
-	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
-		TargetType: "account", TargetID: target, Allowed: true, Reason: action,
-	})
+	if len(result.NotStopped) > 0 {
+		writeJSON(ctx, w, http.StatusOK, map[string]any{"apps_not_stopped": result.NotStopped})
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
