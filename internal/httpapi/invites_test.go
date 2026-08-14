@@ -236,6 +236,60 @@ func TestAnOverLongNoteIsRefused(t *testing.T) {
 	if rec.Code != http.StatusUnprocessableEntity {
 		t.Errorf("an over long note: got %d, want 422: %s", rec.Code, rec.Body)
 	}
+	// The code is the part a caller branches on, so it has to name the field that
+	// was actually wrong. The note is not an address.
+	if got := codeOf(t, rec); got != "note_too_long" {
+		t.Errorf("an over long note answers %q, want note_too_long", got)
+	}
+}
+
+// TestAnExpiredInviteListsAsExpired pins the derived half of AC-8 at the surface
+// that shows it. Expiry is the one state no write produces: the row is untouched
+// and only the clock moves, so a list that read a stored column would still say
+// live here.
+// covers: AC-8
+func TestAnExpiredInviteListsAsExpired(t *testing.T) {
+	h := newIDHarness(t, true)
+	admin := h.registerAndVerify(t, "admin@example.com")
+
+	minted := h.do(t, "POST", "/v1/admin/invites", map[string]string{"note": "for Sam"}, admin)
+	if minted.Code != http.StatusCreated {
+		t.Fatalf("minting: got %d, want 201: %s", minted.Code, minted.Body)
+	}
+	var issued struct{ ID string }
+	if err := json.Unmarshal(minted.Body.Bytes(), &issued); err != nil {
+		t.Fatalf("reading the mint body: %v", err)
+	}
+
+	h.clock.T = h.clock.T.Add(identity.InviteLifetime + time.Hour)
+
+	listed := h.do(t, "GET", "/v1/admin/invites", nil, admin)
+	if got := findInvite(t, listed.Body.Bytes(), issued.ID).State; got != "expired" {
+		t.Errorf("an invite past its lifetime lists as %q, want expired", got)
+	}
+
+	// The invite the admin registered through is spent, and a spent row says so
+	// rather than falling to expired now that the clock has passed it too.
+	var list struct {
+		Invites []inviteBody `json:"invites"`
+	}
+	if err := json.Unmarshal(listed.Body.Bytes(), &list); err != nil {
+		t.Fatalf("reading the list: %v", err)
+	}
+	var spentSeen bool
+	for _, row := range list.Invites {
+		if row.ID == issued.ID {
+			continue
+		}
+		spentSeen = true
+		if row.State != "spent" || row.SpentBy != "admin@example.com" {
+			t.Errorf("the spent invite lists as %q spent by %q, want spent by admin@example.com",
+				row.State, row.SpentBy)
+		}
+	}
+	if !spentSeen {
+		t.Error("no spent invite on the list, so nothing proved the spent state")
+	}
 }
 
 // TestBootstrapMintsOnceAndOnlyOnEmpty is AC-13: the platform lets itself in on

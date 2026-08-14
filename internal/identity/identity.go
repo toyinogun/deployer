@@ -27,6 +27,10 @@ const (
 	// CodePasswordTooShort means the password was under the minimum length. It is
 	// the only composition rule there is.
 	CodePasswordTooShort Code = "password_too_short"
+	// CodeNoteTooLong means an invite's note was over NoteLimit characters. It is
+	// its own code rather than CodeEmailInvalid because the code is what a caller
+	// branches on, and no address was involved.
+	CodeNoteTooLong Code = "note_too_long"
 	// CodeCredentialsInvalid covers a wrong password, an unknown address, and a
 	// disabled account alike. They are deliberately indistinguishable.
 	CodeCredentialsInvalid Code = "credentials_invalid"

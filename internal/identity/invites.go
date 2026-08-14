@@ -135,7 +135,7 @@ func expired(stamp string, now time.Time) bool {
 func CheckNote(raw string) (string, error) {
 	note := strings.TrimSpace(raw)
 	if utf8.RuneCountInString(note) > NoteLimit {
-		return "", Fail(CodeEmailInvalid,
+		return "", Fail(CodeNoteTooLong,
 			fmt.Sprintf("a note can be at most %d characters", NoteLimit))
 	}
 	return note, nil

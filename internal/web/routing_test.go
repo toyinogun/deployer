@@ -366,6 +366,7 @@ func TestStatusForPairsEachRefusalWithOneStatus(t *testing.T) {
 	}{
 		{identity.CodeEmailInvalid, http.StatusUnprocessableEntity},
 		{identity.CodePasswordTooShort, http.StatusUnprocessableEntity},
+		{identity.CodeNoteTooLong, http.StatusUnprocessableEntity},
 		{identity.CodeCredentialsInvalid, http.StatusUnauthorized},
 		{identity.CodeEmailUnverified, http.StatusForbidden},
 		{identity.CodeAdminRequired, http.StatusForbidden},

@@ -198,7 +198,8 @@ func (i *Identity) fail(ctx context.Context, w http.ResponseWriter, err error) {
 // than chosen per handler, so one code cannot mean two things on two endpoints.
 func statusFor(c identity.Code) int {
 	switch c {
-	case identity.CodeEmailInvalid, identity.CodePasswordTooShort, identity.CodeInvalidExpiry:
+	case identity.CodeEmailInvalid, identity.CodePasswordTooShort, identity.CodeInvalidExpiry,
+		identity.CodeNoteTooLong:
 		return http.StatusUnprocessableEntity
 	case identity.CodeCredentialsInvalid:
 		return http.StatusUnauthorized

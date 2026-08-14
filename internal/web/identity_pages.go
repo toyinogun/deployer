@@ -268,7 +268,8 @@ func (s *Server) formFailure(w http.ResponseWriter, r *http.Request, page string
 // surface fixes, so one code cannot mean two things on two surfaces.
 func statusFor(c identity.Code) int {
 	switch c {
-	case identity.CodeEmailInvalid, identity.CodePasswordTooShort, identity.CodeInvalidExpiry:
+	case identity.CodeEmailInvalid, identity.CodePasswordTooShort, identity.CodeInvalidExpiry,
+		identity.CodeNoteTooLong:
 		return http.StatusUnprocessableEntity
 	case identity.CodeCredentialsInvalid:
 		return http.StatusUnauthorized
