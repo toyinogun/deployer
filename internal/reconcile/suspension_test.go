@@ -11,6 +11,7 @@ import (
 
 	"github.com/toyinogun/deployer/internal/domain"
 	"github.com/toyinogun/deployer/internal/ids"
+	"github.com/toyinogun/deployer/internal/reconcile"
 )
 
 // suspendOwner stamps disabled_at on the account that owns this world's app,
@@ -78,6 +79,49 @@ func TestASuspensionLandingMidBuildEndsTheDeployment(t *testing.T) {
 
 	// The build Job goes with the deployment, the same way a spent budget takes
 	// it, so nothing is left running on the cluster for a stopped account.
+	jobs, err := w.clientset.BatchV1().Jobs("deployer-builds").List(t.Context(), metav1.ListOptions{})
+	if err != nil {
+		t.Fatalf("listing build jobs: %v", err)
+	}
+	if len(jobs.Items) != 0 {
+		t.Errorf("%d build job(s) survived the suspension", len(jobs.Items))
+	}
+}
+
+// TestASuspensionDuringABuildThatIsStillRunningEndsTheDeployment is AC-14 in the
+// window it was written for, and the one `/check verify` found open on the real
+// cluster: a build that has not finished.
+//
+// The test above lets the build complete in the same run, so the drive leaves
+// awaitBuild on its own and the next phase boundary catches the suspension. A
+// real build runs for tens of seconds, and the drive spends all of them inside
+// awaitBuild's poll loop. Here the build never ends, so the only thing that can
+// end this deployment is a check inside that loop. Without one the row fails
+// build_failed when the build's own budget runs out, minutes after the account
+// was stopped, which is what happened in production: a held build sat in
+// building for over three minutes with its Job alive.
+//
+// covers: AC-14
+func TestASuspensionDuringABuildThatIsStillRunningEndsTheDeployment(t *testing.T) {
+	w := setup(t)
+	w.buildNeverEnds()
+	// The suspension lands on the first poll, while the Job is still running.
+	// Prepended after buildNeverEnds so it runs first and falls through to it.
+	w.clientset.PrependReactor("get", "jobs", func(k8stesting.Action) (bool, runtime.Object, error) {
+		w.suspendOwner(t)
+		return false, nil, nil
+	})
+
+	w.reconciler(fakeRegistry{digest: testDigest, user: "1000"}, func(o *reconcile.Options) {
+		// Long enough that a drive reaching this deadline has failed the test by
+		// waiting for the build rather than for the account.
+		o.BuildTimeout = 10 * time.Second
+	}).Drive(t.Context(), toLoop(w.deployment))
+
+	assertFailed(t, w, string(domain.ReasonAccountSuspended))
+
+	// And the Job it was waiting on goes with it, rather than being left to run
+	// out its own budget on the cluster under a stopped account.
 	jobs, err := w.clientset.BatchV1().Jobs("deployer-builds").List(t.Context(), metav1.ListOptions{})
 	if err != nil {
 		t.Fatalf("listing build jobs: %v", err)

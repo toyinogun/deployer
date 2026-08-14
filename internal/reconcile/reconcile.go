@@ -750,7 +750,7 @@ func (r *Reconciler) awaitBuild(ctx context.Context, dep *Deployment) *failure {
 			// sweep exists to catch.
 			return &failure{domain.ReasonBuildFailed, errors.New("the build job no longer exists")}
 		}
-		if fail := r.wait(ctx, buildCtx, domain.ReasonBuildFailed); fail != nil {
+		if fail := r.wait(ctx, buildCtx, dep.AppID, domain.ReasonBuildFailed); fail != nil {
 			return fail
 		}
 	}
@@ -882,7 +882,7 @@ func (r *Reconciler) awaitReady(ctx context.Context, app App) *failure {
 		if ready {
 			return nil
 		}
-		if fail := r.wait(ctx, readyCtx, domain.ReasonAppNeverReady); fail != nil {
+		if fail := r.wait(ctx, readyCtx, app.ID, domain.ReasonAppNeverReady); fail != nil {
 			return fail
 		}
 	}
@@ -890,11 +890,19 @@ func (r *Reconciler) awaitReady(ctx context.Context, app App) *failure {
 
 // wait sleeps one tick, and turns a deadline into the right reason: the phase's
 // own when the phase ran out, and timeout when the whole call did.
-func (r *Reconciler) wait(ctx, phase context.Context, onPhaseDeadline domain.Reason) *failure {
+//
+// A tick is a phase boundary as much as the gaps between phases are, and this is
+// the one the drive spends its real time in: awaitBuild and awaitReady sit here
+// for tens of seconds at a stretch. Checking only at the boundaries either side
+// of those loops leaves the whole build unwatched, which is how a suspended
+// account's deployment stayed in building with its Job alive until the build's
+// own budget ran out (spec 0018, AC-14). So the same check runs per tick, in the
+// place the deploy budget is already consulted.
+func (r *Reconciler) wait(ctx, phase context.Context, appID string, onPhaseDeadline domain.Reason) *failure {
 	select {
 	case <-time.After(r.opts.ReconcileInterval):
 		if phase.Err() == nil {
-			return nil
+			return r.blocked(ctx, appID)
 		}
 	case <-phase.Done():
 	}
