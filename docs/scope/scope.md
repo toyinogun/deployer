@@ -347,7 +347,7 @@ code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/w
 - [x] Verify it: `/check verify invite only registration`
 - [x] Test it: `/test invite only registration`
 - [x] Review it (fresh model): `/check review invite only registration`
-- [ ] Document it: `/document invite only registration`
+- [x] Document it: `/document invite only registration`
 
 ### 17. Per account app cap · Beta · needs a decision
 Nothing counts apps per account, so one account can create as many as the cluster will hold. Every quota built so far bounds what one app consumes, not how many an account may start. With under ten people this is about stopping one runaway account rather than sharing scarce capacity.
