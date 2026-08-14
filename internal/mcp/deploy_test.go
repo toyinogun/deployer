@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 	"testing"
@@ -443,5 +444,67 @@ func TestTheToolDescriptionCarriesTheCapRule(t *testing.T) {
 	// account, and the refusal and the apps page both carry the real figure.
 	if strings.Contains(description, "10") {
 		t.Errorf("the description names the configured number, which it must not")
+	}
+}
+
+// TestARaceLostAtTheCreateStillReadsAsTheCap covers the branch the read before
+// the create cannot reach. Another caller took the last slot between the count
+// and the insert, so the store's transaction refuses instead. The caller has to
+// see the same cap refusal, not an internal error, and both numbers have to read
+// as the cap, which is exactly true at that point (spec 0016, AC-3, AC-6).
+func TestARaceLostAtTheCreateStillReadsAsTheCap(t *testing.T) {
+	// covers: AC-3, AC-6
+	account := auth.Account{ID: "acc_1"}
+	// Well below the cap, so the read passes cleanly and only the create refuses.
+	// That is the whole point: this path is unreachable through the count.
+	apps := &stubApps{held: 3, createLimitErr: true}
+	deployments := &stubDeployments{}
+	s, auditor := server(apps, deployments, liveUpload(account.ID))
+
+	_, _, err := s.deploy(t.Context(), account, deployInput{Name: "new", UploadID: "upl_1"})
+	if err == nil || !strings.HasPrefix(err.Error(), string(domain.ReasonAppLimitReached)) {
+		t.Fatalf("error = %v, want %s", err, domain.ReasonAppLimitReached)
+	}
+	// The cap twice, not the stale 3 the read saw. An account told "3 of 10" and
+	// then refused would have no idea what to delete.
+	if !strings.Contains(err.Error(), "(10 of 10 used)") {
+		t.Errorf("the refusal reads %q, want the numbers to be the cap twice", err)
+	}
+	if deployments.created != 0 {
+		t.Errorf("the refused create started %d deployments, want none", deployments.created)
+	}
+	if len(auditor.rows) != 1 || auditor.rows[0].TargetID != "" || auditor.rows[0].Allowed {
+		t.Errorf("audit = %+v, want one denial with no target", auditor.rows)
+	}
+}
+
+// TestACountFaultIsAFaultNotARefusal pins the line the platform draws between
+// the two. A store that cannot say how many apps an account holds has failed;
+// dressing that as app_limit_reached would tell a caller to delete an app it has
+// no need to delete, and it would mask a fault as an access decision.
+func TestACountFaultIsAFaultNotARefusal(t *testing.T) {
+	// covers: AC-1
+	account := auth.Account{ID: "acc_1"}
+	apps := &stubApps{countErr: errors.New("the apps table is unreadable")}
+	deployments := &stubDeployments{}
+	s, auditor := server(apps, deployments, liveUpload(account.ID))
+
+	_, _, err := s.deploy(t.Context(), account, deployInput{Name: "new", UploadID: "upl_1"})
+	if err == nil || !strings.HasPrefix(err.Error(), string(domain.ReasonInternal)) {
+		t.Fatalf("error = %v, want %s", err, domain.ReasonInternal)
+	}
+	if strings.Contains(err.Error(), string(domain.ReasonAppLimitReached)) {
+		t.Errorf("a store fault reached the caller as a cap refusal: %q", err)
+	}
+	// The cause is logged and goes no further, so the store's own words never
+	// reach a caller.
+	if strings.Contains(err.Error(), "unreadable") {
+		t.Errorf("the refusal carries the wrapped store error: %q", err)
+	}
+	if len(apps.created) != 0 || deployments.created != 0 {
+		t.Errorf("created %v apps and %d deployments, want none", apps.created, deployments.created)
+	}
+	if len(auditor.rows) != 1 || auditor.rows[0].Allowed {
+		t.Errorf("audit = %+v, want one denial", auditor.rows)
 	}
 }

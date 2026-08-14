@@ -5,8 +5,27 @@ import (
 	"testing"
 
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/identity"
 	"github.com/toyinogun/deployer/internal/store"
 )
+
+// anotherToken mints a second API token on an account that already has one,
+// which is what a person does when they point a second agent at the platform.
+// The account is the same row; only the credential differs (spec 0016, AC-15).
+func (h *ownershipHarness) anotherToken(t *testing.T, who person) person {
+	t.Helper()
+	raw, err := identity.NewAPIToken()
+	if err != nil {
+		t.Fatalf("minting a second token: %v", err)
+	}
+	if _, err := h.store.CreateAPIToken(t.Context(), store.NewToken{
+		AccountID: who.account.ID, Name: "second agent",
+		TokenHash: identity.HashSecret(raw), Prefix: identity.TokenPrefix(raw),
+	}); err != nil {
+		t.Fatalf("storing the second token: %v", err)
+	}
+	return person{account: who.account, token: raw}
+}
 
 // deployNamed is one deploy of one name as one person, with a fresh upload.
 func (h *ownershipHarness) deployNamed(t *testing.T, who person, name string) (map[string]any, string, bool) {
@@ -210,5 +229,71 @@ func TestTheCapIsPerAccountNotPerToken(t *testing.T) {
 	}
 	if got := appCount(t, h.store, h.b.account.ID); got != 1 {
 		t.Errorf("B holds %d apps, want 1", got)
+	}
+}
+
+// TestTwoTokensOfOneAccountShareOneAllowance is the other half of per account:
+// the ceiling belongs to the account, so adding a second agent adds no room. A
+// cap counted per token would be no cap at all, because minting one is free.
+func TestTwoTokensOfOneAccountShareOneAllowance(t *testing.T) {
+	// covers: AC-15
+	h := newCappedHarness(t, 2)
+	second := h.anotherToken(t, h.a)
+
+	// One app through each credential, which fills the account rather than
+	// filling either token.
+	h.fill(t, h.a, "checkout")
+	h.fill(t, second, "billing")
+
+	// The fresh token is at the ceiling it did nothing on its own to reach.
+	_, said, isErr := h.deployNamed(t, second, "invoices")
+	if !isErr {
+		t.Fatalf("the second token deployed past the account's ceiling: %s", said)
+	}
+	if !strings.Contains(said, string(domain.ReasonAppLimitReached)) {
+		t.Errorf("the second token's refusal reads %q, want %s", said, domain.ReasonAppLimitReached)
+	}
+	// And so is the first, because there is only ever one allowance.
+	if _, said, isErr := h.deployNamed(t, h.a, "reports"); !isErr {
+		t.Errorf("the first token was still accepted at the ceiling: %s", said)
+	}
+	if got := appCount(t, h.store, h.a.account.ID); got != 2 {
+		t.Errorf("the account holds %d apps, want 2: a second token bought room", got)
+	}
+}
+
+// TestAnAccountAtItsCapStillOperatesWhatItHas is the rest of AC-4. Redeploying
+// is proved above; this is configure and roll back. An account that could not
+// set a variable or go back a release until it deleted an app would be held
+// hostage by a ceiling that is only ever about creating one.
+func TestAnAccountAtItsCapStillOperatesWhatItHas(t *testing.T) {
+	// covers: AC-4
+	h := newCappedHarness(t, 2)
+	h.fill(t, h.a, "checkout", "billing")
+
+	out, said, isErr := h.call(t, h.a, "set_config", map[string]any{
+		"name": "checkout",
+		"config": map[string]any{
+			"GREETING": map[string]any{"value": "hello", "secret": false},
+		},
+	})
+	if isErr {
+		t.Fatalf("set_config on a held app was refused at the cap: %v %s", out, said)
+	}
+
+	// The app has never been healthy, so there is no release to go back to and
+	// rollback refuses release_unknown. That is the refusal it gives below the
+	// cap too, which is the point: the ceiling is not what decided it.
+	_, said, isErr = h.call(t, h.a, "rollback_app", map[string]any{
+		"name": "checkout", "release_number": 1,
+	})
+	if !isErr {
+		t.Fatalf("rollback onto a release that was never minted was accepted: %s", said)
+	}
+	if !strings.Contains(said, string(domain.ReasonReleaseUnknown)) {
+		t.Errorf("rollback at the cap reads %q, want %s", said, domain.ReasonReleaseUnknown)
+	}
+	if strings.Contains(said, string(domain.ReasonAppLimitReached)) {
+		t.Errorf("the cap refused a rollback, which it must never gate: %s", said)
 	}
 }

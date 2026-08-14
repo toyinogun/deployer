@@ -57,7 +57,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 14 | Web interface: register, sign in, apps & tokens | Slice 10 | done |
 | 15 | Stranded deployment recovery | Slice 11 | done |
 | 16 | Invite only registration | Slice 12 | done |
-| 17 | Per account app cap | Slice 12 | in-progress |
+| 17 | Per account app cap | Slice 12 | done |
 | 18 | Bounded app egress | Slice 12 | planned |
 | 19 | Account suspension | Slice 12 | planned |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
@@ -349,7 +349,7 @@ code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/w
 - [x] Review it (fresh model): `/check review invite only registration`
 - [x] Document it: `/document invite only registration`
 
-### 17. Per account app cap · Beta
+### 17. Per account app cap · done
 Nothing counts apps per account, so one account can create as many as the cluster will hold. Every quota built so far bounds what one app consumes, not how many an account may start. With under ten people this is about stopping one runaway account rather than sharing scarce capacity.
 **Done when:** an account at its cap is refused a new app with a closed reason code that names the cap, the refusal reads the same through an MCP tool and through the pages, the cap is `DEPLOYER_*` configuration validated at startup, a deleted app frees a slot, and accounts already over the cap keep what they have.
 spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/config`, `internal/domain`, `internal/store`, `internal/mcp`, `internal/web`
@@ -361,7 +361,7 @@ spec [0016](../specs/0016-per-account-app-cap/index.md) · code in `internal/con
   - [x] The surfaces: apps page usage and notice, admin per account count — AC-10, AC-11, AC-12
   - [x] The edges: a delete frees a slot, an over cap account keeps everything, no migration — AC-5, AC-14, AC-17
 - [x] Verify it: `/check verify per account app cap`
-- [ ] Test it: `/test per account app cap`
+- [x] Test it: `/test per account app cap`
 
 ### 18. Bounded app egress · needs a decision
 Cluster traffic is fenced, but an app's outbound path to the internet is wide open. That is how a stranger's app mines coins or sends spam, and both cost you a relationship with your internet provider rather than just some CPU. Ports, not hostnames: an allow list by hostname is still deferred because it breaks every app that calls an API until its owner declares it.
