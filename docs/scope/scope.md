@@ -302,7 +302,7 @@ spec [0013](../specs/0013-web-interface/index.md)
 ### 15. Stranded deployment recovery · in-progress
 From spec 0014, which came out of a real incident rather than the plan. A deploy whose drive ends without writing the row terminal leaves the deployment sitting in `building`, so its app refuses deletes and the eventual failure is recorded as `timeout` when the build pod failed and said so minutes earlier. The reconcile tick learns to ask the cluster what the build Job actually did, and either ends the row with the true reason or hands it back to be resumed.
 **Done when:** a deployment whose drive dies is ended within a tick or two carrying the reason the Job gave, a build that had already succeeded is resumed rather than thrown away, and none of that costs a new setting, a new column, or a second writer of deployment state.
-spec [0014](../specs/0014-stranded-deployment-recovery.md) · code in `internal/reconcile`, `internal/store`, `deploy`
+spec [0014](../specs/0014-stranded-deployment-recovery/index.md) · code in `internal/reconcile`, `internal/store`, `deploy`
 - [x] Design it (spec): `/architect stranded deployment recovery`
 - [x] Build it: `/develop stranded deployment recovery`
   - [x] The claim: `ClaimNext` prefers queued work and falls back to adopting a stray, plus releasing a claim as one conditional write — AC-3, AC-5, AC-5a
