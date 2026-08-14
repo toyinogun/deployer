@@ -455,13 +455,25 @@ input:focus { border-color: var(--accent); }
    tables reflow to stacked cards (AC-29). */
 
 @media (max-width: 860px) {
-  .shell { grid-template-columns: minmax(0, 1fr); }
+  .shell {
+    grid-template-columns: minmax(0, 1fr);
+    /* The toggle, the sidebar and the panel stack. Without naming the rows the
+       grid shares its spare height between them and leaves a gap under the
+       toggle wide enough to read as a missing element. */
+    grid-template-rows: auto auto 1fr;
+  }
 
   .nav-toggle {
-    display: block;
+    display: inline-block;
+    /* The shell is a grid and this is one of its items, so without these it
+       stretches to the full column and row and reads as an empty card. */
+    justify-self: start;
+    align-self: start;
+    width: auto;
     font: inherit;
+    font-size: var(--text-sm);
     font-weight: 600;
-    margin: var(--s4) var(--s4) 0;
+    margin: var(--s4) 0 0 var(--s4);
     padding: var(--s2) var(--s4);
     background: var(--surface);
     border: 1px solid var(--line-strong);

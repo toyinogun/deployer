@@ -12,9 +12,16 @@
   var POLL_MS = 3000;
   var CEILING_MS = 15 * 60 * 1000;
 
+  // live reads the marker the status fragment carries. It is inside the swapped
+  // content on purpose, so each poll brings a fresh answer with it.
+  function live(region) {
+    var marker = region.querySelector("[data-live]");
+    return !!marker && marker.dataset.live === "on";
+  }
+
   function startPolling() {
     var region = document.getElementById("status");
-    if (!region || region.dataset.poll !== "on") {
+    if (!region || !live(region)) {
       return;
     }
     var slug = region.dataset.slug;
@@ -53,8 +60,9 @@
           }
           region.innerHTML = html;
           // The server decides when this is over, from the same state machine
-          // the page rendered from. The client never guesses at terminal.
-          if (region.dataset.poll !== "on") {
+          // the page rendered from. The client never guesses at terminal: it
+          // reads the marker the fragment just brought with it.
+          if (!live(region)) {
             clearInterval(timer);
           }
         })

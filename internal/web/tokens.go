@@ -125,11 +125,9 @@ func (s *Server) renderTokens(w http.ResponseWriter, r *http.Request, account au
 }
 
 // toIdentityAccount carries the resolved account across the one call that takes
-// the identity layer's own shape. The two structs are the same account read
-// through two packages; only the fields the mint reads are carried.
+// the identity layer's own shape. Only the three fields the mint actually reads
+// are carried: the display name is not one of them, and auth.Account holds the
+// platform's internal account name rather than the person's anyway.
 func toIdentityAccount(a auth.Account) identity.Account {
-	return identity.Account{
-		ID: a.ID, Email: a.Email, DisplayName: a.Name,
-		Verified: a.Verified, Disabled: a.Disabled, IsAdmin: a.IsAdmin,
-	}
+	return identity.Account{ID: a.ID, Email: a.Email, Verified: a.Verified}
 }

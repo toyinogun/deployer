@@ -91,11 +91,14 @@ func staticHandler() http.Handler {
 // navigation entry is the current one.
 type shell struct {
 	SignedIn bool
-	Email    string
-	Name     string
-	IsAdmin  bool
-	CSRF     string
-	Nav      string
+	// Email is who is signed in, as the shell shows them. The account's display
+	// name is deliberately not here: auth.Account carries the platform's own
+	// internal account name rather than the person's, and showing that is how
+	// the sidebar ended up reading out an account id.
+	Email   string
+	IsAdmin bool
+	CSRF    string
+	Nav     string
 }
 
 // pageData is what reaches a template: the shell, and that page's own value.
@@ -124,7 +127,6 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, account auth.Acc
 		Shell: shell{
 			SignedIn: true,
 			Email:    account.Email,
-			Name:     account.Name,
 			IsAdmin:  account.IsAdmin,
 			CSRF:     s.csrfToken(sess.ID),
 			Nav:      nav,

@@ -8,12 +8,17 @@
 
 {{/* The polled region. The script swaps this element's contents and nothing
      else, so a poll cannot disturb the rest of the page (AC-16). */}}
-<div id="status" data-slug="{{.Data.Slug}}" data-poll="{{if .Data.Status.LastDeploy.Present}}{{if not .Data.Status.LastDeploy.Terminal}}on{{end}}{{end}}">
+<div id="status" data-slug="{{.Data.Slug}}">
 {{template "status" .Data.Status}}
 </div>
 {{end}}
 
 {{define "status"}}
+{{/* The live marker rides inside the fragment, not on the region the script
+     swaps: a poll replaces this element's contents, so an attribute on the
+     container outside it would never change and polling would never stop. The
+     server decides terminal here, from the state machine (AC-16). */}}
+<div class="status-body" data-live="{{if and .LastDeploy.Present (not .LastDeploy.Terminal)}}on{{else}}off{{end}}">
 <div class="cards two">
   <section class="card" aria-labelledby="serving-head">
     <h2 id="serving-head">Serving now</h2>
@@ -40,5 +45,6 @@
       <p class="live" role="status">This deploy is still running. The page updates itself.</p>
     {{end}}
   </section>
+</div>
 </div>
 {{end}}

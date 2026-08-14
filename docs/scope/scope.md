@@ -54,7 +54,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 11 | App environment configuration | Slice 7 | done |
 | 12 | Rollback & release history | Slice 8 | done |
 | 13 | App lifecycle: list & decommission | Slice 9 | done |
-| 14 | Web interface: register, sign in, apps & tokens | Slice 10 | planned |
+| 14 | Web interface: register, sign in, apps & tokens | Slice 10 | in-progress |
 
 ## Foundations
 
@@ -277,12 +277,24 @@ spec [0012](../specs/0012-app-lifecycle-list-delete/index.md) · code in `intern
 
 ## Slice 10: Web interface
 
-### 14. Web interface: register, sign in, apps & tokens · needs a decision
+### 14. Web interface: register, sign in, apps & tokens
 From spec 0007. The pages on top of the identity surface feature 8 builds: register, verify, sign in, mint and revoke tokens, and see your apps, releases and logs without an agent. Feature 8 deliberately builds no pages, so every endpoint they need is already there and drivable with curl.
 **Done when:** a person can register, verify, sign in, mint a token, and see their apps and logs in a browser, on the tailnet, with no curl and no agent.
 From spec 0011: `list_releases` is capped at the newest twenty with no paging, on purpose, so this is where full release history gets a paged view over the same store method.
 From spec 0012: `list_apps` is capped at the newest fifty the same way, so a paged app list belongs here too, over the store's existing cursor.
-- [ ] Design it (spec): `/architect web interface`
+Spec 0013 corrects one line above: only identity is already drivable, since everything about an app exists solely as an MCP tool behind a bearer token. The pages read the store server side rather than through a new API.
+spec [0013](../specs/0013-web-interface/index.md)
+- [x] Design it (spec): `/architect web interface`
+- [ ] Build it: `/develop web interface` — code in `internal/web`
+  - [x] Thin thread and guards: embedded assets, page session middleware, sign in, apps list, sign out, CSRF and origin — AC-1 to AC-5, AC-11 to AC-13
+  - [x] Design system: tokens, sidebar and inset panel shell, tables and cards, View Transitions, reduced motion, responsive — AC-27 to AC-29
+  - [x] The rest of identity: register, verify, unverified with resend, forgot, reset, and email links repointed at pages — AC-6 to AC-10
+  - [x] App pages: paged list with onboarding empty state, overview with polling and failure sentences, releases, logs, config with reveal — AC-14 to AC-20, AC-26
+  - [ ] Tokens, admin, and the closing pass: mint and revoke, the admin accounts page, accessibility, the leak crawl, and the `DEPLOYER_CSRF_KEY` deploy wiring — AC-21 to AC-25, AC-30, AC-31. Everything but the sealed value is in: `deploy/web-sealedsecret.yaml` needs sealing against the cluster before the pod will start
+- [ ] Verify it: `/check verify web interface`
+- [ ] Test it: `/test web interface`
+- [ ] Review it (fresh model): `/check review web interface`
+- [ ] Document it: `/document web interface`
 
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
@@ -303,6 +315,9 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · needs a decision
 - **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration · needs a decision
 - **A test that a tool description matches its behaviour**: every MCP tool description is contract rather than documentation, and nothing checks one against what the code does. From spec 0011, which adds two more, taking the gap to eight tools wide · needs a decision
+- **Write actions from the browser**: rollback, delete and configuration editing as page actions, which feature 14 deliberately left out to keep the pages read only for apps. From spec 0013, where rollback is named as the one with a real case behind it, since it is the thing you want at 2am · needs a decision
+- **An audited browser reveal of secret configuration values**: from spec 0013, weighed and refused so that `store.ListConfigForDeploy` keeps exactly two callers and a stolen session stays worth less than a stolen API token. Worth reopening only if reading a secret back becomes a real debugging need · needs a decision
+- **Dark mode for the web interface**: from spec 0013, scoped out of feature 14. Cheap as a token swap under `prefers-color-scheme` only because the stylesheet defines every colour as a token from the start · needs a decision
 - **Multiple replicas and autoscaling**: horizontal scale once one pod is measurably not enough
 - **Custom domains per app**: an app served on a hostname you choose rather than the wildcard slug
 

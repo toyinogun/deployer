@@ -29,7 +29,7 @@
   {{end}}
 
   <div class="sidebar-foot">
-    <p class="who">{{if .Shell.Name}}{{.Shell.Name}}{{else}}{{.Shell.Email}}{{end}}</p>
+    <p class="who">{{.Shell.Email}}</p>
     <form method="post" action="/logout">
       <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
       <button class="link-button" type="submit">Sign out</button>
