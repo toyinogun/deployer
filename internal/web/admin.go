@@ -2,11 +2,13 @@ package web
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 // adminPageData is the accounts list. An admin sees who registered and may
@@ -122,6 +124,15 @@ func (s *Server) adminSetDisabled(w http.ResponseWriter, r *http.Request, admin 
 		change = s.suspension.Suspend
 	}
 	result, err := change(r.Context(), admin.ID, target)
+	if errors.Is(err, suspend.ErrAppsUnlisted) {
+		// The account changed state and nothing was scaled. Rendering this as a
+		// plain failure would tell the admin nothing happened, which on a restore
+		// is how every one of the account's apps stays at zero unwatched.
+		slog.ErrorContext(r.Context(), "listing an account's apps for a suspension failed",
+			"error", err, "account", target, "direction", action)
+		s.renderAdmin(w, r, admin, sess, http.StatusOK, unlistedMessage(suspending))
+		return
+	}
 	if err != nil {
 		s.adminFailure(w, r, admin, sess, target, action, err)
 		return
@@ -148,6 +159,22 @@ func partialMessage(suspending bool, slugs []string) string {
 	}
 	return "The account is " + state + ", but these apps did not " + verb + ": " +
 		strings.Join(slugs, ", ") + ". " + next
+}
+
+// unlistedMessage is the sentence shown when the account changed state but its
+// apps could not be read at all, so none of them were scaled. It names no app
+// because the list is exactly what failed.
+//
+// It splits by direction for the reason partialMessage does, and the restore
+// half matters more here: a partial restore leaves one app down, this leaves
+// every one of them down.
+func unlistedMessage(suspending bool) string {
+	if suspending {
+		return "The account is suspended, but its apps could not be listed, so none were stopped. " +
+			"The platform keeps retrying on its own."
+	}
+	return "The account is restored, but its apps could not be listed, so they are all still stopped. " +
+		"Restore it again to retry."
 }
 
 // adminRevokeToken kills another account's token, which is the one thing an

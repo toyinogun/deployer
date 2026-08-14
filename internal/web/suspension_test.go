@@ -1,6 +1,8 @@
 package web
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +15,7 @@ import (
 	"github.com/toyinogun/deployer/internal/domain"
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store"
+	"github.com/toyinogun/deployer/internal/suspend"
 )
 
 // TestTheAdminPageReadsSuspendAndRestore is AC-20. The words a person reads
@@ -160,6 +163,97 @@ func TestPartialMessageSaysWhatHappensNextPerDirection(t *testing.T) {
 			t.Parallel()
 			if got := partialMessage(tt.suspending, tt.slugs); got != tt.want {
 				t.Errorf("partialMessage(%t, %v)\n got: %s\nwant: %s", tt.suspending, tt.slugs, got, tt.want)
+			}
+		})
+	}
+}
+
+// unlistableApps is the real store adapter with one call broken: the app list
+// read that runs after the lockout has landed. It invents no store behaviour,
+// it only fails the one call a fake clientset and a real SQLite file cannot be
+// made to fail, which is the only way to reach the platform's own fault here.
+type unlistableApps struct {
+	suspend.Apps
+}
+
+// DeployedAppsByAccount always fails, standing in for the store being
+// unreachable between the lockout write and the scaling.
+func (unlistableApps) DeployedAppsByAccount(context.Context, string) ([]suspend.App, error) {
+	return nil, errors.New("the store is unreachable")
+}
+
+// TestAnAccountListThatCannotBeReadStillTellsTheAdminWhatChanged is the failure
+// the per app message does not cover: the list itself failed, so no app was
+// scaled at all and none can be named. The account still changed state, and on a
+// restore nothing but this control ever scales the apps back up (AC-8), so
+// rendering a plain failure would leave every app of the account at zero with an
+// admin who believes nothing happened. covers: AC-6, AC-8
+func TestAnAccountListThatCannotBeReadStillTellsTheAdminWhatChanged(t *testing.T) {
+	h := newHarness(t, nil)
+	admin := h.signIn(t, "first@example.test")
+	victim := h.signIn(t, "second@example.test")
+	target := h.accountID(t, victim)
+	h.srv.suspension = suspend.New(unlistableApps{store.ForSuspend(h.store)}, h.srv.svc, h.scaler, h.audit)
+
+	suspended := h.post(t, "/admin/accounts/"+target+"/disable", url.Values{
+		"confirm_email": {"second@example.test"}, "csrf": {h.csrfFor(t, admin)},
+	}, admin, nil)
+
+	if suspended.Code != http.StatusOK {
+		t.Fatalf("a suspension with no readable app list: got %d, want 200 with a message", suspended.Code)
+	}
+	if !strings.Contains(suspended.Body.String(), "its apps could not be listed") {
+		t.Errorf("the page does not say the app list failed: %s", suspended.Body.String())
+	}
+	// The lockout landed regardless, which is the invariant the message reports.
+	if got := h.get(t, "/apps", victim); got.Code != http.StatusSeeOther {
+		t.Errorf("the suspended account's session is still alive: /apps got %d", got.Code)
+	}
+
+	restored := h.post(t, "/admin/accounts/"+target+"/enable", url.Values{
+		"csrf": {h.csrfFor(t, admin)},
+	}, admin, nil)
+
+	if restored.Code != http.StatusOK {
+		t.Fatalf("a restore with no readable app list: got %d, want 200 with a message", restored.Code)
+	}
+	body := restored.Body.String()
+	if strings.Contains(body, "keeps retrying") {
+		t.Errorf("a restore that scaled nothing promises a retry that nothing performs: %s", body)
+	}
+	if !strings.Contains(body, "Restore it again to retry.") {
+		t.Errorf("a restore that scaled nothing does not tell the admin how to retry it: %s", body)
+	}
+}
+
+// TestUnlistedMessageSaysWhatHappensNextPerDirection pins both sentences the way
+// the per app pair is pinned. The restore half is the load bearing one: it is
+// the only thing telling an admin that every app of the account is still down.
+func TestUnlistedMessageSaysWhatHappensNextPerDirection(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		name       string
+		suspending bool
+		want       string
+	}{
+		{
+			name:       "suspending names the sweep, which really does finish it",
+			suspending: true,
+			want: "The account is suspended, but its apps could not be listed, so none were stopped. " +
+				"The platform keeps retrying on its own.",
+		},
+		{
+			name:       "restoring points back at the control, because nothing else will",
+			suspending: false,
+			want: "The account is restored, but its apps could not be listed, so they are all still stopped. " +
+				"Restore it again to retry.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := unlistedMessage(tt.suspending); got != tt.want {
+				t.Errorf("unlistedMessage(%t)\n got: %s\nwant: %s", tt.suspending, got, tt.want)
 			}
 		})
 	}

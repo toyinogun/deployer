@@ -11,6 +11,7 @@ package suspend
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -71,6 +72,15 @@ type Result struct {
 	NotStopped []string
 }
 
+// ErrAppsUnlisted is the account list read failing, after the lockout has
+// already landed. It is a sentinel because the two directions end differently
+// and a caller has to tell them apart: a suspension is finished by the sweep on
+// its next tick, but nothing ever scales an app back up except a restore
+// (AC-8), so a restore that never listed the apps leaves them at zero until an
+// admin runs it again. A caller that renders this as a plain failure tells the
+// admin nothing happened when the account state did in fact change.
+var ErrAppsUnlisted = errors.New("the account's apps could not be listed")
+
 // Service suspends and restores accounts.
 type Service struct {
 	apps    Apps
@@ -126,9 +136,11 @@ func (s *Service) set(ctx context.Context, adminID, accountID string, suspended 
 
 	apps, err := s.apps.DeployedAppsByAccount(ctx, accountID)
 	if err != nil {
-		// The lockout landed, so this is not a failed suspension. It is a
-		// suspension whose cluster half never started, which the sweep will finish.
-		return Result{}, fmt.Errorf("suspend: reading the apps of account %s: %w", accountID, err)
+		// The lockout landed, so this is not a failed state change. It is one whose
+		// cluster half never started: on a suspend the sweep finishes it, on a
+		// restore nothing does. ErrAppsUnlisted is how the caller tells the admin
+		// which of those they are looking at.
+		return Result{}, fmt.Errorf("suspend: reading the apps of account %s: %w: %w", accountID, ErrAppsUnlisted, err)
 	}
 
 	var result Result
