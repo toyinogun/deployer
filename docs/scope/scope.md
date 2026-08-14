@@ -376,8 +376,8 @@ spec [0017](../specs/0017-bounded-app-egress/index.md) · code in `internal/conf
   - [x] The build namespaces and the contract: both static policies narrowed to TCP 80 and 443 with both build paths still completing, and the bound named in `deploy_app`'s description — AC-9, AC-10, AC-13
 - [x] Verify it: `/check verify bounded app egress`
 - [x] Test it: `/test bounded app egress`
-- [ ] Review it (fresh model): `/check review bounded app egress`
-- [ ] Document it: `/document bounded app egress`
+- [x] Review it (fresh model): `/check review bounded app egress`
+- [x] Document it: `/document bounded app egress`
 
 ### 19. Account suspension · needs a decision
 The control you reach for at 2am when one account is the problem. Ownership is already solid, so the hard part is deciding what suspended means for a running app and how it comes back.
