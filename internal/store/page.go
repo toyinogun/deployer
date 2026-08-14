@@ -56,3 +56,17 @@ func isConstraintViolation(err error) bool {
 	// the low byte is what identifies the whole family.
 	return serr.Code()&0xff == sqlite3.SQLITE_CONSTRAINT
 }
+
+// isBusy reports whether err is SQLite refusing to hand over the write lock in
+// the time the busy timeout allows. It is worth one more attempt rather than a
+// lost write: inTx already asks for the lock at BEGIN, so a transaction that
+// still cannot get it lost a genuine race for a contended file rather than hit
+// the un waitable lock upgrade that BEGIN IMMEDIATE exists to avoid.
+func isBusy(err error) bool {
+	var serr *sqlite.Error
+	if !errors.As(err, &serr) {
+		return false
+	}
+	code := serr.Code() & 0xff
+	return code == sqlite3.SQLITE_BUSY || code == sqlite3.SQLITE_LOCKED
+}
