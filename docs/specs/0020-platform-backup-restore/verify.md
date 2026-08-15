@@ -37,7 +37,10 @@ cluster and the real bucket unless it says otherwise.
 - [ ] Read the whole `/admin/backups` page source as a non admin and as a signed out visitor → no object key, bucket name, endpoint, or credential appears anywhere → AC-14
 - [ ] Check the bucket's retention rule in the Cloudflare dashboard → 7 days, and try deleting a fresh object with the platform's own token → refused → AC-6a
 - [ ] Check the lifecycle rule → 30 day expiry scoped to the `db/` prefix, so registry backups are not swept → AC-6a
-- [ ] Confirm a Longhorn recurring job of type `backup` exists on the registry volume with retention 30, configured in `k3sprox-gitops` → AC-27
+- [ ] `kubectl -n longhorn-system get backuptarget default -o jsonpath='{.status.available}'` → `true`, so the target and the credential are good → AC-27
+- [ ] `kubectl -n longhorn-system get recurringjob registry-backup -o yaml` → task `backup`, retain 30, group `registry` and **not** `default` → AC-27
+- [ ] List every Longhorn volume with its recurring job labels → the registry volume is in the `registry` group, and the volume behind `deployer-data` is in no group that has a job → AC-27
+- [ ] `kubectl -n longhorn-system get backups` the morning after → a completed backup of the registry volume, and none of the SQLite volume → AC-27
 - [ ] Confirm the sealed secrets controller key export is in your password manager, and re-run the export command → it produces a key matching what you hold → AC-28
 - [ ] Confirm no Secret, ConfigMap, environment variable, or file in the cluster holds an age identity: `kubectl -n deployer-system get secret,cm -o yaml | grep -i "AGE-SECRET-KEY"` → nothing → AC-4
 

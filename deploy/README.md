@@ -211,6 +211,16 @@ creates at runtime.
    recurring job, configured in the `k3sprox-gitops` repository, targeting the
    same bucket. Point Longhorn's backup target at the R2 bucket, then add a
    recurring job of type `backup` on the registry volume with a retention of 30.
+   Both are in `manifests/longhorn/` there, with the one step no manifest can do
+   for itself: a volume joins a recurring job by carrying a label, and a
+   dynamically provisioned volume is named after its PV uuid, so labelling it is
+   a command rather than a file. Redo it if the registry PVC is ever recreated.
+
+   The job is in its own group rather than in Longhorn's `default` group, and
+   that is not tidiness. Every volume in the cluster is born labelled into
+   `default`, including the one this database lives on, so a job placed there
+   would start shipping this file off site unencrypted from a live WAL mode
+   volume, which is the consistency coin flip this whole spec exists to avoid.
 
    Two things about it are worth knowing rather than discovering. Its objects
    land outside the `db/` prefix, which is exactly why the lifecycle rule above
