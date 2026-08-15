@@ -3,7 +3,8 @@
 # Until now nothing stopped a workload elsewhere on the cluster opening a
 # connection to the platform API or the in cluster registry: the token check was
 # the only thing in the way. This puts a layer in front of it, so reaching either
-# means being the tailnet proxy, a node, or a build pod.
+# means being the tailnet proxy, a node, a build pod, or the control plane pod
+# that already lives here.
 #
 # Ingress only, deliberately. Adding Egress to policyTypes would deny the control
 # plane's own path to the Kubernetes API server, which lives on node addresses
@@ -101,3 +102,21 @@ spec:
           port: 5000
         - protocol: TCP
           port: 8080
+    # The control plane pod itself, on 5000. This namespace is a peer of its own
+    # fence, and leaving this out breaks every deploy while passing every test.
+    #
+    # resolveImage in internal/reconcile asks the registry over HTTP what the
+    # build pushed. That call leaves the control plane pod and arrives at the
+    # registry pod as ordinary pod to pod traffic carrying a 10.42.x source,
+    # which matches none of the outside peers above. The build still pushes
+    # successfully, so the failure lands one step later wearing the reason code
+    # build_no_digest, which blames the build for something it did correctly.
+    #
+    # podSelector with no namespaceSelector beside it means this namespace only.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: deployer
+      ports:
+        - protocol: TCP
+          port: 5000

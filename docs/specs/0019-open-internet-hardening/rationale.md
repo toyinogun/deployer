@@ -98,3 +98,22 @@ Read out of the repository and the scope on 2026-08-15, not assumed:
 - `s.secure` is derived from `PublicURL`'s scheme, so a local `go run ./cmd/deployer` over plain HTTP has it false. That is what makes the cookie name conditional rather than fixed.
 - The control plane Service listens on 80 and forwards to container port 8080, so every port in the new policy is a container port. A policy written against the Service port permits nothing, which is the trap the build policy comments already call out.
 - The binary exposes `/healthz` and `/readyz` and no metrics endpoint, so no scrape peer is needed. ArgoCD and the sealed secrets controller both act through the Kubernetes API server rather than connecting into the namespace, so neither needs one either. Checked rather than assumed, and recorded here so the next reader does not have to check again.
+- **The control plane is itself a peer.** `resolveImage` in `internal/reconcile` calls `internal/registry` over HTTP (`Digest`, then `ImageUser`, which calls `configDigest`) against `deployer-registry.deployer-system.svc:5000`. That is pod to pod traffic inside the namespace, carrying a `10.42.x` source that matches no outside peer. The pod labels are `app=deployer` and `app=deployer-registry`, read live on 2026-08-15, and they are the only two in the namespace.
+
+## What the first attempt got wrong
+
+The first policy listed the three outside callers and was checked carefully against everything that reaches in from elsewhere: the tailnet proxy, the nodes, the build namespaces, and explicitly not ArgoCD, not a scrape. The list above was written before the policy and it is right about all of that. What it never asked was which pods inside the namespace talk to each other, and the answer turned out to be the busiest path the platform has.
+
+The failure is worth recording because of how well it hid. `/check verify` on 2026-08-15 ran the parse test, the kustomize build, the server dry run, the probe refusals from a stray pod, the console over the tailnet, and two minutes of watching both pods hold `1/1` with no restarts. All of it passed. The deploy then failed, and the trail read like a build problem:
+
+- the build Job reported `Complete` in 33 seconds
+- its pod log ended `Saving deployer-registry.deployer-system.svc:5000/apps/probea-gh44sv...` followed by `*** Images (sha256:f849bc50...)`, so the push genuinely landed
+- the platform answered `build_no_digest`, "the build reported success but pushed no image"
+
+The push worked and the read back did not. Measured directly afterwards, same pod and same destination with the policy as the only variable: `401 Unauthorized` from the registry with the policy removed, timeout with it applied.
+
+Three general lessons, in rough order of how much they cost:
+
+1. A namespace fence has to be written from the inside out, not the outside in. Listing who may reach in is natural and it silently assumes the namespace's own traffic is exempt, which network policy does not do.
+2. A build Job going green proves the push and nothing past it. The check has to be a deploy carried to `healthy`.
+3. A parse test that pins shape can never report a missing peer, because a shorter peer list is a perfectly valid policy. Only the live walk finds an omission, which is why AC-14 now names its callers instead of saying nothing broke.

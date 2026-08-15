@@ -13,7 +13,7 @@ import (
 // The control plane namespace fence is static YAML applied by ArgoCD, so no Go
 // code composes it and nothing at run time would notice a hand edit that opens
 // it up. This parses the file into the real API types and pins every clause
-// AC-15 names: ingress only, the exact three peer groups, the exact ports, and
+// AC-15 names: ingress only, the exact four peer groups, the exact ports, and
 // no egress rule anywhere.
 //
 // The egress assertions are the load bearing half. Adding Egress to policyTypes
@@ -94,16 +94,21 @@ func TestTheControlPlaneFenceNeverPolicesEgress(t *testing.T) {
 	}
 }
 
-// AC-12: exactly three ways in, in order. The count is the assertion that
-// matters most, because a fourth rule is how an exception gets smuggled in.
+// AC-12: exactly four ways in, in order. The count is the assertion that
+// matters most, because a fifth rule is how an exception gets smuggled in.
+//
+// Note what this test cannot do. A peer left out makes the list shorter, and a
+// shorter list is a perfectly valid policy, so no assertion here reports one
+// missing: only AC-14's live walk does. That is how the fourth peer came to be
+// absent while this file was green.
 //
 // Every port pinned here is the destination pod's own container port. Cilium
 // translates a ClusterIP address in eBPF before policy is evaluated, so the
 // platform Service's port 80 would permit nothing at all.
-func TestTheControlPlaneIngressIsTheTailnetTheNodesAndTheBuilds(t *testing.T) {
+func TestTheControlPlaneIngressIsTheTailnetTheNodesTheBuildsAndItself(t *testing.T) {
 	p := controlPlanePolicies(t)["control-plane-allow"]
-	if len(p.Spec.Ingress) != 3 {
-		t.Fatalf("ingress rules = %d, want exactly 3 (tailnet, nodes, builds)", len(p.Spec.Ingress))
+	if len(p.Spec.Ingress) != 4 {
+		t.Fatalf("ingress rules = %d, want exactly 4 (tailnet, nodes, builds, the control plane pod)", len(p.Spec.Ingress))
 	}
 
 	// The Tailscale ingress proxy, on 8080 alone. Console traffic never has
@@ -156,6 +161,19 @@ func TestTheControlPlaneIngressIsTheTailnetTheNodesAndTheBuilds(t *testing.T) {
 		}
 	}
 	assertPorts(t, "builds", builds.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {5000, 8080}})
+
+	// The control plane pod itself, reading a pushed image back from the
+	// registry on 5000. A namespaceSelector beside this podSelector would widen
+	// it from this namespace to every namespace carrying the label, so its
+	// absence is the assertion rather than an omission.
+	self := p.Spec.Ingress[3]
+	if len(self.From) != 1 || self.From[0].PodSelector == nil || self.From[0].NamespaceSelector != nil {
+		t.Fatalf("in namespace peer = %+v, want one pod selector alone", self.From)
+	}
+	if got := self.From[0].PodSelector.MatchLabels["app"]; got != "deployer" {
+		t.Errorf("in namespace peer app label = %q, want deployer", got)
+	}
+	assertPorts(t, "the control plane pod", self.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {5000}})
 }
 
 // AC-12: a peer group with no ports clause permits every port in the namespace,
