@@ -74,6 +74,19 @@ spec:
             #     --dry-run=client -o yaml | kubeseal -o yaml > deploy/web-sealedsecret.yaml
             - secretRef:
                 name: deployer-web
+            # The R2 access key pair the daily backup uploads with. Optional for
+            # the same reason as the mail key: without it the platform boots,
+            # warns that it is taking no backups, and everything else works
+            # (spec 0020, AC-15). The other five backup values are not secrets
+            # and live in configmap.yaml, the age recipient included, because a
+            # recipient is a public key. Seal these two yourself:
+            #   kubectl -n deployer-system create secret generic deployer-backup \
+            #     --from-literal=DEPLOYER_BACKUP_S3_ACCESS_KEY_ID=... \
+            #     --from-literal=DEPLOYER_BACKUP_S3_SECRET_ACCESS_KEY=... \
+            #     --dry-run=client -o yaml | kubeseal --format yaml > deploy/backup-sealedsecret.yaml
+            - secretRef:
+                name: deployer-backup
+                optional: true
           env:
             - name: DEPLOYER_POD_NAME
               valueFrom:
