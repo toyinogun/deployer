@@ -12,7 +12,7 @@ that changes an app stays with the agent over MCP. Designed in
 - `csrf.go`: the session derived synchroniser token and the origin check.
 - `pretoken.go`: the second CSRF mechanism, the one the pre sign in forms use.
 - `render.go`: the `go:embed` asset set, the template sets, the shell, and the template functions.
-- `identity_pages.go`, `apps.go`, `tokens.go`, `admin.go`, `invites.go`: the handlers.
+- `identity_pages.go`, `apps.go`, `tokens.go`, `admin.go`, `invites.go`, `backups.go`: the handlers.
 - `reason.go`: the plain sentence written for each closed reason code.
 - `templates/`: `base.html` is the shell, `_partials.html` is the shared furniture, every other file is one page.
 - `static/`: one stylesheet and one script, both embedded.
@@ -36,4 +36,5 @@ that changes an app stays with the agent over MCP. Designed in
 - Every colour in the stylesheet is a custom property even though the feature is light theme only, because dark mode later is a token swap only if nothing hardcodes a colour now.
 - The script is an improvement on pages that already work without it. With JavaScript off every page renders and every form submits; only live polling, copy to clipboard, and the collapsing sidebar are lost.
 - An admin action whose cluster half only half worked is a third answer beside success and failure: the page renders what happened rather than redirecting as though it all worked. The sentence splits by direction because what happens next does. A suspension really is retried by the sweep, a restore is retried by nothing, so the restore wording points back at the control; and a read that fails before any app is named (`suspend.ErrAppsUnlisted`) says so rather than falling through to a plain error page, because on a restore that failure leaves every one of the account's apps at zero.
+- `POST /admin/backups/run` runs the backup inline and answers when it has finished, rather than starting it and redirecting. That is what lets the page state the outcome, and it also means one browser can never collide with itself: pressing the button twice in a row is two runs in sequence, so the in flight refusal only appears for two requests genuinely in flight at once. A verify step that says press it twice quickly cannot produce that refusal, and a test for it has to post concurrently.
 - `auth.Account.Name` is the platform's internal account name, not the person's. The shell shows the email address; showing `Name` is how the sidebar once read out an account id.

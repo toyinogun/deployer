@@ -85,6 +85,11 @@ type Server struct {
 	// two surfaces from drifting into two meanings of suspended (spec 0018,
 	// AC-19).
 	suspension *suspend.Service
+	// backups is the backup service, nil when the platform is not configured for
+	// them. The page renders that as its own state rather than as an error
+	// (spec 0020, AC-18).
+	backups    Backups
+	backupRuns BackupRuns
 	opts       Options
 
 	// origin is PublicURL reduced to scheme and host, precomputed because every
@@ -99,9 +104,10 @@ type Server struct {
 // no cluster credential, which the logs page renders as an empty state rather
 // than refusing to start.
 func New(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, data Data, pods Pods,
-	suspension *suspend.Service, opts Options,
+	suspension *suspend.Service, backups Backups, backupRuns BackupRuns, opts Options,
 ) *Server {
-	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, suspension: suspension, opts: opts}
+	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, suspension: suspension,
+		backups: backups, backupRuns: backupRuns, opts: opts}
 	if u, err := url.Parse(opts.PublicURL); err == nil && u.Host != "" {
 		s.origin = u.Scheme + "://" + u.Host
 		s.secure = u.Scheme == "https"
@@ -143,6 +149,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /admin/accounts/{id}/disable", s.adminDisable)
 	mux.HandleFunc("POST /admin/accounts/{id}/enable", s.adminEnable)
 	mux.HandleFunc("POST /admin/accounts/{id}/tokens/{tokenId}/revoke", s.adminRevokeToken)
+
+	mux.HandleFunc("GET /admin/backups", s.adminBackupsPage)
+	mux.HandleFunc("POST /admin/backups/run", s.adminBackupRun)
 
 	mux.HandleFunc("GET /admin/invites", s.adminInvitesPage)
 	mux.HandleFunc("POST /admin/invites", s.adminInviteMint)

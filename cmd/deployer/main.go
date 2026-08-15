@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
+	"github.com/toyinogun/deployer/internal/backup"
 	"github.com/toyinogun/deployer/internal/config"
 	"github.com/toyinogun/deployer/internal/httpapi"
 	"github.com/toyinogun/deployer/internal/identity"
@@ -42,6 +43,16 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "fetch-source" {
 		if err := fetchSource(context.Background(), os.Getenv); err != nil {
 			slog.Error("fetching the source failed", "error", err)
+			os.Exit(1)
+		}
+		return
+	}
+	// `deployer restore` runs outside the cluster, on the machine that holds the
+	// age identity. It loads none of the control plane's configuration and opens
+	// no database (spec 0020, AC-23).
+	if len(os.Args) > 1 && os.Args[1] == "restore" {
+		if err := restore(context.Background(), os.Args[2:], os.Getenv); err != nil {
+			slog.Error("restoring the backup failed", "error", err)
 			os.Exit(1)
 		}
 		return
@@ -218,20 +229,81 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// the same identity service and the same store this function already built,
 	// which is what keeps a rule from differing between a page and a tool
 	// (spec 0013, AC-4).
-	web.New(identitySvc, authenticator, as, st, webPods(cluster), suspensions, web.Options{
-		PublicURL:         cfg.PublicURL,
-		AppDomain:         cfg.AppDomain,
-		CSRFKey:           []byte(cfg.CSRFKey),
-		SecretLiterals:    []string{cfg.RegistryPass},
-		HasMailer:         sender != nil,
-		MaxAppsPerAccount: cfg.MaxAppsPerAccount,
-	}).Register(mux)
+	backups := startBackups(ctx, st, cfg, sender)
+
+	web.New(identitySvc, authenticator, as, st, webPods(cluster), suspensions,
+		webBackups(backups), st, web.Options{
+			PublicURL:         cfg.PublicURL,
+			AppDomain:         cfg.AppDomain,
+			CSRFKey:           []byte(cfg.CSRFKey),
+			SecretLiterals:    []string{cfg.RegistryPass},
+			HasMailer:         sender != nil,
+			MaxAppsPerAccount: cfg.MaxAppsPerAccount,
+		}).Register(mux)
 
 	if cluster != nil {
 		startReconciler(ctx, st, cfg, uploadSvc, cluster)
 		startSuspensionSweep(ctx, suspensions, cfg.ReconcileInterval)
 	}
 	return mux
+}
+
+// startBackups builds the backup service and gets it going, or returns nil when
+// the platform is not configured for backups. A nil service is a supported
+// state: the platform boots, warns once naming exactly what is missing, takes no
+// backups, records no runs, and works in every other respect (spec 0020, AC-15).
+//
+// The sweeps run before this returns, and buildAPI runs before anything is
+// served, which is what puts them ahead of the first request: a row a dead
+// predecessor left running is ended, and the plaintext a hard kill left on the
+// volume is removed (AC-2a, AC-9).
+func startBackups(ctx context.Context, st *store.Store, cfg config.Config, sender *mail.Sender) *backup.Service {
+	// Swept whether or not backups are on, and before anything below decides
+	// that. A platform someone turned backups off on still has whatever a killed
+	// run left there, and what a killed run leaves is a full unencrypted copy of
+	// every password hash, session, token and app secret, plus a row the admin
+	// page shows as running forever (AC-2a, AC-9).
+	backup.Sweep(ctx, store.ForBackup(st), backup.DefaultTempDir)
+
+	if !cfg.BackupsConfigured() {
+		slog.Warn("backups are off, so nothing copies this database out of the cluster",
+			"missing", cfg.MissingBackupValues(os.Getenv))
+		return nil
+	}
+
+	bucket, err := backup.NewS3Store(backup.S3Options{
+		Endpoint:        cfg.BackupS3Endpoint,
+		Bucket:          cfg.BackupS3Bucket,
+		Region:          cfg.BackupS3Region,
+		AccessKeyID:     cfg.BackupS3AccessKeyID,
+		SecretAccessKey: cfg.BackupS3SecretAccessKey,
+	})
+	if err != nil {
+		slog.Error("backups are configured but the bucket client would not build", "error", err)
+		return nil
+	}
+
+	svc := backup.New(store.ForBackup(st), bucket,
+		backup.NewMailAlerter(backupMailer(sender), cfg.BackupAlertEmail),
+		backup.Options{
+			// The running process's own handle. VACUUM INTO through a second one
+			// opened on the same file is a different thing entirely (AC-1).
+			DB:        st.DB(),
+			Recipient: cfg.BackupAgeRecipient,
+			TempDir:   backup.DefaultTempDir,
+			Interval:  cfg.BackupInterval,
+		})
+	go svc.Schedule(ctx)
+	return svc
+}
+
+// backupMailer keeps a nil sender nil through the interface, so the alerter sees
+// an absent mailer rather than a non nil interface holding a nil pointer.
+func backupMailer(s *mail.Sender) backup.Mailer {
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 // bootstrapInvite gives an empty database a way in.
@@ -294,6 +366,15 @@ func clusterPort(cluster *kube.Client) mcp.Cluster {
 		return nil
 	}
 	return cluster
+}
+
+// webBackups keeps a nil service nil through the interface, so the backups page
+// sees backups as off rather than a non nil interface holding a nil pointer.
+func webBackups(svc *backup.Service) web.Backups {
+	if svc == nil {
+		return nil
+	}
+	return svc
 }
 
 // startReconciler starts the deployment loop. The caller skips it when there is

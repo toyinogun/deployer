@@ -25,6 +25,8 @@ const (
 	DeploymentEvent Prefix = "evt"
 	Release         Prefix = "rel"
 	AuditLog        Prefix = "aud"
+	// BackupRun is one snapshot the platform took of its own database (spec 0020).
+	BackupRun Prefix = "bkp"
 
 	// Added by spec 0007, accounts and API tokens.
 	Session    Prefix = "ses"

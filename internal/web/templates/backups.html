@@ -1,0 +1,75 @@
+{{define "title"}}Backups{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>Backups</h1>
+  <p class="sub">Once a day the platform copies its own database out of this cluster, encrypted to a key it does not hold.</p>
+</header>
+
+{{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+
+{{if .Data.Configured}}
+<section class="card mint-card" aria-labelledby="run-head">
+  <h2 id="run-head">Run one now</h2>
+  <p>Worth doing before a risky change. Only one backup runs at a time, so this is refused while one is already going.</p>
+  <form method="post" action="/admin/backups/run" class="stack">
+    <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
+    <button class="button" type="submit">Back up now</button>
+  </form>
+</section>
+{{else}}
+{{/* Not an empty table, which would read as healthy on a platform that is
+     taking no backups at all (AC-18). */}}
+<section class="card" role="alert" aria-labelledby="off-head">
+  <h2 id="off-head">Backups are not configured</h2>
+  <p>Nothing is being copied out of this cluster. Setting the six <code>DEPLOYER_BACKUP_*</code> values turns this on; <code>deploy/README.md</code> has the steps.</p>
+</section>
+{{end}}
+
+<section class="card" aria-labelledby="runs-head">
+  <h2 id="runs-head">Recent runs</h2>
+  {{if .Data.Runs}}
+  <table class="rows compact">
+    <thead>
+      <tr>
+        <th scope="col">Started</th>
+        <th scope="col">Finished</th>
+        <th scope="col">Outcome</th>
+        <th scope="col">Size</th>
+        <th scope="col">Object</th>
+        <th scope="col">Started by</th>
+      </tr>
+    </thead>
+    <tbody class="stagger">
+      {{range .Data.Runs}}
+      <tr>
+        <th scope="row" data-label="Started">{{when .Started}}</th>
+        {{/* Empty while a run is still going, which is the one row on this page
+             that is not finished yet. */}}
+        <td data-label="Finished">{{if .Finished}}{{when .Finished}}{{else}}<span class="quiet">&mdash;</span>{{end}}</td>
+        <td data-label="Outcome">
+          {{if eq .Outcome "succeeded"}}<span class="badge">succeeded</span>
+          {{else if eq .Outcome "running"}}<span class="badge quiet-badge">running</span>
+          {{else}}<span class="badge danger-badge">failed: {{.Reason}}</span>
+          {{end}}
+        </td>
+        <td data-label="Size">{{if .Size}}{{.Size}}{{else}}<span class="quiet">&mdash;</span>{{end}}</td>
+        <td data-label="Object">
+          {{if .ObjectKey}}<code class="token">{{.ObjectKey}}</code>{{else}}<span class="quiet">nothing uploaded</span>{{end}}
+        </td>
+        <td data-label="Started by">{{if eq .Trigger "manual"}}by hand{{else}}the schedule{{end}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="quiet">{{if .Data.Configured}}No backup has run yet. The first one runs shortly after this pod starts.{{else}}No backup has ever run.{{end}}</p>
+  {{end}}
+</section>
+
+<section class="card" aria-labelledby="restore-head">
+  <h2 id="restore-head">Getting one back</h2>
+  <p>Restoring needs the private age key, which is not in this cluster and never will be. With it and an object key from the table above:</p>
+  <pre><code>deployer restore -key &lt;object key&gt; -identity ./age.key -out ./restored.db</code></pre>
+  <p>The full path, including how to put the file back on the volume, is in <code>deploy/README.md</code>.</p>
+</section>
+{{end}}

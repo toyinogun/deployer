@@ -9,7 +9,8 @@ composes.
 
 - `config.go`: the `Config` struct, one field per value with the spec that added
   it, and `Load`, which gathers every problem before it returns one error.
-- `firstdeploy.go`, `identity.go`, `web.go`, `isolation.go`, `lifecycle.go`: the
+- `firstdeploy.go`, `identity.go`, `web.go`, `isolation.go`, `lifecycle.go`,
+  `backup.go`: the
   per spec loaders `Load` calls, each returning its own problems rather than
   failing on the first.
 - `controlplanepolicy_test.go`, `nodepolicy_test.go`, `buildspolicy_test.go`,
@@ -35,6 +36,12 @@ composes.
   while the rest works, and `DEPLOYER_BOOTSTRAP_TOKEN` unset is a warning so a
   local run needs no secret. `DEPLOYER_CSRF_KEY` is the one the pod refuses to
   start without.
+- Optional can also be a group rather than one value. The six `DEPLOYER_BACKUP_*`
+  values in `backup.go` are all or nothing: all six and backups are on, none and
+  they are off with one warning, some and the process refuses to start naming
+  what is missing. A group like that is validated together in its own loader, and
+  the alert address belongs inside it, because a backup configured with nowhere
+  to report a failure is worse than no backup.
 
 ## The parse tests over deploy/
 

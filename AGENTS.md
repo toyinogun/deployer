@@ -99,7 +99,7 @@ Stored in `docs/specs/`. Format: `docs/specs/NNNN-title/index.md`.
 - [docker-patterns](~/.claude/skills/docker-patterns/): image layering and build practice, relevant to the BuildKit path.
 - [security-patterns](~/.claude/skills/security-patterns/): token handling, secret storage, least privilege.
 
-Declined: argocd-gitops, sqlite-database-expert, kubernetes-specialist (registry search found nothing covering sqlc, goose, ko, Buildpacks, or client-go that the skills above do not already cover)
+Declined: argocd-gitops, sqlite-database-expert, kubernetes-specialist (registry search found nothing covering sqlc, goose, ko, Buildpacks, or client-go that the skills above do not already cover). Also declined for spec 0020's two libraries, `filippo.io/age` and `minio-go`: the age candidates cover file encryption by hand, and the S3 and R2 ones cover bucket administration and the AWS SDK, neither of which is the Go client this code uses.
 
 ## Context files
 
@@ -109,5 +109,6 @@ Declined: argocd-gitops, sqlite-database-expert, kubernetes-specialist (registry
 - [deploy/AGENTS.md](deploy/AGENTS.md): the cluster manifests, the CI written image digest, the RBAC and admission policy pairing, and the ArgoCD scope.
 - [internal/config/AGENTS.md](internal/config/AGENTS.md): the startup validation of every `DEPLOYER_*` value, and the parse tests that pin the static policy YAML no Go code composes.
 - [internal/web/AGENTS.md](internal/web/AGENTS.md): the browser surface, the two CSRF mechanisms, the template sets, and what a page refuses to render.
+- [internal/backup/AGENTS.md](internal/backup/AGENTS.md): the platform's own backup and restore, the nil service that means backups are off, and why nothing in the cluster can decrypt one.
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._

@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"filippo.io/age"
 	"k8s.io/apimachinery/pkg/api/resource"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
@@ -38,6 +39,20 @@ type Config struct {
 	AppQuotaCPU      string // per app CPU ceiling, a Kubernetes quantity
 	AppQuotaMemory   string // per app memory ceiling, a Kubernetes quantity
 	AppQuotaPods     int    // per app pod ceiling
+
+	// Added by spec 0020, platform backup and restore. The six value group is
+	// all or nothing: BackupAgeRecipient being non nil is what says backups are
+	// on. The private age identity has no field here, no variable, and no code
+	// path: the platform cannot read its own backups by construction.
+	BackupInterval          time.Duration        // how often a backup runs
+	BackupAgeRecipientRaw   string               // the recipient as configured
+	BackupAgeRecipient      *age.X25519Recipient // parsed once, here, never at first use
+	BackupS3Endpoint        string               // the R2 S3 compatible endpoint
+	BackupS3Bucket          string               // the bucket backups land in
+	BackupS3Region          string               // defaults to auto, which is what R2 wants
+	BackupS3AccessKeyID     string               // from the SealedSecret
+	BackupS3SecretAccessKey string               // from the same SealedSecret, never logged
+	BackupAlertEmail        string               // where a failed run reports
 
 	// Added by spec 0016, the per account app cap.
 	MaxAppsPerAccount int // how many live apps one account may hold
@@ -313,6 +328,7 @@ func Load(getenv func(string) string) (Config, error) {
 	errs = append(errs, loadIsolation(getenv, &c)...)
 	errs = append(errs, loadPortBound(getenv, &c)...)
 	errs = append(errs, loadLifecycle(getenv, &c)...)
+	errs = append(errs, loadBackup(getenv, &c)...)
 
 	if len(missing) > 0 {
 		errs = append(errs, "missing required environment: "+strings.Join(missing, ", "))
