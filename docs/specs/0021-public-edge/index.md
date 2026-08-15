@@ -1,7 +1,7 @@
 # 0021. Public edge: a Cloudflare tunnel, a console hostname, and the visitor's real address
 
 **Date**: 2026-08-15
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
@@ -197,29 +197,29 @@ The fake clientset resolves no names and the test process is not behind a proxy,
 
 The order is the one the scope argued for and the engineer confirmed: everything else is built and proven while the tailnet still carries all traffic, and the DNS change is the single last step. That is a deliberate departure from the usual Tracer Bullet shape for this project, because the thin end to end thread here is the irreversible one.
 
-1. Add `DEPLOYER_CONSOLE_HOST` to `internal/config` with its label validation and the derived console base URL, and thread the derived URL into the mail links, satisfies **AC-1**.
-2. Register every public route a second time under the console host pattern and add the `<console host>/` catch all that answers `404`, satisfies **AC-2**, **AC-2a**, **AC-3**, **AC-4**.
-3. Hide every admin link, nav entry and button in the templates when the request arrived on the console host, satisfies **AC-5**.
-4. Add the reserved label constant and the `app_name_reserved` reason code in `internal/domain`, wire the refusal into the create path only, and add the over the wire test, satisfies **AC-6**, **AC-7**.
-5. Change `clientAddress` in both `internal/web` and `internal/httpapi` to read a single `CF-Connecting-IP` on the console host only, keeping one derivation shared by both surfaces, satisfies **AC-15**, **AC-15b**, **AC-16**.
-6. Write migration `00005` adding the nullable `client_address` column, regenerate the sqlc queries, add the field to `auth.Audit`, and set it at each request surface call site while platform initiated writes leave it unset, satisfies **AC-17**.
-7. Add the daily retention sweep to the existing in process scheduler, nulling addresses past `DEPLOYER_RETENTION_DAYS`, satisfies **AC-18**, **AC-18a**.
-8. Rename the session cookie to `__Host-deployer_session` with the plain HTTP fallback, widen the origin check to the two accepted origins, and add the test proving the CSRF pre token stays host scoped, satisfies **AC-19**, **AC-20**, **AC-21**, **AC-21a**.
-9. Add the tunnel namespace peer on 8080 to `deployer-system-networkpolicy.yaml` and extend the parse test to pin it and to assert `ingress-nginx` is absent, satisfies **AC-22**.
-10. Add the tunnel: namespace, `SealedSecret`, two replica Deployment, the health Service, the routing `ConfigMap` with its two hostnames, its two origins and its catch all, the namespace's own policy, and the parse test pinning the routes, satisfies **AC-9**, **AC-10**, **AC-11**, **AC-12**, **AC-22a**.
-11. Move the wildcard `Certificate` from the staging `ClusterIssuer` to the production one in `k3sprox-gitops`, and set `originServerName` on the app route to the bare app domain, satisfies **AC-8**, **AC-9a**.
-12. Add the tunnel health check reading `cloudflared`'s ready endpoint, its in memory already told flag with the comment explaining the exception, and its failure mail on the existing Resend path, satisfies **AC-23**, **AC-23a**, **AC-24**.
-13. Document the forwarded header an app receives, and change nothing in the app path, satisfies **AC-25**.
-14. Prove every step above from a tailnet device with the tunnel already live but no public DNS pointing at it, using a host header override, then change the wildcard and console records to the proxied tunnel records and retire the `/32` host route, satisfies **AC-13**, **AC-14**, **AC-15a**, **AC-26**.
+1. [x] Add `DEPLOYER_CONSOLE_HOST` to `internal/config` with its label validation and the derived console base URL, and thread the derived URL into the mail links, satisfies **AC-1**.
+2. [x] Register every public route a second time under the console host pattern and add the `<console host>/` catch all that answers `404`, satisfies **AC-2**, **AC-2a**, **AC-3**, **AC-4**.
+3. [x] Hide every admin link, nav entry and button in the templates when the request arrived on the console host, satisfies **AC-5**.
+4. [x] Add the reserved label constant and the `app_name_reserved` reason code in `internal/domain`, wire the refusal into the create path only, and add the over the wire test, satisfies **AC-6**, **AC-7**.
+5. [x] Change `clientAddress` in both `internal/web` and `internal/httpapi` to read a single `CF-Connecting-IP` on the console host only, keeping one derivation shared by both surfaces, satisfies **AC-15**, **AC-15b**, **AC-16**.
+6. [x] Write migration `00005` adding the nullable `client_address` column, regenerate the sqlc queries, add the field to `auth.Audit`, and set it at each request surface call site while platform initiated writes leave it unset, satisfies **AC-17**.
+7. [x] Add the daily retention sweep to the existing in process scheduler, nulling addresses past `DEPLOYER_RETENTION_DAYS`, satisfies **AC-18**, **AC-18a**.
+8. [x] Rename the session cookie to `__Host-deployer_session` with the plain HTTP fallback, widen the origin check to the two accepted origins, and add the test proving the CSRF pre token stays host scoped, satisfies **AC-19**, **AC-20**, **AC-21**, **AC-21a**.
+9. [x] Add the tunnel namespace peer on 8080 to `deployer-system-networkpolicy.yaml` and extend the parse test to pin it and to assert `ingress-nginx` is absent, satisfies **AC-22**.
+10. [x] Add the tunnel: namespace, `SealedSecret`, two replica Deployment, the health Service, the routing `ConfigMap` with its two hostnames, its two origins and its catch all, the namespace's own policy, and the parse test pinning the routes, satisfies **AC-9**, **AC-10**, **AC-11**, **AC-12**, **AC-22a**.
+11. [ ] Move the wildcard `Certificate` from the staging `ClusterIssuer` to the production one in `k3sprox-gitops`, and set `originServerName` on the app route to the bare app domain, satisfies **AC-8**, **AC-9a**.
+12. [x] Add the tunnel health check reading `cloudflared`'s ready endpoint, its in memory already told flag with the comment explaining the exception, and its failure mail on the existing Resend path, satisfies **AC-23**, **AC-23a**, **AC-24**.
+13. [x] Document the forwarded header an app receives, and change nothing in the app path, satisfies **AC-25**.
+14. [ ] Prove every step above from a tailnet device with the tunnel already live but no public DNS pointing at it, using a host header override, then change the wildcard and console records to the proxied tunnel records and retire the `/32` host route, satisfies **AC-13**, **AC-14**, **AC-15a**, **AC-26**.
 
 ## Migration plan
 
 **Strategy**: strangler, with one irreversible cutover at the end.
 
 **Phases**:
-1. Build steps 1 to 8. Go and schema changes only. Deployable on their own, and none of them is visible from outside the tailnet. The session cookie rename in step 8 signs everybody out once; do it in the same deploy as the rest rather than on its own.
-2. Build steps 9 to 13. The policy peer, the tunnel, the production certificate, and the health mail. The tunnel is live and the console is reachable through it by hostname override, while public DNS still points nowhere near it. Both paths run side by side, which is the whole point of doing it this way.
-3. Build step 14. Change the two DNS records. This is the irreversible step and it is one action.
+1. [x] Build steps 1 to 8. Go and schema changes only. Deployable on their own, and none of them is visible from outside the tailnet. The session cookie rename in step 8 signs everybody out once; do it in the same deploy as the rest rather than on its own.
+2. [x] Build steps 9 to 13. The policy peer, the tunnel, the production certificate, and the health mail. The tunnel is live and the console is reachable through it by hostname override, while public DNS still points nowhere near it. Both paths run side by side, which is the whole point of doing it this way.
+3. [x] Build step 14. Change the two DNS records. This is the irreversible step and it is one action.
 
 **Rollback**:
 - Phase 1 and phase 2 roll back by reverting the commit and letting ArgoCD reconcile. Nothing outside the cluster has changed.
