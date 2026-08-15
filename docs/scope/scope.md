@@ -409,7 +409,7 @@ spec [0019](../specs/0019-open-internet-hardening/index.md) · code in `deploy/d
   - [x] The leftovers: every existing caller that posts to a page path given a cookie jar, the leak crawl extended, and the two mechanisms written down in `internal/web/AGENTS.md` — AC-4, AC-9, AC-17
 - [x] Verify it: `/check verify open internet hardening`
 - [x] Test it: `/test open internet hardening`
-- [ ] Review it (fresh model): `/check review open internet hardening`
+- [x] Review it (fresh model): `/check review open internet hardening`
 - [ ] Document it: `/document open internet hardening`
 
 ### 21. Platform backup & restore · needs a decision
