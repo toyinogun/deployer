@@ -25,7 +25,7 @@ cluster and the real bucket unless it says otherwise.
 
 ## UI / manual
 
-- [ ] Sign in as an admin, visit `/admin/backups` → the runs list with started, finished, outcome, size, object key, and a reason where there is one → AC-17
+- [x] Sign in as an admin, visit `/admin/backups` → the runs list with started, finished, outcome, size, object key, and a reason where there is one → AC-17
 - [ ] Visit `/admin/backups` signed out, and signed in as a non admin → exactly what the existing admin gate gives on `/admin/accounts`, and no hint the page exists → AC-17
 - [ ] With backups unconfigured, visit `/admin/backups` → a stated "not configured" panel, not an empty table, and no run button → AC-18
 - [x] Press **Back up now** → the run appears as `succeeded`, `by hand`, with a size and an object key → AC-19, AC-21
