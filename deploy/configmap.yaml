@@ -8,6 +8,14 @@ data:
   # wildcard A record both live in the toyintest.org Cloudflare zone and must
   # match this exactly (spec 0003, AC-8, AC-10).
   DEPLOYER_APP_DOMAIN: deploy.toyintest.org
+  # The public console hostname (spec 0021, AC-1). Exactly one label under
+  # DEPLOYER_APP_DOMAIN, which is what keeps it inside the wildcard certificate
+  # the apps already use, and it must match the console route in
+  # cloudflared-configmap.yaml. The console's own base address is derived from
+  # this and is never configured separately, so there is one place the name
+  # lives. DEPLOYER_PUBLIC_URL below keeps its tailnet value: it is the address
+  # an agent is told about, not the address a person clicks.
+  DEPLOYER_CONSOLE_HOST: console.deploy.toyintest.org
 
   # Both live on the Longhorn volume mounted at /data.
   DEPLOYER_DB_PATH: /data/deployer.db

@@ -1,0 +1,142 @@
+# The tunnel connectors (spec 0021, AC-10).
+#
+# Two replicas, so a node drain or a rolling update never leaves zero connectors
+# and therefore never takes every public surface down at once. cloudflared dials
+# out to Cloudflare and holds the connection open, so replicas are connectors
+# rather than backends: Cloudflare load balances across whichever are registered.
+# Unlike the control plane, there is no SQLite file here and no reason to hold to
+# one replica.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/managed-by: argocd
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: cloudflared
+  template:
+    metadata:
+      labels:
+        app: cloudflared
+    spec:
+      # Spread the two across nodes where it can. Two connectors on one node is
+      # exactly the outage the second replica exists to prevent, but a cluster
+      # that cannot place them apart should still run both, so this is a
+      # preference rather than a requirement.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app: cloudflared
+      # 65532:65532, read off the pinned image's own OCI config User field rather
+      # than assumed, which is the same rule the build path follows for the
+      # builder and BuildKit uids. Stating it here rather than relying on the
+      # image's default is what makes runAsNonRoot checkable at admission.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: cloudflared
+          # Pinned by digest, never by a mutable tag, the same rule the control
+          # plane and both builder images already follow. This one is not
+          # rewritten by CI: it is a third party image, so bumping it is a
+          # deliberate edit with a digest read off the registry by hand. The tag
+          # beside it is a comment for a reader, not what the kubelet resolves.
+          #
+          # Digest of 2026.8.2, read off the registry.
+          image: cloudflare/cloudflared@sha256:0aa26e284f05e6c77ae375b8c9c11d9eb6a448fb7bcd8d40f31cb6176189eb38
+          # The image's entrypoint is already `cloudflared --no-autoupdate`, so
+          # these are its arguments and must not repeat either. Read off the
+          # pinned digest rather than assumed: passing --no-autoupdate a second
+          # time is a flag redefinition and the process refuses to start.
+          #
+          # Autoupdate stays off for the reason the digest pin exists: a process
+          # that rewrites its own binary underneath a pinned digest is a pod
+          # that no longer matches what was reviewed.
+          args:
+            - tunnel
+            - --config
+            - /etc/cloudflared/config/config.yaml
+            - run
+          ports:
+            - name: metrics
+              containerPort: 2000
+          # cloudflared's own readiness endpoint, which is also what the
+          # platform's health check reads through the Service (AC-23). It
+          # reports whether this connector has registered with Cloudflare, so a
+          # pod that cannot reach the edge leaves the Deployment not ready
+          # rather than sitting there looking healthy.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: metrics
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: config
+              mountPath: /etc/cloudflared/config
+              readOnly: true
+            - name: creds
+              mountPath: /etc/cloudflared/creds
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: cloudflared
+        # The tunnel credential. It exists in the cluster only as a SealedSecret
+        # and appears in plain text in no repository (AC-10).
+        - name: creds
+          secret:
+            secretName: cloudflared-credentials
+---
+# The health Service. It exists so the platform can read cloudflared's own ready
+# endpoint over ordinary HTTP through cluster DNS, which is what makes the tunnel
+# health check need no Kubernetes API read and no new Role or RoleBinding
+# anywhere (AC-23). This feature grants the platform no new cluster rights at all.
+apiVersion: v1
+kind: Service
+metadata:
+  name: cloudflared
+  namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/managed-by: argocd
+spec:
+  selector:
+    app: cloudflared
+  ports:
+    - name: metrics
+      port: 2000
+      targetPort: metrics

@@ -26,6 +26,7 @@ import (
 	"github.com/toyinogun/deployer/internal/registry"
 	"github.com/toyinogun/deployer/internal/store"
 	"github.com/toyinogun/deployer/internal/suspend"
+	"github.com/toyinogun/deployer/internal/tunnelwatch"
 	"github.com/toyinogun/deployer/internal/uploads"
 	"github.com/toyinogun/deployer/internal/web"
 )
@@ -237,6 +238,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// (spec 0013, AC-4).
 	backups := startBackups(ctx, st, cfg, sender)
 	startAuditSweep(ctx, st, cfg.Retention)
+	startTunnelWatch(ctx, cfg, sender)
 
 	web.New(identitySvc, authenticator, as, st, webPods(cluster), suspensions,
 		webBackups(backups), st, web.Options{
@@ -255,6 +257,51 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		startSuspensionSweep(ctx, suspensions, cfg.ReconcileInterval)
 	}
 	return mux
+}
+
+// tunnelReadyURL is cloudflared's own ready endpoint, reached through the Service
+// in the tunnel namespace on cluster DNS.
+//
+// A constant rather than a DEPLOYER_ value, because it is not a choice: the
+// namespace, the Service name and the metrics port are all fixed by the manifests
+// in deploy/, and a second place to write them down is a second place for them to
+// disagree. Reading it needs no Kubernetes API access, so this whole check grants
+// the platform no new cluster rights (spec 0021, AC-23).
+const tunnelReadyURL = "http://cloudflared.cloudflared.svc.cluster.local:2000/ready"
+
+// startTunnelWatch tells the platform's owner when the public edge has no
+// connectors, and once more when it comes back. One mail each way, never one per
+// check, so silence means healthy.
+//
+// The address it reports to is the backup alert address, which is the only
+// operator address the platform holds. That couples the two: a platform with
+// backups switched off has nowhere to send a tunnel alert either, and so is told
+// nothing. It is worth its own setting and does not have one, because spec 0021
+// added no variable for it.
+//
+// The mail leaves over the ordinary outbound path and does not depend on the
+// tunnel, so an outage is a thing you are told about rather than one that
+// silences the telling (AC-24).
+func startTunnelWatch(ctx context.Context, cfg config.Config, sender *mail.Sender) {
+	watcher := tunnelwatch.New(tunnelMailer(sender), tunnelwatch.Options{
+		ReadyURL: tunnelReadyURL,
+		To:       cfg.BackupAlertEmail,
+	})
+	if watcher == nil {
+		slog.Warn("no tunnel health check, so nothing will tell you when the public edge goes down",
+			"reason", "no mailer or no alert address configured")
+		return
+	}
+	go watcher.Watch(ctx, tunnelwatch.DefaultInterval)
+}
+
+// tunnelMailer keeps a nil sender nil through the interface, so the watcher sees
+// an absent mailer rather than a non nil interface holding a nil pointer.
+func tunnelMailer(s *mail.Sender) tunnelwatch.Mailer {
+	if s == nil {
+		return nil
+	}
+	return s
 }
 
 // auditSweepInterval is how often the audit retention sweep runs. Daily: the

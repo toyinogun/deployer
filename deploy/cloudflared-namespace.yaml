@@ -1,0 +1,24 @@
+# The Cloudflare tunnel's own namespace (spec 0021, AC-10, AC-22a).
+#
+# Its own namespace rather than a second Deployment in deployer-system, because
+# that separation is what the control plane's network policy is written against.
+# The tunnel is the one peer allowed to reach the platform on 8080 from outside
+# the tailnet, and a namespace is the thing a NetworkPolicy can name. Put
+# cloudflared beside the control plane and there is no longer a way to say "this
+# request came through the tunnel", which is the whole basis for trusting
+# CF-Connecting-IP on the console hostname (AC-15a).
+#
+# `restricted`, which cloudflared meets without exception: it needs no
+# capabilities, no host network, and no privilege escalation. It dials out, so
+# nothing ever connects in to it except the platform's own health check.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/managed-by: argocd
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted

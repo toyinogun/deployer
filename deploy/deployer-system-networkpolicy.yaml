@@ -71,6 +71,27 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
+    # The Cloudflare tunnel's own namespace, which is what puts the console on
+    # the open internet (spec 0021, AC-22). Port 8080 only, the same bound the
+    # tailnet proxy carries and for the same reason.
+    #
+    # This peer is what makes CF-Connecting-IP trustworthy. The tunnel sends
+    # console traffic straight to the deployer Service rather than through
+    # ingress-nginx, so a request arriving on the console hostname really did
+    # come through the tunnel, and the platform reads that header on that
+    # hostname alone (AC-15a).
+    #
+    # ingress-nginx is deliberately not a peer here. The control plane is not
+    # behind it: apps are. It is a shared controller serving a dozen unrelated
+    # apps, and a header trusted behind it would be a header writable from most
+    # of the cluster.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: cloudflared
+      ports:
+        - protocol: TCP
+          port: 8080
     # The two build namespaces, mirroring the egress rules those namespaces
     # already carry: 5000 to push the finished image, 8080 for the init
     # container fetching the source tarball.

@@ -1,0 +1,104 @@
+# The fence around the tunnel namespace (spec 0021, AC-22a).
+#
+# Both directions, unlike the control plane's fence. The control plane must keep
+# its own outbound path to the Kubernetes API server, which lives on node
+# addresses no rule names, so policing its egress is an outage. cloudflared needs
+# no API server access at all, so it can be fenced in both directions and is.
+#
+# Static YAML applied by ArgoCD and composed by no Go code, so a parse test in
+# internal/config pins its shape the way it pins every other policy here.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/managed-by: argocd
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cloudflared-allow
+  namespace: cloudflared
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/managed-by: argocd
+spec:
+  podSelector:
+    matchLabels:
+      app: cloudflared
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # The platform's own health check, on the metrics port and nothing else.
+    # This is the only thing that ever connects in: cloudflared dials out, so it
+    # is never a backend for anything.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: deployer-system
+      ports:
+        - protocol: TCP
+          port: 2000
+  egress:
+    # Cluster DNS, without which none of the names below resolve.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # ingress-nginx on 443, for the app route.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 443
+    # The control plane on its own container port, for the console route. 8080,
+    # not the Service's 80: Cilium translates a ClusterIP in eBPF before policy
+    # is evaluated, so a rule written against the Service port permits nothing.
+    # The same trap is flagged in deployer-system-networkpolicy.yaml.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: deployer-system
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Cloudflare itself, on 443 and on 7844, which is the port cloudflared's own
+    # QUIC and HTTP2 transports dial out on.
+    #
+    # An ipBlock rather than a name, because Cloudflare's edge is outside the
+    # cluster and there is no identity to select. The private ranges are excepted
+    # so this rule cannot become a path back into the cluster or onto the LAN:
+    # the only thing it may reach is the public internet on those two ports.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: UDP
+          port: 443
+        - protocol: TCP
+          port: 7844
+        - protocol: UDP
+          port: 7844
