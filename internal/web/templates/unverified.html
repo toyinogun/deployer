@@ -7,7 +7,9 @@
     {{if .Data.Email}}This account ({{.Data.Email}}) has not been confirmed yet.{{else}}This account has not been confirmed yet.{{end}}
     Open the link in the email we sent, then sign in.
   </p>
+  {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
   <form method="post" action="/resend" class="stack">
+    <input type="hidden" name="csrf" value="{{.Data.CSRF}}">
     <div class="field">
       <label for="email">Email address</label>
       <input id="email" name="email" type="email" autocomplete="username" required value="{{.Data.Email}}">

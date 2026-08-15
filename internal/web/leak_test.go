@@ -61,12 +61,20 @@ func TestNoPageOrLogLineCarriesACredential(t *testing.T) {
 	// the API token beside it are (spec 0015, AC-14).
 	inviteCode := h.invite(t)
 
+	// The pre authentication nonce, seeded here and carried through the crawl so
+	// the same one is live on every page below. It is a credential in the same
+	// sense the others are: the cookie is the secret half of the pre sign in CSRF
+	// pair, and a page that rendered it would hand a site elsewhere both halves
+	// (spec 0019, AC-9).
+	nonce, _ := h.preAuthToken(t, "/login")
+
 	forbidden := map[string]string{
-		"the session cookie value": admin.Value,
-		"a raw API token":          minted.Raw,
-		"a secret config value":    secretValue,
-		"a password":               testPassword,
-		"a raw invite code":        inviteCode,
+		"the pre authentication nonce": nonce.Value,
+		"the session cookie value":     admin.Value,
+		"a raw API token":              minted.Raw,
+		"a secret config value":        secretValue,
+		"a password":                   testPassword,
+		"a raw invite code":            inviteCode,
 	}
 
 	for _, path := range []string{
@@ -85,7 +93,7 @@ func TestNoPageOrLogLineCarriesACredential(t *testing.T) {
 		// there is that no OTHER page carries one, and that this one never
 		// reveals whether the code is any good (AC-18).
 	} {
-		rec := h.get(t, path, admin)
+		rec := h.get(t, path, admin, nonce)
 		if rec.Code >= http.StatusInternalServerError {
 			t.Errorf("GET %s: got %d", path, rec.Code)
 		}

@@ -24,13 +24,43 @@ type formPage struct {
 	// MailDown is whether there is no sender configured, which the forms that
 	// exist only to send mail say plainly rather than failing on submit.
 	MailDown bool
+	// CSRF is the pre authentication token this form posts back, the HMAC of the
+	// nonce in the browser's cookie. Never the nonce itself (spec 0019, AC-9).
+	CSRF string
+}
+
+// withPreCSRF returns a copy carrying the token, and the message when one is
+// given. An empty message leaves whatever sentence the page already holds, so
+// filling the token in on a re rendered failure does not wipe its reason.
+func (f formPage) withPreCSRF(token, message string) any {
+	f.CSRF = token
+	if message != "" {
+		f.Message = message
+	}
+	return f
 }
 
 // unverifiedPageData is the dedicated page a registered but unverified sign in
 // lands on: the address, so the person can see which one to check, and the
 // resend limit written out, so hitting it is not a mystery (AC-8).
+// It hosts the resend form, so it carries a token of its own: /resend has no GET
+// route to set the cookie from, and this is the page its post comes off.
 type unverifiedPageData struct {
 	Email string
+	// CSRF and Message are the same pair formPage carries; this page is not a
+	// formPage only because its body differs.
+	CSRF    string
+	Message string
+}
+
+// withPreCSRF returns a copy carrying the token, and the message when one is
+// given. See formPage.withPreCSRF.
+func (u unverifiedPageData) withPreCSRF(token, message string) any {
+	u.CSRF = token
+	if message != "" {
+		u.Message = message
+	}
+	return u
 }
 
 func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
@@ -38,7 +68,7 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, safeNext(r.URL.Query().Get("next")), http.StatusSeeOther)
 		return
 	}
-	s.renderPublic(w, r, http.StatusOK, "login", formPage{Next: r.URL.Query().Get("next")})
+	s.renderPreAuth(w, r, http.StatusOK, "login", formPage{Next: r.URL.Query().Get("next")})
 }
 
 // loginSubmit signs in. Every rule here belongs to the identity service: the
@@ -46,7 +76,9 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 // come from the same call the JSON surface makes, so the browser cannot be a
 // softer way in (AC-5).
 func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r, auth.Account{}) || !s.spend(w, r) {
+	if !s.checkPreCSRF(w, r, "login", formPage{
+		Email: r.PostFormValue("email"), Next: r.PostFormValue("next"),
+	}) || !s.spend(w, r) {
 		return
 	}
 	email, password := r.PostFormValue("email"), r.PostFormValue("password")
@@ -56,12 +88,15 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		code, refusal := identity.CodeOf(err)
 		if refusal && code == identity.CodeEmailUnverified {
-			s.renderPublic(w, r, http.StatusForbidden, "unverified", unverifiedPageData{Email: email})
+			s.renderPreAuth(w, r, http.StatusForbidden, "unverified", unverifiedPageData{Email: email})
 			return
 		}
 		s.formFailure(w, r, "login", formPage{Email: email, Next: next}, err)
 		return
 	}
+	// Exactly one CSRF mechanism is live at a time: the session token takes over
+	// here, so the pre authentication cookie goes in the same response (AC-7).
+	s.clearPreCSRFCookie(w)
 	s.setSessionCookie(w, in.Raw)
 	http.Redirect(w, r, safeNext(next), http.StatusSeeOther)
 }
@@ -72,7 +107,7 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 // distinction is made on the post (AC-18).
 func (s *Server) registerPage(w http.ResponseWriter, r *http.Request) {
 	noReferrer(w)
-	s.renderPublic(w, r, http.StatusOK, "register", formPage{
+	s.renderPreAuth(w, r, http.StatusOK, "register", formPage{
 		Invite: r.URL.Query().Get("invite"), MailDown: !s.opts.HasMailer,
 	})
 }
@@ -84,7 +119,10 @@ func (s *Server) registerPage(w http.ResponseWriter, r *http.Request) {
 // the same sentence and status the JSON surface answers with (spec 0015, AC-2).
 func (s *Server) registerSubmit(w http.ResponseWriter, r *http.Request) {
 	noReferrer(w)
-	if !s.checkOrigin(w, r, auth.Account{}) || !s.spend(w, r) {
+	if !s.checkPreCSRF(w, r, "register", formPage{
+		Email: r.PostFormValue("email"), Name: r.PostFormValue("display_name"),
+		Invite: r.PostFormValue("invite"), MailDown: !s.opts.HasMailer,
+	}) || !s.spend(w, r) {
 		return
 	}
 	email := r.PostFormValue("email")
@@ -133,19 +171,21 @@ func (s *Server) verifyPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) unverifiedPage(w http.ResponseWriter, r *http.Request) {
-	s.renderPublic(w, r, http.StatusOK, "unverified", unverifiedPageData{Email: r.URL.Query().Get("email")})
+	s.renderPreAuth(w, r, http.StatusOK, "unverified", unverifiedPageData{Email: r.URL.Query().Get("email")})
 }
 
 // resendSubmit issues a fresh verification link. The confirmation is the same
 // whether or not the address is one the platform knows.
 func (s *Server) resendSubmit(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r, auth.Account{}) || !s.spend(w, r) {
+	if !s.checkPreCSRF(w, r, "unverified", unverifiedPageData{
+		Email: r.PostFormValue("email"),
+	}) || !s.spend(w, r) {
 		return
 	}
 	email := r.PostFormValue("email")
 	if err := s.svc.Resend(r.Context(), email); err != nil {
 		if code, refusal := identity.CodeOf(err); refusal && code != identity.CodeNotFound {
-			s.renderPublic(w, r, http.StatusOK, "unverified", unverifiedPageData{Email: email})
+			s.renderPreAuth(w, r, http.StatusOK, "unverified", unverifiedPageData{Email: email})
 			return
 		}
 		if _, refusal := identity.CodeOf(err); !refusal {
@@ -157,13 +197,15 @@ func (s *Server) resendSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) forgotPage(w http.ResponseWriter, r *http.Request) {
-	s.renderPublic(w, r, http.StatusOK, "forgot", formPage{MailDown: !s.opts.HasMailer})
+	s.renderPreAuth(w, r, http.StatusOK, "forgot", formPage{MailDown: !s.opts.HasMailer})
 }
 
 // forgotSubmit starts a password reset. The confirmation is identical whether or
 // not the address exists, for the same reason registration's is (AC-9).
 func (s *Server) forgotSubmit(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r, auth.Account{}) || !s.spend(w, r) {
+	if !s.checkPreCSRF(w, r, "forgot", formPage{
+		Email: r.PostFormValue("email"), MailDown: !s.opts.HasMailer,
+	}) || !s.spend(w, r) {
 		return
 	}
 	email := r.PostFormValue("email")
@@ -184,14 +226,16 @@ func (s *Server) forgotSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) resetPage(w http.ResponseWriter, r *http.Request) {
-	s.renderPublic(w, r, http.StatusOK, "reset", formPage{Token: r.URL.Query().Get("token")})
+	s.renderPreAuth(w, r, http.StatusOK, "reset", formPage{Token: r.URL.Query().Get("token")})
 }
 
 // resetSubmit sets the new password and lands the person on sign in. It does not
 // sign them in: the service revokes every session the account holds, and signing
 // straight back in would hide that from the person whose account it was.
 func (s *Server) resetSubmit(w http.ResponseWriter, r *http.Request) {
-	if !s.checkOrigin(w, r, auth.Account{}) || !s.spend(w, r) {
+	if !s.checkPreCSRF(w, r, "reset", formPage{
+		Token: r.PostFormValue("token"),
+	}) || !s.spend(w, r) {
 		return
 	}
 	token := r.PostFormValue("token")
@@ -261,7 +305,7 @@ func (s *Server) formFailure(w http.ResponseWriter, r *http.Request, page string
 	var e *identity.Error
 	errors.As(err, &e)
 	form.Message = e.Message
-	s.renderPublic(w, r, statusFor(code), page, form)
+	s.renderPreAuth(w, r, statusFor(code), page, form)
 }
 
 // statusFor maps a refusal code onto its status, the same pairing the JSON

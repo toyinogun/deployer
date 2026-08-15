@@ -8,6 +8,13 @@ kind: Kustomization
 # checking where something lands should be able to see in the file itself.
 resources:
   - namespace.yaml
+  # The fence around the control plane namespace itself: ingress only, so the
+  # platform's own outbound path to the API server is untouched (spec 0019).
+  - deployer-system-networkpolicy.yaml
+  # The node sourced half of the same fence, by Cilium identity rather than by
+  # address. It lands in the same sync as the pair above: the v1 pair on its own
+  # breaks image pulls on every node but the registry's.
+  - deployer-system-cilium-networkpolicy.yaml
   - builds-namespace.yaml
   - builds-networkpolicy.yaml
   # The Dockerfile path's own namespace, at `privileged`, holding rootless

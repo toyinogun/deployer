@@ -284,23 +284,95 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 	return h
 }
 
-// get runs one GET, optionally signed in.
-func (h *harness) get(t *testing.T, path string, cookie *http.Cookie) *httptest.ResponseRecorder {
+// get runs one GET, optionally signed in. Nil cookies are skipped, so a caller
+// can pass one it may or may not have, and a caller that needs to arrive as a
+// browser does can pass both a session and a pre authentication cookie.
+func (h *harness) get(t *testing.T, path string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)
-	if cookie != nil {
-		req.AddCookie(cookie)
+	for _, c := range cookies {
+		if c != nil {
+			req.AddCookie(c)
+		}
 	}
 	rec := httptest.NewRecorder()
 	h.mux.ServeHTTP(rec, req)
 	return rec
 }
 
-// post runs one form POST. Headers are the ones a same origin browser sends, so
-// a test that wants a cross site post overrides them explicitly. An empty header
-// value in headers deletes it rather than sending it blank.
+// withoutCSRF blanks the pre authentication token out of a rendered page.
+//
+// Two renders of the same form carry different tokens whenever they come from
+// different nonces, so a test comparing two bodies has to take it out or it
+// measures the randomness rather than what the page revealed. The token is
+// random per nonce and tells a reader nothing about the account, which is why
+// blanking it is safe rather than hiding a real difference.
+func withoutCSRF(body string) string {
+	return csrfInPage.ReplaceAllString(body, `name="csrf" value="TOKEN"`)
+}
+
+// preAuthPageFor maps a guarded pre authentication post onto the page whose GET
+// sets the nonce cookie it needs. /resend is the one that differs: it has no GET
+// route of its own, so its cookie comes off /unverified (spec 0019, AC-1).
+var preAuthPageFor = map[string]string{
+	"/login":    "/login",
+	"/register": "/register",
+	"/forgot":   "/forgot",
+	"/reset":    "/reset",
+	"/resend":   "/unverified",
+}
+
+// post runs one form POST the way a browser does, which since spec 0019 means
+// visiting the page first: a post to a guarded path with no session cookie and
+// no token of its own picks up the nonce cookie and the hidden field from a GET,
+// so the ~25 call sites that predate the guard keep working untouched.
+//
+// A test that wants a post without the pre authentication pair, to prove the
+// refusal or the origin check, calls postRaw directly.
 func (h *harness) post(t *testing.T, path string, form url.Values, cookie *http.Cookie,
 	headers map[string]string,
+) *httptest.ResponseRecorder {
+	t.Helper()
+	page, guarded := preAuthPageFor[path]
+	if !guarded || cookie != nil || form.Get(csrfField) != "" {
+		return h.postRaw(t, path, form, headers, cookie)
+	}
+	nonce, token := h.preAuthToken(t, page)
+	signed := url.Values{}
+	for k, v := range form {
+		signed[k] = v
+	}
+	signed.Set(csrfField, token)
+	return h.postRaw(t, path, signed, headers, nonce)
+}
+
+// preAuthToken does the GET a browser does before a pre authentication post,
+// and returns the pair it comes away with: the nonce cookie and the token the
+// form renders. They only work together, which is the whole point of the
+// mechanism, so the helper hands back both or fails.
+func (h *harness) preAuthToken(t *testing.T, page string) (*http.Cookie, string) {
+	t.Helper()
+	rec := h.get(t, page, nil)
+	match := csrfInPage.FindStringSubmatch(rec.Body.String())
+	if match == nil {
+		t.Fatalf("no csrf field on %s: %s", page, rec.Body)
+	}
+	for _, c := range rec.Result().Cookies() {
+		if strings.HasSuffix(c.Name, preCSRFCookiePlain) && c.Value != "" {
+			return c, match[1]
+		}
+	}
+	t.Fatalf("%s set no pre authentication cookie", page)
+	return nil, ""
+}
+
+// postRaw runs one form POST exactly as given, adding nothing. Headers are the
+// ones a same origin browser sends, so a test that wants a cross site post
+// overrides them explicitly. An empty header value in headers deletes it rather
+// than sending it blank. Nil cookies are skipped, so a caller can pass one it
+// may or may not have.
+func (h *harness) postRaw(t *testing.T, path string, form url.Values,
+	headers map[string]string, cookies ...*http.Cookie,
 ) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
@@ -314,8 +386,10 @@ func (h *harness) post(t *testing.T, path string, form url.Values, cookie *http.
 		}
 		req.Header.Set(k, v)
 	}
-	if cookie != nil {
-		req.AddCookie(cookie)
+	for _, c := range cookies {
+		if c != nil {
+			req.AddCookie(c)
+		}
 	}
 	rec := httptest.NewRecorder()
 	h.mux.ServeHTTP(rec, req)

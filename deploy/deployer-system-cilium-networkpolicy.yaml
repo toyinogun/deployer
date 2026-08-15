@@ -1,0 +1,65 @@
+# The node sourced half of the control plane fence (spec 0019, AC-11, AC-12a).
+#
+# Its sibling, deployer-system-networkpolicy.yaml, carries the pod sourced
+# callers as a networking.k8s.io/v1 pair. This object carries the ones that
+# arrive as a node. Both select the same pods and both are ingress deny by
+# default; Cilium takes the union of every allow across every policy selecting
+# an endpoint, so a connection is admitted when either one permits it.
+#
+# Why this cannot be an ipBlock in the file next door. Cilium settles node
+# sourced traffic onto the reserved `host` and `remote-node` identities before
+# any CIDR rule is evaluated, and this cluster leaves `policy-cidr-match-mode`
+# at its default, so four /32 entries naming the node addresses matched nothing
+# at all. The rule read correctly, the parse test passed it, and image pulls
+# failed on every node but the registry's. An identity also needs no upkeep: it
+# covers a node added tomorrow with no edit here.
+#
+# Why this stays namespaced and is never a CiliumClusterwideNetworkPolicy. The
+# `deployer` AppProject leaves namespaceResourceWhitelist unset, so any
+# namespaced kind applies, but its clusterResourceWhitelist names five kinds and
+# cilium.io is not among them. ArgoCD validates the whole operation rather than
+# the one object, so a cluster scoped version here would not fail alone: it
+# would stop everything in deploy/ from applying while the app still read as
+# healthy.
+#
+# This is the first thing in deploy/ that only works on Cilium. Moving the
+# platform to another CNI means rewriting this object rather than reapplying it.
+#
+# Note the port type: cilium.io/v2 takes it as a string, where
+# networking.k8s.io/v1 takes an integer, so copying `port: 8080` from the file
+# next door fails to decode.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: node-ingress-allow
+  namespace: deployer-system
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+spec:
+  # Empty, so it covers every pod here: the kubelet probes both, and containerd
+  # pulls from the registry one.
+  endpointSelector: {}
+  ingress:
+    # The kubelet's probes against both pods, which always arrive from the pod's
+    # own node. Cilium permits local host traffic by default while host firewall
+    # is off, which is why every app namespace keeps its probes with no node rule
+    # at all. Written out anyway: that default is real but unwritten, and it
+    # disappears the day host firewall is turned on.
+    - fromEntities:
+        - host
+      toPorts:
+        - ports:
+            - port: "8080"
+              protocol: TCP
+            - port: "5000"
+              protocol: TCP
+    # Containerd pulling an app image, which arrives from whichever node the new
+    # pod landed on. Nothing needs remote-node on 8080, so it is not granted
+    # there.
+    - fromEntities:
+        - remote-node
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP

@@ -1,0 +1,106 @@
+# The fence around the control plane namespace (spec 0019, AC-11, AC-12).
+#
+# Until now nothing stopped a workload elsewhere on the cluster opening a
+# connection to the platform API or the in cluster registry: the token check was
+# the only thing in the way. This puts a layer in front of it, so reaching either
+# means being the tailnet proxy, a node, a build pod, or the control plane pod
+# that already lives here.
+#
+# Ingress only, deliberately. Adding Egress to policyTypes would deny the control
+# plane's own path to the Kubernetes API server, which lives on node addresses
+# that appear in no policy here, and that is a full outage rather than a warning.
+#
+# Static YAML rather than composed in Go, because this namespace belongs to
+# ArgoCD and not to the control plane. Nothing at run time reads this file, so a
+# parse test in internal/config pins its shape instead (AC-15).
+#
+# This file carries the pod sourced callers only. The node sourced ones live in
+# deployer-system-cilium-networkpolicy.yaml, because Cilium settles node traffic
+# onto reserved identities before any CIDR rule is read, so an ipBlock naming a
+# node address here would match nothing while looking exactly like it should.
+# The two objects compose: Cilium takes the union of every allow across every
+# policy selecting an endpoint. Read both to know who reaches this namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: deployer-system
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+spec:
+  # Empty selector, every pod. No rules and Ingress alone under policyTypes, so
+  # nothing connects in until the policy below adds an exception back, and
+  # everything outbound is left exactly as it was.
+  podSelector: {}
+  policyTypes:
+    - Ingress
+---
+# Every exception, and no egress rule at all.
+#
+# Each peer group carries its own ports clause. A peer with no ports means every
+# port in the namespace, which would let the console reach the registry and a
+# build pod reach anything the platform ever listens on.
+#
+# Every port below is the destination pod's own container port, never the
+# Service's. Cilium translates a ClusterIP address in eBPF before policy is
+# evaluated, so a rule written against the Service's port 80 permits nothing.
+# The same trap is flagged in builds-networkpolicy.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: control-plane-allow
+  namespace: deployer-system
+  labels:
+    app.kubernetes.io/name: deployer
+    app.kubernetes.io/managed-by: argocd
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    # The Tailscale operator's ingress proxy, which is what puts the console on
+    # the tailnet. Confirmed live to run in the `tailscale` namespace: a
+    # ProxyClass can place it elsewhere, so this was checked rather than assumed
+    # (AC-18). Port 8080 only. Console traffic never has business reaching the
+    # registry.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale
+      ports:
+        - protocol: TCP
+          port: 8080
+    # The two build namespaces, mirroring the egress rules those namespaces
+    # already carry: 5000 to push the finished image, 8080 for the init
+    # container fetching the source tarball.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: deployer-builds
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: deployer-builds-dockerfile
+      ports:
+        - protocol: TCP
+          port: 5000
+        - protocol: TCP
+          port: 8080
+    # The control plane pod itself, on 5000. This namespace is a peer of its own
+    # fence, and leaving this out breaks every deploy while passing every test.
+    #
+    # resolveImage in internal/reconcile asks the registry over HTTP what the
+    # build pushed. That call leaves the control plane pod and arrives at the
+    # registry pod as ordinary pod to pod traffic carrying a 10.42.x source,
+    # which matches none of the outside peers above. The build still pushes
+    # successfully, so the failure lands one step later wearing the reason code
+    # build_no_digest, which blames the build for something it did correctly.
+    #
+    # podSelector with no namespaceSelector beside it means this namespace only.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: deployer
+      ports:
+        - protocol: TCP
+          port: 5000

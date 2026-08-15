@@ -143,11 +143,11 @@ Ordered as a Tracer Bullet: one app gets a real, enforced, proven fence end to e
 **Neutral**:
 - IPv6 is denied outright: the allow rule names `0.0.0.0/0` only, so a dual stack cluster would need `::/0` added deliberately. Denied is the safe direction to be wrong in.
 - Cilium allows the kubelet's health probes from the node's host namespace by default, so readiness keeps working under a deny all ingress policy. If host firewall were ever enabled on this cluster, that stops being true, and AC-10 is the criterion that would catch it.
-- The `deployer-system` namespace is deliberately left unpoliced by this slice, so any workload on the cluster can still reach the platform API. See Follow-up.
+- The `deployer-system` namespace is deliberately left unpoliced by this slice, so any workload on the cluster can still reach the platform API. See Follow-up. **Closed by [spec 0019](../0019-open-internet-hardening/index.md)**, which fenced it.
 
 ## Follow-up
 
-- [ ] Police the `deployer-system` namespace: ingress from `ingress-nginx` and `deployer-builds` only. Cheap static YAML, deliberately deferred out of this slice.
+- [x] Police the `deployer-system` namespace: ingress from `ingress-nginx` and `deployer-builds` only. Cheap static YAML, deliberately deferred out of this slice. Done by [spec 0019](../0019-open-internet-hardening/index.md), and the one line of shape written here was wrong three times over, each corrected by a live run rather than by reading. The control plane is not behind `ingress-nginx` at all, it sits on the `tailscale` ingress class. The peer list is four, not two: the two build namespaces, the tailnet proxy, and `deployer-system` itself, because the control plane reads a pushed image back from the registry over the pod network, and leaving that out breaks every deploy while passing every test. And it is not one object but two of different kinds, because the cluster's own nodes cannot be named by address: Cilium settles node traffic onto reserved identities before a CIDR rule is read, so a second `cilium.io/v2` object carries them as `host` and `remote-node`. Cheap it was not.
 - [ ] Decide whether the build namespace's blocked CIDR list should be generated from the same source as the Go default rather than restated in YAML and pinned by a test, once there is a third place that needs it.
 - [ ] Revisit FQDN based egress (CiliumNetworkPolicy) if an app ever needs a genuine allow list of external hosts rather than all of the internet. Slice 7's app configuration is where a per app allow list would naturally be expressed.
 - [ ] Spec 0004's AC-10 (a root image is refused) is still deferred to slice 6 and is unaffected by this slice.
