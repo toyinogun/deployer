@@ -13,25 +13,19 @@ import (
 // The control plane namespace fence is static YAML applied by ArgoCD, so no Go
 // code composes it and nothing at run time would notice a hand edit that opens
 // it up. This parses the file into the real API types and pins every clause
-// AC-15 names: ingress only, the exact four peer groups, the exact ports, and
-// no egress rule anywhere.
+// AC-15 names: ingress only, the exact three peer groups, the exact ports, no
+// node address anywhere, and no egress rule.
 //
 // The egress assertions are the load bearing half. Adding Egress to policyTypes
 // denies the control plane's own path to the Kubernetes API server, which sits
 // on node addresses no rule here names, and takes the platform down.
 //
+// The node sourced callers are not in this file. They are Cilium entities in
+// deployer-system-cilium-networkpolicy.yaml, pinned by nodepolicy_test.go.
+//
 // It sits in this package beside buildspolicy_test.go, which pins the same shape
 // for the build namespaces; the YAML has no Go package of its own to live in.
 const controlPlanePolicyFile = "../../deploy/deployer-system-networkpolicy.yaml"
-
-// The four k3s node addresses, in the order the file lists them. Adding a node
-// to the cluster means adding it here and in the YAML together.
-var controlPlaneNodeCIDRs = []string{
-	"172.16.70.20/32",
-	"172.16.70.21/32",
-	"172.16.70.22/32",
-	"172.16.70.23/32",
-}
 
 func controlPlanePolicies(t *testing.T) map[string]networkingv1.NetworkPolicy {
 	t.Helper()
@@ -94,8 +88,16 @@ func TestTheControlPlaneFenceNeverPolicesEgress(t *testing.T) {
 	}
 }
 
-// AC-12: exactly four ways in, in order. The count is the assertion that
-// matters most, because a fifth rule is how an exception gets smuggled in.
+// AC-12: exactly three ways in, in order. The count is the assertion that
+// matters most, because a fourth rule is how an exception gets smuggled in.
+//
+// Three, not four: the node peer that used to sit second is gone. It was four
+// /32 entries and it admitted nothing, because Cilium settles node traffic onto
+// reserved identities before a CIDR rule is read. The nodes are now entities in
+// deployer-system-cilium-networkpolicy.yaml, and this name changed with the
+// assertion on purpose. Pinning the new shape under a name that still said
+// "the nodes" would pass the suite and mislead the next reader, and nothing
+// else catches that.
 //
 // Note what this test cannot do. A peer left out makes the list shorter, and a
 // shorter list is a perfectly valid policy, so no assertion here reports one
@@ -105,10 +107,10 @@ func TestTheControlPlaneFenceNeverPolicesEgress(t *testing.T) {
 // Every port pinned here is the destination pod's own container port. Cilium
 // translates a ClusterIP address in eBPF before policy is evaluated, so the
 // platform Service's port 80 would permit nothing at all.
-func TestTheControlPlaneIngressIsTheTailnetTheNodesTheBuildsAndItself(t *testing.T) {
+func TestTheControlPlaneIngressIsTheTailnetTheBuildsAndItself(t *testing.T) {
 	p := controlPlanePolicies(t)["control-plane-allow"]
-	if len(p.Spec.Ingress) != 4 {
-		t.Fatalf("ingress rules = %d, want exactly 4 (tailnet, nodes, builds, the control plane pod)", len(p.Spec.Ingress))
+	if len(p.Spec.Ingress) != 3 {
+		t.Fatalf("ingress rules = %d, want exactly 3 (tailnet, builds, the control plane pod)", len(p.Spec.Ingress))
 	}
 
 	// The Tailscale ingress proxy, on 8080 alone. Console traffic never has
@@ -122,31 +124,8 @@ func TestTheControlPlaneIngressIsTheTailnetTheNodesTheBuildsAndItself(t *testing
 	}
 	assertPorts(t, "tailnet", tailnet.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {8080}})
 
-	// The four nodes, as individual /32 entries: 8080 for kubelet probes against
-	// the control plane pod, 5000 for probes against the registry pod and for
-	// every containerd image pull, which arrives as the node rather than a pod.
-	nodes := p.Spec.Ingress[1]
-	if len(nodes.From) != len(controlPlaneNodeCIDRs) {
-		t.Fatalf("node peers = %d, want exactly %d, one per k3s node", len(nodes.From), len(controlPlaneNodeCIDRs))
-	}
-	for i, want := range controlPlaneNodeCIDRs {
-		block := nodes.From[i].IPBlock
-		if block == nil {
-			t.Fatalf("node peer[%d] = %+v, want an ipBlock", i, nodes.From[i])
-		}
-		if block.CIDR != want {
-			t.Errorf("node peer[%d] CIDR = %q, want %q", i, block.CIDR, want)
-		}
-		// An except list on a /32 either does nothing or empties the peer, and
-		// either way it means someone edited this without meaning to.
-		if len(block.Except) != 0 {
-			t.Errorf("node peer[%d] carries an except list %v, want none on a /32", i, block.Except)
-		}
-	}
-	assertPorts(t, "nodes", nodes.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {8080, 5000}})
-
 	// The two build namespaces, mirroring the egress rules they already carry.
-	builds := p.Spec.Ingress[2]
+	builds := p.Spec.Ingress[1]
 	wantBuilds := []string{"deployer-builds", "deployer-builds-dockerfile"}
 	if len(builds.From) != len(wantBuilds) {
 		t.Fatalf("build peers = %d, want exactly %d", len(builds.From), len(wantBuilds))
@@ -166,7 +145,7 @@ func TestTheControlPlaneIngressIsTheTailnetTheNodesTheBuildsAndItself(t *testing
 	// registry on 5000. A namespaceSelector beside this podSelector would widen
 	// it from this namespace to every namespace carrying the label, so its
 	// absence is the assertion rather than an omission.
-	self := p.Spec.Ingress[3]
+	self := p.Spec.Ingress[2]
 	if len(self.From) != 1 || self.From[0].PodSelector == nil || self.From[0].NamespaceSelector != nil {
 		t.Fatalf("in namespace peer = %+v, want one pod selector alone", self.From)
 	}
@@ -184,6 +163,27 @@ func TestEveryControlPlaneIngressRuleCarriesItsOwnPorts(t *testing.T) {
 	for i, rule := range controlPlanePolicies(t)["control-plane-allow"].Spec.Ingress {
 		if len(rule.Ports) == 0 {
 			t.Errorf("ingress rule[%d] names no ports, so it opens every port in the namespace", i)
+		}
+	}
+}
+
+// AC-12, AC-12a: no node address, anywhere in this file, ever again.
+//
+// Naming the four nodes as /32 ipBlocks here is the obvious thing to reach for
+// and it admits nothing: Cilium settles node sourced traffic onto the reserved
+// host and remote-node identities before a CIDR rule is evaluated. It looks
+// right, it parses, and the only instrument that finds it is an image pull on a
+// node that is not the registry's. So a revert to addresses fails here instead.
+func TestTheControlPlaneFenceNamesNoAddresses(t *testing.T) {
+	for name, p := range controlPlanePolicies(t) {
+		for i, rule := range p.Spec.Ingress {
+			for j, peer := range rule.From {
+				if peer.IPBlock != nil {
+					t.Errorf("%s ingress[%d].from[%d] is an ipBlock %q: node addresses match nothing under Cilium, "+
+						"and the nodes belong in deployer-system-cilium-networkpolicy.yaml as entities",
+						name, i, j, peer.IPBlock.CIDR)
+				}
+			}
 		}
 	}
 }

@@ -13,6 +13,13 @@
 # Static YAML rather than composed in Go, because this namespace belongs to
 # ArgoCD and not to the control plane. Nothing at run time reads this file, so a
 # parse test in internal/config pins its shape instead (AC-15).
+#
+# This file carries the pod sourced callers only. The node sourced ones live in
+# deployer-system-cilium-networkpolicy.yaml, because Cilium settles node traffic
+# onto reserved identities before any CIDR rule is read, so an ipBlock naming a
+# node address here would match nothing while looking exactly like it should.
+# The two objects compose: Cilium takes the union of every allow across every
+# policy selecting an endpoint. Read both to know who reaches this namespace.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -64,29 +71,6 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-    # The four k3s nodes, as individual /32 entries.
-    #
-    # ADDING A NODE TO THE CLUSTER MEANS ADDING ITS ADDRESS HERE. Nothing at run
-    # time reads this file and nothing will warn you: the symptom is image pulls
-    # failing on the new node alone (AC-16).
-    #
-    # Both ports are needed. 8080 carries the kubelet's probes against the
-    # control plane pod; 5000 carries probes against the registry pod and every
-    # containerd image pull, which arrives as the node rather than as a pod.
-    - from:
-        - ipBlock:
-            cidr: 172.16.70.20/32
-        - ipBlock:
-            cidr: 172.16.70.21/32
-        - ipBlock:
-            cidr: 172.16.70.22/32
-        - ipBlock:
-            cidr: 172.16.70.23/32
-      ports:
-        - protocol: TCP
-          port: 8080
-        - protocol: TCP
-          port: 5000
     # The two build namespaces, mirroring the egress rules those namespaces
     # already carry: 5000 to push the finished image, 8080 for the init
     # container fetching the source tarball.
