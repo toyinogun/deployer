@@ -61,7 +61,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 18 | Bounded app egress | Slice 12 | done |
 | 19 | Account suspension | Slice 12 | done |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | done |
-| 21 | Platform backup & restore | Slice 12 | planned |
+| 21 | Platform backup & restore | Slice 12 | in-progress |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | planned |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
 
@@ -412,10 +412,22 @@ spec [0019](../specs/0019-open-internet-hardening/index.md) · code in `deploy/d
 - [x] Review it (fresh model): `/check review open internet hardening`
 - [x] Document it: `/document open internet hardening`
 
-### 21. Platform backup & restore · needs a decision
+### 21. Platform backup & restore · in-progress
 The SQLite file is a secret store, not just metadata: every release snapshots the app's configuration in clear, releases are never pruned, and since slice 7 those are live third party credentials rather than hypothetical ones. Right now one lost volume is every account, every app, and every secret anyone ever set.
 **Done when:** the database is backed up on a schedule to somewhere that is not the cluster, the backup is encrypted at rest, a restore has actually been rehearsed into a scratch instance rather than assumed, and you can sign in to the restored copy.
-- [ ] Design it (spec): `/architect platform backup & restore`
+Spec 0020 settles the shape three ways the row did not anticipate. The control plane backs itself up rather than anything reading the volume from outside, because the database is in WAL mode with one writer and a `Recreate` strategy, so a CronJob cannot mount the volume beside the live pod and a Longhorn snapshot of the live file is a coin flip on consistency. The encryption is to an age public recipient whose private half never enters the cluster, which is what makes a total cluster loss recoverable and also why the read back can only verify ciphertext. And the row's one store is really three: the database here in Go, the registry volume by a Longhorn recurring job in `k3sprox-gitops`, and the sealed secrets controller key by a manual export, because the platform's RBAC does not reach `kube-system` and should not start to.
+spec [0020](../specs/0020-platform-backup-restore/index.md) · code in `internal/backup`, `internal/store`, `internal/config`, `internal/domain`, `internal/web`, `cmd/deployer`, `deploy/`
+- [x] Design it (spec): `/architect platform backup & restore`
+- [ ] Build it: `/develop platform backup & restore`
+  - [ ] The thin thread, end to end first: the `backup_runs` migration with its in flight index, and one run carrying a real snapshot from the live database through age to a real object in the bucket and back to a closed row — AC-1, AC-2, AC-4, AC-4a, AC-4b, AC-5, AC-7, AC-8, AC-11
+  - [ ] What makes it a backup rather than an upload: the separate closed reason set, the constraint violation told apart from a real write fault, the integrity check on the plaintext, the recipient stanza checked in the age header, and the read back comparing length and checksum — AC-3, AC-4c, AC-6, AC-8a, AC-10
+  - [ ] Configuration, the schedule, and the two startup sweeps: the six value all or nothing group validated at startup, the ticker measured from the end of each run and skipping one in flight, the stranded row ended, and `/data/backup-tmp/` emptied before serving — AC-2a, AC-9, AC-12, AC-12a, AC-15, AC-16
+  - [ ] Knowing it broke: failure and recovery mail through the existing Resend path carrying the reason code and nothing else, the admin page with its not configured state, and the run now post with its CSRF token, its in flight refusal, and its audit row — AC-13, AC-14, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22
+  - [ ] Getting it back: the `deployer restore` subcommand reading the identity from a file, the Longhorn job for the registry volume, the manual sealed secrets key export, the SealedSecret for the bucket credential, and the runbook — AC-23, AC-24, AC-26, AC-27, AC-28, AC-29
+- [ ] Verify it: `/check verify platform backup & restore` — includes AC-25, a real object restored into a scratch instance and signed in to
+- [ ] Test it: `/test platform backup & restore`
+- [ ] Review it (fresh model): `/check review platform backup & restore`
+- [ ] Document it: `/document platform backup & restore`
 
 ## Slice 13: The public edge
 
@@ -441,6 +453,10 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Image and dependency scanning**: block a release on a critical finding. From spec 0009, base image allowlisting for Dockerfile builds belongs with this rather than on its own · needs a decision
 - **Metrics and alerting**: CPU, memory, restart counts, and alerts on repeated failures · needs a decision
 - **Platform backup and restore**: back up the metadata database and rehearse the restore. From spec 0002: the file is a secret store, not just metadata, because every release snapshots the app's configuration in clear and releases are never pruned. From spec 0010: once apps carry configuration, those are live third party credentials, not hypothetical ones · promoted into feature 21
+- **Configuration secrets at rest**: `releases.config_snapshot` holds live third party credentials in clear text inside the database, and every release keeps its own copy forever. From spec 0020, which multiplies the problem rather than reducing it: once backups ship there are thirty encrypted copies of every secret anyone ever set, and the plaintext is still plaintext inside the file. Encrypting configuration values so the platform stores ciphertext is a change to the deploy path, the rollback path and `MarkHealthy` at once, and it needs its own key custody decision · needs a decision
+- **An egress bound on the control plane**: `deployer-system` carries an ingress only policy, deliberately, because adding Egress would deny the path to the Kubernetes API server on node addresses no rule names. From spec 0019. Spec 0020 raises the stakes: the control plane now reaches an external bucket carrying a full copy of the platform's secrets, so what it may talk to is decided by omission rather than by a policy · needs a decision
+- **Encryption for the registry volume backup**: spec 0020 sends the registry volume to the same bucket through a Longhorn recurring job, and Longhorn encrypts at the volume level rather than the backup, so those blobs land off site in plaintext. They are user application images rather than platform secrets, which is why it was accepted there. Fixing it means migrating the registry volume to an encrypted StorageClass, not setting a flag · needs a decision
+- **Noticing the backup halves that live outside this repo**: spec 0020 puts the registry backup in `k3sprox-gitops` and the sealed secrets key export in your hands, and nothing in the platform can see either one. Whether the platform should check that a registry backup exists, or whether that stays a habit, is worth deciding rather than assuming · needs a decision
 - **Build secrets for Dockerfile builds**: BuildKit can mount a secret for one build step without leaving it in a layer, which is what a private package registry needs. From spec 0010, deliberately not built: it exists only on the Dockerfile path, so it would make the two builders behave differently before anyone has asked for it · needs a decision
 - **Admission policy on namespace delete**: a Kyverno or Validating Admission Policy rule letting the control plane delete only namespaces carrying its own ownership label, closing the one broad right left in its ClusterRole. From spec 0003. Spec 0012 raises this: the namespace delete right stops being a right nothing uses and becomes an unattended loop, so the fence being a name prefix rather than an ownership label now matters more · needs a decision
 - **Registry token auth for per build push credentials**: a token service issuing a per build, per repository, push only credential, closing the one place a write credential sits beside untrusted build code. From spec 0004 · needs a decision
