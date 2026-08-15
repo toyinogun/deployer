@@ -32,6 +32,7 @@
     <thead>
       <tr>
         <th scope="col">Started</th>
+        <th scope="col">Finished</th>
         <th scope="col">Outcome</th>
         <th scope="col">Size</th>
         <th scope="col">Object</th>
@@ -42,6 +43,9 @@
       {{range .Data.Runs}}
       <tr>
         <th scope="row" data-label="Started">{{when .Started}}</th>
+        {{/* Empty while a run is still going, which is the one row on this page
+             that is not finished yet. */}}
+        <td data-label="Finished">{{if .Finished}}{{when .Finished}}{{else}}<span class="quiet">&mdash;</span>{{end}}</td>
         <td data-label="Outcome">
           {{if eq .Outcome "succeeded"}}<span class="badge">succeeded</span>
           {{else if eq .Outcome "running"}}<span class="badge quiet-badge">running</span>

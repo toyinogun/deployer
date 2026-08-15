@@ -6,9 +6,11 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/toyinogun/deployer/internal/backup"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/store"
 )
 
 // fakeBackups stands in for the backup service. It invents no behaviour the real
@@ -139,5 +141,35 @@ func TestBackupRunFailureShowsOnlyTheReasonCode(t *testing.T) {
 		if strings.Contains(body, leak) {
 			t.Errorf("the page leaked %q", leak)
 		}
+	}
+}
+
+// TestBackupsPageShowsWhenARunEnded is AC-17 on the column /check verify found
+// missing: the record is only useful for judging a schedule if a row says when
+// it ended as well as when it started, and a run still going says neither.
+// covers: AC-17
+func TestBackupsPageShowsWhenARunEnded(t *testing.T) {
+	h := newHarness(t, nil)
+	admin := h.signIn(t, "admin@example.test")
+
+	ended, err := h.store.StartBackupRun(t.Context(), "")
+	if err != nil {
+		t.Fatalf("starting the run that ends: %v", err)
+	}
+	h.clock.T = h.clock.T.Add(90 * time.Second)
+	if err := h.store.FinishBackupRunSucceeded(t.Context(), ended.ID, store.BackupResult{
+		ObjectKey: "db/20260814T120000Z-" + ended.ID + ".age", SizeBytes: 1 << 20, Checksum: "abc",
+	}); err != nil {
+		t.Fatalf("ending the run: %v", err)
+	}
+
+	res := h.get(t, "/admin/backups", admin)
+	body := res.Body.String()
+	if !strings.Contains(body, "Finished") {
+		t.Error("the runs table has no finished column")
+	}
+	// The stamp the clock moved to, rendered the way the page renders one.
+	if !strings.Contains(body, "12:01 UTC") {
+		t.Errorf("the page did not show when the run ended: %s", body)
 	}
 }
