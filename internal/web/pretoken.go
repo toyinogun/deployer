@@ -203,7 +203,8 @@ func (s *Server) checkPreCSRF(w http.ResponseWriter, r *http.Request, page strin
 // the other tab, which is the case AC-10 exists for.
 func (s *Server) refusePreCSRF(w http.ResponseWriter, r *http.Request, reason, page string, form preAuthForm) {
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		Action: auth.ActionPageCSRF, Reason: reason,
+		ClientAddress: s.clientAddress(r),
+		Action:        auth.ActionPageCSRF, Reason: reason,
 	})
 	token, err := s.preCSRFFor(w, r)
 	if err != nil {

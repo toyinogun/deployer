@@ -46,9 +46,10 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	// and audited against the account it actually belongs to (spec 0018, AC-11).
 	if errors.Is(err, auth.ErrAccountSuspended) {
 		auth.Record(ctx, a.auditor, auth.Audit{
-			AccountID: account.ID,
-			Action:    auth.ActionUpload,
-			Reason:    string(domain.ReasonAccountSuspended),
+			ClientAddress: uploadAddress(r),
+			AccountID:     account.ID,
+			Action:        auth.ActionUpload,
+			Reason:        string(domain.ReasonAccountSuspended),
 		})
 		writeError(ctx, w, http.StatusForbidden, string(domain.ReasonAccountSuspended))
 		return
@@ -56,7 +57,7 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// The denial is audited with a null account, which is exactly the row
 		// worth having: something presented a credential and it did not work.
-		auth.Record(ctx, a.auditor, auth.Audit{Action: auth.ActionUpload, Reason: "token invalid"})
+		auth.Record(ctx, a.auditor, auth.Audit{ClientAddress: uploadAddress(r), Action: auth.ActionUpload, Reason: "token invalid"})
 		if !errors.Is(err, auth.ErrTokenInvalid) {
 			slog.ErrorContext(ctx, "authenticating an upload failed", "error", err)
 		}
@@ -67,7 +68,7 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	// A declared length over the cap is refused before a single byte is read, so
 	// an honest oversized client never spends the volume or the transfer.
 	if r.ContentLength > a.maxBytes {
-		a.denyUpload(ctx, w, account.ID, "too large", http.StatusRequestEntityTooLarge,
+		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "too large", http.StatusRequestEntityTooLarge,
 			"body exceeds the maximum upload size")
 		return
 	}
@@ -77,21 +78,22 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	up, err := a.uploads.Accept(ctx, account.ID, http.MaxBytesReader(w, r.Body, a.maxBytes+1))
 	switch {
 	case errors.Is(err, uploads.ErrTooLarge):
-		a.denyUpload(ctx, w, account.ID, "too large", http.StatusRequestEntityTooLarge,
+		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "too large", http.StatusRequestEntityTooLarge,
 			"body exceeds the maximum upload size")
 		return
 	case errors.Is(err, uploads.ErrNotGzip):
-		a.denyUpload(ctx, w, account.ID, "not gzip", http.StatusBadRequest,
+		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "not gzip", http.StatusBadRequest,
 			"body must be a gzipped tar archive")
 		return
 	case err != nil:
 		slog.ErrorContext(ctx, "accepting an upload failed", "error", err, "account", account.ID)
-		a.denyUpload(ctx, w, account.ID, "internal", http.StatusInternalServerError, "internal error")
+		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "internal", http.StatusInternalServerError, "internal error")
 		return
 	}
 
 	auth.Record(ctx, a.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionUpload,
+		ClientAddress: uploadAddress(r),
+		AccountID:     account.ID, Action: auth.ActionUpload,
 		TargetType: "upload", TargetID: up.ID, Allowed: true,
 	})
 	// The id and the expiry, and nothing else. The path on the volume, the hash,
@@ -103,9 +105,10 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 }
 
 // denyUpload records the refusal and answers it.
-func (a *API) denyUpload(ctx context.Context, w http.ResponseWriter, accountID, reason string, status int, message string) {
+func (a *API) denyUpload(ctx context.Context, w http.ResponseWriter, addr, accountID, reason string, status int, message string) {
 	auth.Record(ctx, a.auditor, auth.Audit{
-		AccountID: accountID, Action: auth.ActionUpload, Reason: reason,
+		ClientAddress: addr,
+		AccountID:     accountID, Action: auth.ActionUpload, Reason: reason,
 	})
 	writeError(ctx, w, status, message)
 }
@@ -140,7 +143,8 @@ func (a *API) fetchUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.Record(ctx, a.auditor, auth.Audit{
-		AccountID: up.AccountID, Action: auth.ActionFetchSource,
+		ClientAddress: uploadAddress(r),
+		AccountID:     up.AccountID, Action: auth.ActionFetchSource,
 		TargetType: "upload", TargetID: up.ID, Allowed: true,
 	})
 
@@ -188,3 +192,11 @@ func writeError(ctx context.Context, w http.ResponseWriter, status int, message 
 // zeroTime tells ServeContent there is no modification time worth reporting, so
 // it serves the bytes without inviting a conditional request.
 var zeroTime = time.Time{}
+
+// uploadAddress is who an upload is attributed to. The console host is empty
+// here on purpose: every /v1 route answers 404 on the console, so CF-Connecting-IP
+// is never in play on this surface, and passing a host it can never see would
+// read as though it might (spec 0021, AC-2, AC-16).
+func uploadAddress(r *http.Request) string {
+	return auth.ClientAddress(r, "")
+}

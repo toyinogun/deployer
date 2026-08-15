@@ -28,6 +28,12 @@ var (
 	// exact rather than a read two writers can both pass (spec 0016, AC-6).
 	ErrAppLimit = errors.New("store: app limit reached")
 
+	// ErrAppNameReserved means the name derives to a hostname label the platform
+	// keeps for itself. It is decided here rather than at a surface for the same
+	// reason the cap is: CreateApp is the one call that inserts an app row, so a
+	// second create path reaches this by using it (spec 0021, AC-6).
+	ErrAppNameReserved = errors.New("store: app name reserved")
+
 	// ErrAppDeleted means the app exists but has been soft deleted.
 	ErrAppDeleted = errors.New("store: app deleted")
 

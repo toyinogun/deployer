@@ -34,6 +34,12 @@ var ErrNoApp = errors.New("mcp: no such app")
 // only place the answer is exact (spec 0016, AC-6).
 var ErrAppLimit = errors.New("mcp: app limit reached")
 
+// ErrAppNameReserved means the name derives to a hostname label the platform
+// keeps for itself, so no app row was created. It reaches this package from the
+// same call that decides the cap, which is what keeps a second create path from
+// bypassing either (spec 0021, AC-6).
+var ErrAppNameReserved = errors.New("mcp: app name reserved")
+
 // ErrNoUpload means the upload id resolved to nothing.
 var ErrNoUpload = errors.New("mcp: no such upload")
 
@@ -509,6 +515,9 @@ func (s *Server) resolveApp(ctx context.Context, account auth.Account, name stri
 	app, err = s.apps.Create(ctx, account.ID, name, limit)
 	if errors.Is(err, ErrAppLimit) {
 		return App{}, s.deny(ctx, account.ID, "", domain.ReasonAppLimitReached, nil, usedOfLimit(limit, limit))
+	}
+	if errors.Is(err, ErrAppNameReserved) {
+		return App{}, s.deny(ctx, account.ID, "", domain.ReasonAppNameReserved, nil)
 	}
 	if err != nil {
 		return App{}, s.deny(ctx, account.ID, "", domain.ReasonInternal, fmt.Errorf("creating the app: %w", err))

@@ -32,6 +32,10 @@ const (
 	testPassword  = "a long enough password"
 	testPublicURL = "https://deploy.example.test"
 	testAppDomain = "apps.example.test"
+	// The public console hostname. Requests these tests build carry httptest's
+	// own Host, so the whole existing suite runs on the "any other host" branch,
+	// which is AC-4 held by every test in the package at once.
+	testConsoleHost = "console.apps.example.test"
 )
 
 // csrfInPage pulls the synchroniser token out of a rendered form, which is the
@@ -282,6 +286,8 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 			// Well clear of what these tests list, so a page test that is not about
 			// the cap never renders the at cap notice (spec 0016).
 			MaxAppsPerAccount: 10,
+			ConsoleHost:       testConsoleHost,
+			ConsoleURL:        "https://" + testConsoleHost,
 		})
 	h.mux = http.NewServeMux()
 	h.srv.Register(h.mux)
@@ -455,7 +461,7 @@ func (h *harness) login(t *testing.T, email string) *http.Cookie {
 		t.Fatalf("signing in %s: got %d, want 303: %s", email, rec.Code, rec.Body)
 	}
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.SessionCookie && c.Value != "" {
+		if auth.IsSessionCookie(c.Name) && c.Value != "" {
 			return c
 		}
 	}

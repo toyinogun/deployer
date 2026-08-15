@@ -168,6 +168,21 @@ type Config struct {
 	// and never leaves the process, so rotating it only invalidates the forms
 	// that are open at that moment.
 	CSRFKey string
+
+	// Added by spec 0021, the public edge. Loaded and validated by loadEdge in
+	// edge.go.
+
+	// ConsoleHost is the public console hostname, exactly one label under
+	// AppDomain. It is the one hostname the tunnel points at the control plane
+	// Service, the one hostname CF-Connecting-IP is read on, and the host every
+	// public page route is registered a second time under.
+	ConsoleHost string
+	// ConsoleURL is the console's own base address, derived as https:// plus
+	// ConsoleHost and never configured separately. It is the base of every link
+	// a person clicks in a mail, and one of the two origins a page POST is
+	// accepted from. PublicURL keeps its meaning and its tailnet value: it is
+	// the address an agent is told about, not the address a person clicks.
+	ConsoleURL string
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -325,6 +340,9 @@ func Load(getenv func(string) string) (Config, error) {
 	webMissing, webErrs := loadWeb(getenv, &c)
 	missing = append(missing, webMissing...)
 	errs = append(errs, webErrs...)
+	edgeMissing, edgeErrs := loadEdge(getenv, &c)
+	missing = append(missing, edgeMissing...)
+	errs = append(errs, edgeErrs...)
 	errs = append(errs, loadIsolation(getenv, &c)...)
 	errs = append(errs, loadPortBound(getenv, &c)...)
 	errs = append(errs, loadLifecycle(getenv, &c)...)

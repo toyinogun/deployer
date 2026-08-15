@@ -392,7 +392,7 @@ func TestSweepHoldsSuspendedAppsAtZero(t *testing.T) {
 // one. covers: AC-8
 func TestSweepNeverScalesUp(t *testing.T) {
 	h := newHarness(t)
-	app := h.deployedApp(t, h.account, "app")
+	app := h.deployedApp(t, h.account, "site")
 	if _, err := h.svc.Suspend(t.Context(), adminID, h.account.ID); err != nil {
 		t.Fatalf("suspending: %v", err)
 	}
@@ -462,7 +462,7 @@ func (h *harness) countRows(t *testing.T, table string) int {
 // leaves the account exactly as suspended as it started. covers: AC-21
 func TestASuspensionNeverEndsOnItsOwn(t *testing.T) {
 	h := newHarness(t)
-	h.deployedApp(t, h.account, "app")
+	h.deployedApp(t, h.account, "site")
 	if _, err := h.svc.Suspend(t.Context(), adminID, h.account.ID); err != nil {
 		t.Fatalf("suspending: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestASuspensionNeverEndsOnItsOwn(t *testing.T) {
 	if !h.suspended(t, h.account.ID) {
 		t.Error("the account came back on its own, so something other than a restore clears a suspension")
 	}
-	if got := h.scaler.scaled[deploy.NamespaceName("app")]; got != 0 {
+	if got := h.scaler.scaled[deploy.NamespaceName("site")]; got != 0 {
 		t.Errorf("its app is at %d replicas after five sweeps, want 0", got)
 	}
 }

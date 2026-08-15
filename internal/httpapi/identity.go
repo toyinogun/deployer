@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
@@ -37,18 +36,24 @@ type Identity struct {
 	// hasMailer is whether a sender is configured. The endpoints that exist only
 	// to send mail answer mail_unavailable when it is not.
 	hasMailer bool
+	// consoleHost is the public console hostname, the one host CF-Connecting-IP
+	// is read on. Every route on this surface answers 404 there, so this exists
+	// so the derivation stays identical to the page surface's rather than because
+	// this surface expects to see that host (spec 0021, AC-16).
+	consoleHost string
 }
 
 // NewIdentity returns the identity surface. publicURL decides the cookie's Secure
 // flag; hasMailer decides whether the mail dependent endpoints work at all.
 func NewIdentity(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor,
-	suspension *suspend.Service, publicURL string, hasMailer bool,
+	suspension *suspend.Service, publicURL, consoleHost string, hasMailer bool,
 ) *Identity {
 	secure := false
 	if u, err := url.Parse(publicURL); err == nil && u.Scheme == "https" {
 		secure = true
 	}
-	return &Identity{svc: svc, auth: a, auditor: auditor, suspension: suspension, secure: secure, hasMailer: hasMailer}
+	return &Identity{svc: svc, auth: a, auditor: auditor, suspension: suspension,
+		secure: secure, hasMailer: hasMailer, consoleHost: consoleHost}
 }
 
 // Register adds this package's identity routes to mux.
@@ -108,7 +113,8 @@ func (i *Identity) adminSession(w http.ResponseWriter, r *http.Request) (auth.Ac
 	}
 	if !account.IsAdmin {
 		auth.Record(r.Context(), i.auditor, auth.Audit{
-			AccountID: account.ID, Action: auth.ActionAdmin, Reason: string(identity.CodeAdminRequired),
+			ClientAddress: i.clientAddress(r),
+			AccountID:     account.ID, Action: auth.ActionAdmin, Reason: string(identity.CodeAdminRequired),
 		})
 		writeCode(r.Context(), w, http.StatusForbidden, identity.CodeAdminRequired,
 			"this needs an administrator")
@@ -120,7 +126,7 @@ func (i *Identity) adminSession(w http.ResponseWriter, r *http.Request) (auth.Ac
 // spend takes one token from the caller's bucket, answering 429 when it is empty.
 // The four unauthenticated endpoints share it (AC-24).
 func (i *Identity) spend(w http.ResponseWriter, r *http.Request) bool {
-	if i.svc.Limits().Allow(clientAddress(r)) {
+	if i.svc.Limits().Allow(i.clientAddress(r)) {
 		return true
 	}
 	writeCode(r.Context(), w, http.StatusTooManyRequests, identity.CodeRateLimited,
@@ -132,7 +138,7 @@ func (i *Identity) spend(w http.ResponseWriter, r *http.Request) bool {
 // browser will not expose to script and will not send cross site.
 func (i *Identity) setSessionCookie(w http.ResponseWriter, raw string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookie,
+		Name:     auth.SessionCookieName(i.secure),
 		Value:    raw,
 		Path:     "/",
 		HttpOnly: true,
@@ -145,7 +151,7 @@ func (i *Identity) setSessionCookie(w http.ResponseWriter, raw string) {
 // clearSessionCookie empties the cookie and expires it immediately (AC-9).
 func (i *Identity) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookie,
+		Name:     auth.SessionCookieName(i.secure),
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -155,22 +161,12 @@ func (i *Identity) clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// clientAddress is who a rate limit bucket belongs to: the last hop of
-// X-Forwarded-For when the request came through the ingress.
-//
-// Not the connection address, which is the ingress pod for every caller and would
-// collapse every bucket into one. Falling back to the connection address is right
-// for a direct call, where there is no proxy to have written the header.
-func clientAddress(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		hops := strings.Split(fwd, ",")
-		return strings.TrimSpace(hops[len(hops)-1])
-	}
-	host, _, found := strings.Cut(r.RemoteAddr, ":")
-	if !found {
-		return r.RemoteAddr
-	}
-	return host
+// clientAddress is who a rate limit bucket belongs to and whose address an audit
+// row records. It is auth.ClientAddress with this surface's console host filled
+// in: the derivation itself lives in one place, so the JSON surface and the page
+// surface cannot spend from two different buckets (spec 0021, AC-16).
+func (i *Identity) clientAddress(r *http.Request) string {
+	return auth.ClientAddress(r, i.consoleHost)
 }
 
 // decode reads a bounded JSON body into v, answering 422 on anything unreadable.

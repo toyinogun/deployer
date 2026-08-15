@@ -70,7 +70,8 @@ func (s *Server) tokenMint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionTokenMint, Allowed: true,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionTokenMint, Allowed: true,
 		TargetType: "api_token", TargetID: minted.Token.ID,
 	})
 	s.renderTokens(w, r, account, sess, http.StatusOK, tokensPageData{
@@ -104,7 +105,8 @@ func (s *Server) tokenRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionTokenRevoke, Allowed: true,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionTokenRevoke, Allowed: true,
 		TargetType: "api_token", TargetID: id,
 	})
 	http.Redirect(w, r, "/tokens", http.StatusSeeOther)

@@ -55,7 +55,7 @@ func TestAMalformedNonceCookieIsTreatedAsAbsent(t *testing.T) {
 				t.Fatalf("a post carrying a %s cookie: got %d, want 403", tc.name, rec.Code)
 			}
 			for _, c := range rec.Result().Cookies() {
-				if c.Name == auth.SessionCookie && c.Value != "" {
+				if auth.IsSessionCookie(c.Name) && c.Value != "" {
 					t.Fatal("a malformed nonce cookie signed the person in, which is a bypass of the guard")
 				}
 			}
@@ -193,7 +193,7 @@ func TestTheOriginCheckAnswersACrossSitePostBeforeTheNonceCheck(t *testing.T) {
 			t.Fatalf("a cross site post carrying a valid pair: got %d, want 403", rec.Code)
 		}
 		for _, c := range rec.Result().Cookies() {
-			if c.Name == auth.SessionCookie && c.Value != "" {
+			if auth.IsSessionCookie(c.Name) && c.Value != "" {
 				t.Fatal("a cross site post signed the person in, so the nonce pair excused the origin")
 			}
 		}

@@ -9,6 +9,25 @@ import (
 	"context"
 )
 
+const clearOldAuditAddresses = `-- name: ClearOldAuditAddresses :execrows
+UPDATE audit_log
+SET client_address = NULL
+WHERE occurred_at < ?1 AND client_address IS NOT NULL
+`
+
+// Spec 0021, AC-18. The daily retention sweep: one UPDATE that nulls the address
+// on every row past the window, keeping the row itself. No supporting index, so
+// this scans the table once a day, which is the right cost at this size. The
+// IS NOT NULL guard is what keeps a second pass from rewriting rows that are
+// already clear.
+func (q *Queries) ClearOldAuditAddresses(ctx context.Context, cutoff string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, clearOldAuditAddresses, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const createAPIToken = `-- name: CreateAPIToken :one
 INSERT INTO api_tokens (id, account_id, name, token_hash, token_prefix, expires_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -136,19 +155,20 @@ func (q *Queries) GetAccountByName(ctx context.Context, name string) (Account, e
 }
 
 const insertAuditLog = `-- name: InsertAuditLog :exec
-INSERT INTO audit_log (id, account_id, action, target_type, target_id, outcome, reason, occurred_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO audit_log (id, account_id, action, target_type, target_id, outcome, reason, occurred_at, client_address)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertAuditLogParams struct {
-	ID         string
-	AccountID  *string
-	Action     string
-	TargetType *string
-	TargetID   *string
-	Outcome    string
-	Reason     *string
-	OccurredAt string
+	ID            string
+	AccountID     *string
+	Action        string
+	TargetType    *string
+	TargetID      *string
+	Outcome       string
+	Reason        *string
+	OccurredAt    string
+	ClientAddress *string
 }
 
 func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) error {
@@ -161,6 +181,7 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 		arg.Outcome,
 		arg.Reason,
 		arg.OccurredAt,
+		arg.ClientAddress,
 	)
 	return err
 }

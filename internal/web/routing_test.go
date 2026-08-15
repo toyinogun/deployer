@@ -161,7 +161,7 @@ func TestLogoutRevokesTheSessionAndClearsTheCookie(t *testing.T) {
 	}
 	var cleared bool
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.SessionCookie && c.Value == "" && c.MaxAge < 0 {
+		if auth.IsSessionCookie(c.Name) && c.Value == "" && c.MaxAge < 0 {
 			cleared = true
 		}
 	}
@@ -348,8 +348,8 @@ func TestClientAddressPrefersTheLastForwardedHop(t *testing.T) {
 			if tc.forwarded != "" {
 				req.Header.Set("X-Forwarded-For", tc.forwarded)
 			}
-			if got := clientAddress(req); got != tc.want {
-				t.Errorf("clientAddress = %q, want %q", got, tc.want)
+			if got := auth.ClientAddress(req, ""); got != tc.want {
+				t.Errorf("ClientAddress = %q, want %q", got, tc.want)
 			}
 		})
 	}

@@ -50,5 +50,15 @@ SET revoked_at = @now, updated_at = @now
 WHERE id = @id AND revoked_at IS NULL;
 
 -- name: InsertAuditLog :exec
-INSERT INTO audit_log (id, account_id, action, target_type, target_id, outcome, reason, occurred_at)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO audit_log (id, account_id, action, target_type, target_id, outcome, reason, occurred_at, client_address)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+
+-- Spec 0021, AC-18. The daily retention sweep: one UPDATE that nulls the address
+-- on every row past the window, keeping the row itself. No supporting index, so
+-- this scans the table once a day, which is the right cost at this size. The
+-- IS NOT NULL guard is what keeps a second pass from rewriting rows that are
+-- already clear.
+-- name: ClearOldAuditAddresses :execrows
+UPDATE audit_log
+SET client_address = NULL
+WHERE occurred_at < @cutoff AND client_address IS NOT NULL;
