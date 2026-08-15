@@ -91,6 +91,36 @@ data:
   # verified in Resend before anything it sends will be delivered.
   DEPLOYER_MAIL_FROM: noreply@deploy.toyintest.org
 
+  # Added by spec 0020. Five of the six values that switch daily backups on; the
+  # sixth and seventh, the R2 access key pair, are credentials and live in the
+  # sealed deployer-backup Secret. All six are one all or nothing group in
+  # internal/config: set them all and backups run, set none and the platform
+  # boots, warns, and works in every other respect, set some and it refuses to
+  # start naming what is missing (AC-15, AC-16).
+  #
+  # The recipient is an age PUBLIC key and belongs here in clear. Its private
+  # half is held off cluster, in a password manager and on paper, and exists in
+  # no Secret, no variable, and no file in this repository. That is the whole
+  # design: the platform encrypts backups it cannot itself read, so a compromise
+  # of this pod yields ciphertext, and a cluster that is gone entirely is still
+  # recoverable. Lose that private half and every backup is permanently
+  # unreadable with nothing to warn you until a restore is attempted.
+  DEPLOYER_BACKUP_AGE_RECIPIENT: age1j3svt4hfzlqq75eqmsyc0a7rvlvxjd0ddh3ckn82p0u0852w7azqj2uuuw
+
+  # The account level R2 host, not the bucket scoped URL the dashboard shows:
+  # the bucket travels as its own value below. The account id is an identifier
+  # rather than a credential, which is why it sits here.
+  DEPLOYER_BACKUP_S3_ENDPOINT: https://46cc20661b5d8547874081f7a5e40b39.r2.cloudflarestorage.com
+  DEPLOYER_BACKUP_S3_BUCKET: deployer-backups
+  # R2 has no regions. `auto` is the literal string its S3 API expects.
+  DEPLOYER_BACKUP_S3_REGION: auto
+
+  # Where a failed backup complains to, and where the first success after a
+  # failure reports recovery. Silence means healthy, so this address is inside
+  # the all or nothing group above rather than optional: backups configured with
+  # nowhere to complain to is the precise failure the feature exists to prevent.
+  DEPLOYER_BACKUP_ALERT_EMAIL: ogunseindetoyin@gmail.com
+
   # DEPLOYER_SELF_IMAGE is deliberately not here: it lives in deployment.yaml
   # beside the image it must match, so CI can rewrite both from one value.
   # The timeouts, the reconcile interval, and the extraction caps all take their

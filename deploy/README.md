@@ -107,6 +107,104 @@ creates at runtime.
    # paste the printed digest into deploy/deployment.yaml
    ```
 
+4. **Set up backups.** Spec 0020's prerequisites. Do these before `/develop`
+   wires the config, or the pod starts with variables nothing reads. The order
+   that matters is the key pair before the ConfigMap, and the retention rule
+   before the first backup ever runs.
+
+   **The age key pair, first.** It is local and free, and the ConfigMap needs its
+   public half. Generate it outside the repository:
+
+   ```bash
+   brew install age
+   cd "$(mktemp -d)"
+   age-keygen -o deployer-backup-identity.txt   # prints "Public key: age1..."
+   ```
+
+   The file holds the private half, the `AGE-SECRET-KEY-1` line. Put the whole
+   file in your password manager under a title panicking future you will find,
+   write the secret line out on paper as well, keep the `age1...` public key for
+   the ConfigMap below, then delete the temp directory. It is never committed,
+   never sealed, and never given to the cluster in any form. Losing this and only
+   this makes every backup you hold permanently unreadable, and nothing tells you
+   until you try to restore.
+
+   **The bucket.** Cloudflare dashboard, R2. Enabling R2 wants a payment method
+   even though the first 10 GB a month is free; a database this size costs
+   nothing, the card is a gate rather than a bill. Create a bucket named
+   `deployer-backups`, location hint nearest you, everything else default. Note
+   the account ID in the R2 sidebar: the endpoint is
+   `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` and the region is the literal
+   string `auto`.
+
+   **The API token.** R2, Manage R2 API Tokens, Create API token. Permission
+   **Object Read and Write**, not either Admin option, which can create and
+   destroy buckets. Apply to specific buckets, `deployer-backups` only. Copy the
+   Access Key ID and the Secret Access Key into your password manager now; the
+   secret is shown once. If you give the token a TTL, put its expiry in your
+   calendar, because an expired token is a silently broken backup until the alert
+   mail lands.
+
+   **The retention rule, which is doing the job a narrower token cannot.** R2's
+   token presets have no per verb editor and Object Read and Write includes
+   `DeleteObject`, so the credential the pod holds can delete objects and there is
+   no way to take that away. Protection sits on the bucket instead: Settings,
+   Bucket Lock, a retention rule of **7 days** over the whole bucket. Nothing,
+   the platform included, can then delete a backup in its first week. Seven and
+   not thirty because retention and the expiry below have to coexist, and a lock
+   as long as the expiry leaves the two contending at the boundary.
+
+   **The lifecycle rule.** Same bucket, Settings, Object lifecycle rules. Name it
+   `expire-daily-backups`, prefix **`db/`**, action delete 30 days after creation.
+   The prefix is load bearing: the Longhorn registry volume backups land in this
+   same bucket under a different prefix and must not be swept by it.
+
+   **Then get the values in.** Credentials sealed, everything else in clear:
+
+   ```bash
+   kubectl -n deployer-system create secret generic deployer-backup \
+     --from-literal=DEPLOYER_BACKUP_S3_ACCESS_KEY_ID="<access key id>" \
+     --from-literal=DEPLOYER_BACKUP_S3_SECRET_ACCESS_KEY="<secret access key>" \
+     --dry-run=client -o yaml \
+     | kubeseal --format yaml > deploy/backup-sealedsecret.yaml
+   ```
+
+   Add it to `kustomization.yaml` and give the Deployment a `secretRef` for
+   `deployer-backup` marked `optional: true`, the way the Resend key already is.
+   That flag is what lets an unconfigured platform still boot.
+
+   The rest goes in `configmap.yaml` as plain values. The age recipient is a
+   public key and belongs there in clear; sealing it would only teach a future
+   reader that it is sensitive, which is the wrong lesson about how age works.
+
+   ```yaml
+   DEPLOYER_BACKUP_AGE_RECIPIENT: "age1..."
+   DEPLOYER_BACKUP_S3_ENDPOINT: "https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+   DEPLOYER_BACKUP_S3_BUCKET: "deployer-backups"
+   DEPLOYER_BACKUP_S3_REGION: "auto"
+   DEPLOYER_BACKUP_ALERT_EMAIL: "<where failure mail goes>"
+   ```
+
+   Those six, the recipient through the alert email, are all or nothing:
+   `internal/config` refuses to start on a partial set and starts happily on an
+   empty one. The interval and the region are the two optional ones, defaulting
+   to 86400 and `auto`.
+
+5. **Export the sealed secrets controller key.** One command, and without it a
+   rebuilt cluster cannot decrypt a single SealedSecret in the GitOps repository,
+   so it cannot boot from git even though every manifest is sitting right there.
+
+   ```bash
+   kubectl -n kube-system get secret \
+     -l sealedsecrets.bitnami.com/sealed-secrets-key=active \
+     -o yaml > sealed-secrets-key.yaml
+   ```
+
+   Store it beside the age identity in your password manager, then delete the
+   local copy. Repeat whenever the controller rotates its key. The platform is
+   granted no permission to do this for you: its RBAC is scoped per app namespace
+   and does not reach `kube-system`.
+
 ## The five things no file here can tell you
 
 These are done once, by hand, outside this repository, and the build does not

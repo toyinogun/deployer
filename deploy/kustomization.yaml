@@ -36,6 +36,11 @@ resources:
   # and only refuses register, resend and password reset (spec 0007, AC-26).
   - mail-sealedsecret.yaml
   - web-sealedsecret.yaml
+  # The R2 credential the daily backup uploads with. Optional for the same
+  # reason as the mail key: without it the platform boots, warns that it is
+  # taking no backups, and works in every other respect (spec 0020, AC-15).
+  # Nothing reads these two values until spec 0020 is built.
+  - backup-sealedsecret.yaml
   - registry.yaml
   - pvc.yaml
   - configmap.yaml
