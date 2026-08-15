@@ -5,7 +5,8 @@ The platform's only writer of the SQLite database. It owns the connection, the m
 ## Layout
 
 - [store.go](store.go): `Open`, the embedded goose migrations (`//go:embed migrations/*.sql`), the clock, and the shared transaction helper.
-- [accounts.go](accounts.go), [apps.go](apps.go), [config.go](config.go), [deployments.go](deployments.go), [invites.go](invites.go), [uploads.go](uploads.go): the hand written methods, one file per entity group.
+- [accounts.go](accounts.go), [apps.go](apps.go), [backups.go](backups.go), [config.go](config.go), [deployments.go](deployments.go), [invites.go](invites.go), [uploads.go](uploads.go): the hand written methods, one file per entity group.
+- [backupadapter.go](backupadapter.go): `ForBackup`, the narrow view `internal/backup` takes, in the same shape as `ForAuth` and `ForSuspend`.
 - [errors.go](errors.go): every sentinel error callers branch on.
 - [page.go](page.go): the shared pagination shape for list reads.
 - [migrations/](migrations/): goose migrations, embedded into the binary and run at startup.
@@ -15,7 +16,7 @@ The platform's only writer of the SQLite database. It owns the connection, the m
 ## Conventions
 
 - Edit `queries/*.sql` or a migration, then run `sqlc generate` from the repo root. Never edit anything under `sqlcgen/` by hand; the next generate run overwrites it.
-- Migrations are forward only and additive, and there are deliberately few of them. Each one is designed up front because there is no database backup yet, so a migration that rewrites live data is the thing to avoid: `00003_invites` adds a table and touches nothing existing, which is why the previous binary still reads the schema it leaves behind.
+- Migrations are forward only and additive, and there are deliberately few of them. Each one is designed up front because a migration that rewrites live data is the thing to avoid. There is a nightly backup now (spec 0020), but it is a restore of the whole file to a point in time, not an undo for one bad migration: `00003_invites` adds a table and touches nothing existing, which is why the previous binary still reads the schema it leaves behind.
 - A foreign key naming a row the same transaction has not inserted yet is `DEFERRABLE INITIALLY DEFERRED`, checked at `COMMIT` rather than at the statement. `invites.consumed_by` is the case: the guarded update that spends an invite runs before the account insert, so a dead invite costs no account row, and an immediate check would fail on the update itself.
 - Callers branch on the sentinels in `errors.go` (`ErrNotFound`, `ErrTokenInvalid`, `ErrIllegalTransition`, and friends). Anything else is wrapped with `fmt.Errorf("...: %w", err)` and treated as a fault, not a decision.
 - A sentinel may wrap another sentinel when one case is a kind of the other, so a caller branching on the general case still matches: `ErrTerminal` (the row was already ended, which is what a supersession does mid drive) wraps `ErrIllegalTransition`.
