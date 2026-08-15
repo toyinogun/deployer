@@ -46,6 +46,16 @@ func snapshot(ctx context.Context, db *sql.DB, path string) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("backup: the snapshot was not written: %w", err)
 	}
+	// SQLite creates the destination, not this package, so it lands at 0666
+	// minus the umask: world readable on the usual one. It is the plaintext
+	// copy of every password hash, session, and app secret, and it sits there
+	// for as long as the encryption and the upload take, so the mode is
+	// tightened as soon as it exists. The rollback journal beside it is
+	// SQLite's too and is gone before this returns, which is why the temp
+	// directory is 0700: that is what bounds the sub second window (AC-2a).
+	if err := os.Chmod(path, 0o600); err != nil {
+		return fmt.Errorf("backup: tightening the snapshot's mode: %w", err)
+	}
 	return nil
 }
 
