@@ -5,7 +5,7 @@
 
 ## Summary
 
-Two protections were left out earlier because the tailnet stood in front of everything, and both specs say so out loud. This closes them. The forms you use before signing in (sign in, register, forgot, reset, resend) get a token tied to a cookie, so another site cannot make your browser post them. And the `deployer-system` namespace stops accepting connections from anything on the cluster except the handful of callers that genuinely need it: the tailnet proxy, the two build namespaces, the control plane pod itself, and the cluster's own nodes. Neither half changes what the platform does; both change what a stranger can reach.
+Two protections were left out earlier because the tailnet stood in front of everything, and both specs say so out loud: the login CSRF half in [spec 0013](../0013-web-interface/index.md), under its security model, and the control plane fence in [spec 0008](../0008-workload-isolation-network-policy/index.md), as the first of its follow ups. This closes them. The forms you use before signing in (sign in, register, forgot, reset, resend) get a token tied to a cookie, so another site cannot make your browser post them. And the `deployer-system` namespace stops accepting connections from anything on the cluster except the handful of callers that genuinely need it: the tailnet proxy, the two build namespaces, the control plane pod itself, and the cluster's own nodes. Neither half changes what the platform does; both change what a stranger can reach.
 
 ## Requirements
 
