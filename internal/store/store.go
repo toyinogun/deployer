@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sort"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -23,6 +24,18 @@ import (
 
 //go:embed migrations/*.sql
 var migrationsFS embed.FS
+
+// MigrationNames is the file name of every migration the binary carries, in
+// order. It exists so a test can assert which feature introduced a migration
+// rather than pinning the total, which every later feature then breaks.
+func MigrationNames() []string {
+	files, err := fs.Glob(migrationsFS, "migrations/*.sql")
+	if err != nil {
+		panic("store: globbing the embedded migrations: " + err.Error())
+	}
+	sort.Strings(files)
+	return files
+}
 
 // MigrationCount is how many migrations the binary carries. It exists so a test
 // that has to roll the whole file back can ask rather than hardcode a number

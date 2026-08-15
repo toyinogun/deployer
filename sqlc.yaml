@@ -10,5 +10,12 @@ sql:
         emit_pointers_for_null_types: true
         emit_empty_slices: true
         overrides:
+          # backup_runs.size_bytes is null until the object lands, so it cannot
+          # take the non null override below. Listed first, because sqlc applies
+          # the first override that matches rather than the most specific one.
+          - column: "backup_runs.size_bytes"
+            go_type:
+              type: "int64"
+              pointer: true
           - column: "*.size_bytes"
             go_type: "int64"

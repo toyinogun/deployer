@@ -80,6 +80,13 @@ var (
 	// link, and one whose purpose does not match what it is being spent on.
 	ErrLinkInvalid = errors.New("store: link invalid")
 
+	// ErrBackupInFlight means a backup run is already going. It comes only from
+	// the partial unique index refusing the insert, never from a read before the
+	// write, and never from any other write fault: a full volume or a locked
+	// database is a fault, and reporting one as a benign concurrency refusal is
+	// how the backup feature would lie about its own health (spec 0020, AC-8a).
+	ErrBackupInFlight = errors.New("store: a backup run is already in flight")
+
 	// ErrInviteInvalid covers an unknown, spent, revoked, and expired
 	// registration invite. Deliberately indistinguishable, so a holder of a bad
 	// code cannot learn which kind they hold. It also comes back from the spend

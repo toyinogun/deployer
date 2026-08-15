@@ -2,7 +2,10 @@ package httpapi_test
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+
+	"github.com/toyinogun/deployer/internal/store"
 )
 
 // TestTheJSONAdminRoutesSuspendAndRestore is AC-19 on the JSON surface: it goes
@@ -49,21 +52,27 @@ func TestTheJSONAdminRouteRefusesSelfSuspension(t *testing.T) {
 // TestSuspensionAddedNoMigration is AC-1. Suspension is a column that has existed
 // since the first migration, so a previous binary runs against the same database
 // unharmed. covers: AC-1
+//
+// It asserts what suspension did rather than what the schema totals, because the
+// total moves every time any later feature adds a migration of its own, and a
+// test that breaks then was never testing this.
 func TestSuspensionAddedNoMigration(t *testing.T) {
 	h := newIDHarness(t, true)
-	var version int64
+
+	// The column is there, and nothing this feature shipped created it.
+	var count int
 	if err := h.store.DB().QueryRowContext(t.Context(),
-		`SELECT MAX(version_id) FROM goose_db_version`).Scan(&version); err != nil {
-		t.Fatalf("reading the migration version: %v", err)
+		`SELECT COUNT(*) FROM pragma_table_info('accounts') WHERE name = 'disabled_at'`).Scan(&count); err != nil {
+		t.Fatalf("reading the accounts columns: %v", err)
 	}
-	// The number this feature found. Raising it means a migration was added,
-	// which this spec decided against: there is no second suspension state to
-	// store, and a migration is the one thing that stops the previous image from
-	// starting against the same file.
-	const versionBeforeSuspension = 3
-	if version != versionBeforeSuspension {
-		t.Errorf("the schema is at version %d, want %d: suspension adds no migration",
-			version, versionBeforeSuspension)
+	if count != 1 {
+		t.Fatal("accounts has no disabled_at column")
+	}
+	for _, name := range store.MigrationNames() {
+		if strings.Contains(name, "suspend") || strings.Contains(name, "disabled") {
+			t.Errorf("%s exists: suspension is a column, not a migration, which is what "+
+				"lets the previous image start against the same file", name)
+		}
 	}
 }
 

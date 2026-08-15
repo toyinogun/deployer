@@ -61,6 +61,19 @@ type AuditLog struct {
 	OccurredAt string
 }
 
+type BackupRun struct {
+	ID            string
+	StartedAt     string
+	FinishedAt    *string
+	Outcome       string
+	ObjectKey     *string
+	SizeBytes     *int64
+	Checksum      *string
+	FailureReason *string
+	Trigger       string
+	TriggeredBy   *string
+}
+
 type Deployment struct {
 	ID              string
 	AppID           string

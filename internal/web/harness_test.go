@@ -206,6 +206,9 @@ type harness struct {
 	// scaler stands in for the cluster the suspension path scales through. A test
 	// that cares sets refuse before acting; every other test never looks at it.
 	scaler *fakeScaler
+	// backups stands in for the backup service. Configured by default, so a page
+	// test that is not about backups never renders the unconfigured notice.
+	backups *fakeBackups
 }
 
 // fakeScaler records what the suspension path asked the cluster for, and can
@@ -268,8 +271,9 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 		podsIface = pods
 	}
 	h.scaler = &fakeScaler{scaled: map[string]int32{}, refuse: map[string]bool{}}
+	h.backups = &fakeBackups{configured: true}
 	h.srv = New(svc, authenticator, h.audit, h.data, podsIface,
-		suspend.New(store.ForSuspend(st), svc, h.scaler, h.audit), Options{
+		suspend.New(store.ForSuspend(st), svc, h.scaler, h.audit), h.backups, st, Options{
 			PublicURL:      testPublicURL,
 			AppDomain:      testAppDomain,
 			CSRFKey:        []byte("a test csrf key"),

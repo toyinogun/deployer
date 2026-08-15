@@ -74,10 +74,13 @@ spec:
             #     --dry-run=client -o yaml | kubeseal -o yaml > deploy/web-sealedsecret.yaml
             - secretRef:
                 name: deployer-web
-            # The R2 access key pair the daily backup uploads with. Optional for
-            # the same reason as the mail key: without it the platform boots,
-            # warns that it is taking no backups, and everything else works
-            # (spec 0020, AC-15). The other five backup values are not secrets
+            # The R2 access key pair the daily backup uploads with. Marked
+            # optional so the reference resolves on a cluster that has not been
+            # given it yet, but the six backup values are all or nothing: with
+            # the other five in configmap.yaml and this pair absent the process
+            # refuses to start naming what is missing, which is AC-16 rather
+            # than an accident. Taking backups off means removing all six, not
+            # this one (spec 0020, AC-15, AC-16). The other five are not secrets
             # and live in configmap.yaml, the age recipient included, because a
             # recipient is a public key. Seal these two yourself:
             #   kubectl -n deployer-system create secret generic deployer-backup \

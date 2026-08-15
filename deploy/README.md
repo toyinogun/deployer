@@ -205,6 +205,127 @@ creates at runtime.
    granted no permission to do this for you: its RBAC is scoped per app namespace
    and does not reach `kube-system`.
 
+6. **Back up the registry volume with Longhorn.** The database is only one of the
+   platform's three stores. The registry volume holds every app image that was
+   ever built, and no Go code in this repository touches it: it is a Longhorn
+   recurring job, configured in the `k3sprox-gitops` repository, targeting the
+   same bucket. Point Longhorn's backup target at the R2 bucket, then add a
+   recurring job of type `backup` on the registry volume with a retention of 30.
+
+   Two things about it are worth knowing rather than discovering. Its objects
+   land outside the `db/` prefix, which is exactly why the lifecycle rule above
+   carries that prefix rather than sweeping the whole bucket. And Longhorn
+   encrypts at the volume level rather than the backup, so these blobs sit in the
+   bucket unencrypted. They are user application images rather than platform
+   secrets, which is why that was accepted; changing it means migrating the
+   volume to an encrypted StorageClass, not setting a flag.
+
+7. **Know what is deliberately not backed up.** `/data/uploads` is out of scope
+   and stays that way. Source tarballs there are short lived and replaceable by
+   the agent that uploaded them, and putting unbounded user supplied content in a
+   daily object is a cost with no matching recovery value. A restore therefore
+   brings back accounts, apps, releases, configuration and the run record, and
+   brings back no pending upload. An upload interrupted by whatever caused the
+   restore is re uploaded, not recovered.
+
+
+## Restoring the database
+
+This is the whole path, and it is worth walking once on a scratch instance before
+you ever need it (spec 0020, AC-25). Nothing here can be done without the private
+age identity, which is not in this cluster and never will be. If you have lost
+that, no step below helps and none of your backups are readable.
+
+Everything runs from your own machine. `deployer restore` is a subcommand of the
+same binary the pod runs, and it opens no database and loads none of the control
+plane's configuration.
+
+1. **Pick an object.** The admin backups page at `/admin/backups` lists every run
+   with its object key. Copy the key of the newest `succeeded` one, which looks
+   like `db/20260815T030000Z-bkp_01J....age`.
+
+2. **Fetch and decrypt it.** The identity is a file path, never a variable and
+   never an argument, so it stays out of your shell history and out of a process
+   listing.
+
+   ```bash
+   export DEPLOYER_BACKUP_S3_ENDPOINT="https://<ACCOUNT_ID>.r2.cloudflarestorage.com"
+   export DEPLOYER_BACKUP_S3_BUCKET="deployer-backups"
+   export DEPLOYER_BACKUP_S3_ACCESS_KEY_ID="..."
+   export DEPLOYER_BACKUP_S3_SECRET_ACCESS_KEY="..."
+
+   go run ./cmd/deployer restore \
+     -key db/20260815T030000Z-bkp_01J....age \
+     -identity ./deployer-backup-identity.txt \
+     -out ./restored.db
+   ```
+
+   It refuses to write to a path that already exists, and it runs
+   `PRAGMA integrity_check` on the result before it tells you it worked. It
+   restores to a file and stops there: putting that file on the volume is the
+   next step, deliberately, because that step destroys whatever is there now.
+
+3. **Look at it before you trust it.** A restore you have not read is a guess.
+
+   ```bash
+   sqlite3 ./restored.db "SELECT COUNT(*) FROM accounts; SELECT COUNT(*) FROM apps;"
+   ```
+
+4. **Scale the control plane down.** One replica and a `Recreate` strategy mean
+   nothing else is writing, but the file must not be swapped under a running
+   process.
+
+   ```bash
+   kubectl -n deployer-system scale deploy/deployer --replicas=0
+   kubectl -n deployer-system rollout status deploy/deployer --timeout=120s
+   ```
+
+   If ArgoCD is watching this, pause it first, or it will scale the Deployment
+   straight back up underneath you.
+
+5. **Place the file.** The pod is gone, so copy through a throwaway pod that
+   mounts the same volume. The database is in WAL mode, so the two sidecar files
+   have to go with it: leaving a stale `-wal` beside a restored `.db` is how a
+   restore silently reverts part of itself.
+
+   ```bash
+   kubectl -n deployer-system run restore-shell --restart=Never --image=busybox \
+     --overrides='{"spec":{"containers":[{"name":"restore-shell","image":"busybox","command":["sleep","3600"],"volumeMounts":[{"name":"data","mountPath":"/data"}]}],"volumes":[{"name":"data","persistentVolumeClaim":{"claimName":"deployer-data"}}]}}'
+   kubectl -n deployer-system wait --for=condition=Ready pod/restore-shell --timeout=120s
+
+   kubectl -n deployer-system exec restore-shell -- sh -c \
+     'mv /data/deployer.db /data/deployer.db.before-restore 2>/dev/null; \
+      rm -f /data/deployer.db-wal /data/deployer.db-shm'
+   kubectl -n deployer-system cp ./restored.db restore-shell:/data/deployer.db
+   kubectl -n deployer-system delete pod restore-shell
+   ```
+
+   The old file is moved aside rather than deleted. If the restore turns out to
+   be the wrong object you still have what you had.
+
+6. **Scale back up.**
+
+   ```bash
+   kubectl -n deployer-system scale deploy/deployer --replicas=1
+   kubectl -n deployer-system rollout status deploy/deployer --timeout=180s
+   ```
+
+7. **Check it, in this order.**
+   - The pod is `Ready`, which means migrations ran against the restored file.
+   - You can sign in at `/login` with an account that existed when the backup was
+     taken. This is the real check, and the one AC-25 asks for: the rest proves
+     the file arrived, this proves it is the platform.
+   - `/admin/backups` lists the runs the restored copy knew about, and any run
+     left `running` by the pod you scaled away is now `failed: stranded`, which is
+     the startup sweep working rather than a problem.
+   - Your apps are still running. Nothing about a database restore touches them:
+     they are their own namespaces and their own Deployments, and the platform
+     reconciles from what it finds.
+
+8. **Clean up.** Delete `./restored.db` and the local copy of the identity if you
+   copied it out of your password manager. Remove
+   `/data/deployer.db.before-restore` once you are confident, and resume ArgoCD.
+
 ## The five things no file here can tell you
 
 These are done once, by hand, outside this repository, and the build does not
