@@ -34,7 +34,8 @@ Right now one lost volume is every account, every app, and every secret anyone e
 - **AC-4b**: Encryption streams from the snapshot file into a second file under `/data/backup-tmp/`, computing the SHA-256 as it writes. The ciphertext is never held whole in memory. The run therefore knows the exact length and hash of the object before the upload begins, and the upload is a plain file upload of known size.
 - **AC-4c**: After encrypting, the age header of the produced file is parsed and confirmed to carry a stanza for the configured recipient. This needs no private key and it is the only check that catches encrypting to the wrong recipient, which otherwise produces a well formed object that passes every other check and decrypts for nobody.
 - **AC-5**: The encrypted object is uploaded to the configured bucket under the key `db/<run started at, as YYYYMMDDTHHMMSSZ in UTC>-<run id>.age`. The compact timestamp is deliberate: RFC3339 carries colons, which are legal in an S3 key and awkward in a shell argument, and this key is typed by hand into `deployer restore`. The key is composed from values the run already holds, so two runs cannot collide and no listing is needed to choose one.
-- **AC-6**: After upload the object is read back from the bucket and its byte length and SHA-256 compared against what was written. A mismatch ends the run failed with the verify reason. The object is left in place, not deleted: a partly readable backup is worth more than none, and the platform holds no delete permission anyway.
+- **AC-6**: After upload the object is read back from the bucket and its byte length and SHA-256 compared against what was written. A mismatch ends the run failed with the verify reason. The object is left in place, not deleted: a partly readable backup is worth more than none, and the retention rule in AC-6a would refuse the delete anyway.
+- **AC-6a**: The bucket carries an object retention rule of 7 days, so no caller can delete a backup in its first week regardless of what its credential permits. This replaces what an earlier draft asked for, a credential scoped to read and write but not delete, which R2 cannot express: its token presets are Admin Read and Write, Admin Read only, Object Read and Write, and Object Read only, and the Object Read and Write preset includes `DeleteObject`. Retention is the stronger property in any case, because it holds against a token somebody re-issues later rather than depending on nobody doing so. Seven days and not thirty, because retention and the 30 day expiry rule have to coexist and a lock as long as the expiry leaves the two fighting at the boundary.
 
 *The record*
 
@@ -155,7 +156,7 @@ There is no other transition. A terminal row is never rewritten.
 - At most one `backup_runs` row is `running`, enforced by the partial unique index, not by application code.
 - A terminal row is never rewritten. A process that finds a row already terminal leaves it alone, matching how a drive that finds its deployment row terminal stops quietly.
 - The private age identity exists nowhere inside the cluster: not in a Secret, not in a ConfigMap, not in an environment variable, not on the volume.
-- The bucket credential the pod holds can read and write objects and cannot delete them. Retention is a bucket lifecycle rule, so nothing running in the cluster can destroy backup history.
+- A backup cannot be deleted in its first 7 days by anything, the platform included, because the bucket's retention rule refuses it. Cleanup after 30 days is a bucket lifecycle rule, so no code in the cluster ever issues a delete.
 - Nothing is uploaded that has not first passed `PRAGMA integrity_check` as plaintext and named the configured recipient in its age header.
 - No plaintext copy of the database outlives the run that made it, whether that run exited or was killed. `/data/backup-tmp/` is emptied on every startup, so the invariant survives a crash rather than depending on one.
 - No app output, no build output, and no log content passes through this path. The backup is the database file and nothing else.
@@ -166,7 +167,9 @@ Reading the backup surface is admin only, through the existing `adminSession` ga
 
 The sensitive data is the backup object itself, which is a full copy of every password hash, session, API token, and clear text app configuration value on the platform. It is protected by encrypting to a public recipient before it leaves the pod, so the bucket, the provider, and anything that compromises the control plane all hold only ciphertext. The private identity is held off cluster by the operator.
 
-The bucket credential is scoped to one bucket with object read and write and no delete, so a compromised pod can read old backups but cannot destroy them. Reading old backups is a real residual risk and it is accepted: the alternative, dropping the read back verify, gives up the rehearsed rather than assumed requirement this feature exists to satisfy.
+The bucket credential is scoped to one bucket with R2's Object Read and Write preset, the least powerful one that can both upload and read back. That preset carries `DeleteObject`, which R2 gives no way to remove, so the protection against a compromised pod destroying backup history is the bucket's own 7 day retention rule (AC-6a) rather than the credential. Defence sits with the bucket, not with the token, which is where it survives somebody minting a fresher token later.
+
+Reading old backups is a real residual risk and it is accepted: the alternative, dropping the read back verify, gives up the rehearsed rather than assumed requirement this feature exists to satisfy. What a compromised pod reads is ciphertext in any case, because it never holds the age identity.
 
 No regulatory scope applies. This is a personal homelab platform with invite only registration.
 
@@ -184,7 +187,7 @@ The all or nothing group (all six, or none):
 - `DEPLOYER_BACKUP_S3_SECRET_ACCESS_KEY`: from the same SealedSecret.
 - `DEPLOYER_BACKUP_ALERT_EMAIL`: where failure mail goes.
 
-Prerequisites before coding begins: an R2 bucket exists, an API token scoped to it with object read and write and no delete, a lifecycle rule expiring objects after 30 days, and an age key pair generated with the private half stored off cluster.
+Prerequisites before coding begins, written out step by step in `deploy/README.md`: an age key pair with the private half stored off cluster and nowhere else, an R2 bucket, an API token scoped to that one bucket with the Object Read and Write preset, a 7 day object retention rule, and a lifecycle rule expiring objects under the `db/` prefix after 30 days. The prefix on the lifecycle rule is load bearing: the registry volume backups land in the same bucket and must not be swept by it.
 
 **Critical test scenarios**:
 
@@ -216,7 +219,7 @@ Tracer Bullet, the project's approach: the first task carries a real backup all 
 7. Alerting through the existing Resend path: one mail on failure, one on the first success after a failure, silence otherwise, carrying the reason code and nothing else, satisfies **AC-13**, **AC-14**.
 8. The admin surfaces: the read only page behind `adminSession` with its not configured state, the run now post with the session CSRF token, the in flight refusal surfaced with its reason, the trigger and `triggered_by` columns written correctly, and the `audit_log` row on both outcomes, satisfies **AC-17**, **AC-18**, **AC-19**, **AC-20**, **AC-21**, **AC-22**.
 9. `deployer restore` as a subcommand: fetch, decrypt from an identity file named by a flag, integrity check, write to a destination that must not already exist, satisfies **AC-23**, **AC-24**.
-10. The parts that live outside this repository, plus the leftovers: the Longhorn recurring job for the registry volume in `k3sprox-gitops`, the SealedSecret carrying the bucket credential marked optional on the Deployment, the manual sealed secrets key export, and the runbook in `deploy/README.md` covering restore end to end and the uploads exclusion, satisfies **AC-26**, **AC-27**, **AC-28**, **AC-29**.
+10. The parts that live outside this repository, plus the leftovers: the bucket's 7 day retention rule and its prefixed 30 day lifecycle rule, the Longhorn recurring job for the registry volume in `k3sprox-gitops`, the SealedSecret carrying the bucket credential marked optional on the Deployment, the manual sealed secrets key export, and the runbook in `deploy/README.md` covering setup and restore end to end plus the uploads exclusion, satisfies **AC-6a**, **AC-26**, **AC-27**, **AC-28**, **AC-29**.
 11. The rehearsal: a real object restored into a scratch instance and signed in to, against the real cluster, satisfies **AC-25**.
 
 ## Consequences
@@ -226,7 +229,7 @@ Tracer Bullet, the project's approach: the first task carries a real backup all 
 - The snapshot is consistent by construction. There is no quiescing, no downtime, and no class of restore that lands mid transaction.
 - The platform can answer whether its own backups work, which is the property no external mechanism could have given it.
 - Encrypting to a public recipient means the bucket, the provider, and a compromised control plane all hold ciphertext only.
-- A compromised pod cannot delete backup history, because it never holds delete permission on the bucket.
+- A compromised pod cannot delete a backup in its first week, because the bucket refuses it rather than because the credential lacks the verb. That protection survives somebody issuing a more powerful token later, which a credential scoped narrowly would not.
 
 **Negative / tradeoffs**:
 - The daily object is a full copy of every password hash, token, and clear text app configuration value on the platform. Thirty of them exist at any time. The encryption is the only thing standing between that and a bucket credential leak, and it is only as good as where you keep the identity.
