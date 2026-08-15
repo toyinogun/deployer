@@ -1,7 +1,7 @@
 # 0019. Open internet hardening: login CSRF and control plane policy
 
 **Date**: 2026-08-15
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 

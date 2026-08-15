@@ -399,14 +399,14 @@ spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/susp
 Two hardening items were weighed and skipped on tailnet grounds and are named as such in their specs. From spec 0013: the pre authentication posts carry no synchroniser token, because there is no session to bind one to. From spec 0008: nothing stops a workload elsewhere on the cluster reaching the platform API at all, since tokens guard it.
 **Done when:** the sign in, register, forgot, reset and resend posts each carry a token bound to a pre session cookie and a forged post is refused, and `deployer-system` accepts ingress only from the tailnet proxy, the four nodes and the two build namespaces, with the platform still fully working from all of them.
 Spec 0019 corrects the line above: the control plane is not behind ingress-nginx at all, it sits on the `tailscale` ingress class, and the node addresses have to be a peer because containerd pulls images from the in cluster registry as the node rather than as a pod.
-spec [0019](../specs/0019-open-internet-hardening/index.md)
+spec [0019](../specs/0019-open-internet-hardening/index.md) · code in `deploy/deployer-system-networkpolicy.yaml`, `internal/web/pretoken.go`
 - [x] Design it (spec): `/architect open internet hardening`
 - [ ] Build it: `/develop open internet hardening`
-  - [ ] The policy, riskiest first: the proxy pod's namespace confirmed live, the ingress only pair with its three peer groups against container ports, and the parse test pinning the shape — AC-11, AC-12, AC-15, AC-16, AC-18
+  - [x] The policy, riskiest first: the proxy pod's namespace confirmed live, the ingress only pair with its three peer groups against container ports, and the parse test pinning the shape — AC-11, AC-12, AC-15, AC-16, AC-18
   - [ ] Proved on the real cluster: an app namespace refused on 5000 and 8080, and the console, both build paths and an image pull all still working — AC-13, AC-14, AC-19
-  - [ ] The token machinery: the hex nonce cookie, the name and flags chosen off `s.secure`, the HMAC derive and the constant time compare, plus the form aware refusal beside the existing one — AC-2, AC-2a, AC-3, AC-5, AC-6, AC-9
-  - [ ] The thin thread on `/login`, then the other four posts with `/resend` taking its cookie from `/unverified` — AC-1, AC-4, AC-7, AC-8, AC-10
-  - [ ] The leftovers: every existing caller that posts to a page path given a cookie jar, the leak crawl extended, and the two mechanisms written down in `internal/web/AGENTS.md` — AC-4, AC-9, AC-17
+  - [x] The token machinery: the hex nonce cookie, the name and flags chosen off `s.secure`, the HMAC derive and the constant time compare, plus the form aware refusal beside the existing one — AC-2, AC-2a, AC-3, AC-5, AC-6, AC-9
+  - [x] The thin thread on `/login`, then the other four posts with `/resend` taking its cookie from `/unverified` — AC-1, AC-4, AC-7, AC-8, AC-10
+  - [x] The leftovers: every existing caller that posts to a page path given a cookie jar, the leak crawl extended, and the two mechanisms written down in `internal/web/AGENTS.md` — AC-4, AC-9, AC-17
 - [ ] Verify it: `/check verify open internet hardening`
 - [ ] Test it: `/test open internet hardening`
 - [ ] Review it (fresh model): `/check review open internet hardening`
