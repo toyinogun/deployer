@@ -36,6 +36,14 @@ Governing spec: [docs/specs/0020-platform-backup-restore/index.md](../../docs/sp
   constant rather than configuration, so it does not follow `DEPLOYER_DB_PATH`:
   off cluster, where `/data` is not writable, the startup sweep logs an error and
   everything else still works.
+- The snapshot's mode is set after the vacuum, never assumed. `VACUUM INTO` makes
+  the file itself, at 0666 minus the umask, so the plaintext copy of every
+  password hash, session and app secret lands world readable unless `snapshot`
+  tightens it to 0600. SQLite's rollback journal beside it cannot be reached that
+  way and is gone before `snapshot` returns, so the directory's own 0700 is what
+  bounds that window. A process umask would cover both in one line and is
+  deliberately not used: it changes every file the platform writes, and the build
+  path hands a tree between three different uids on purpose.
 - The plaintext never leaves the volume. The snapshot is checked, encrypted, and
   only the `.age` file is uploaded, then read back and compared before the row is
   closed. An upload that succeeds and reads back short is a failed run and the
@@ -62,7 +70,13 @@ Governing spec: [docs/specs/0020-platform-backup-restore/index.md](../../docs/sp
 [run_test.go](run_test.go) drives the whole thread against a real SQLite file and
 an in memory object store, with a real age key pair generated in the test, so the
 round trip is genuinely encrypted and genuinely decrypted. What the fake cannot
-reach is what `/check verify` covers instead: file ownership and modes, cluster
-DNS, the real bucket, and anything needing the private identity.
+reach is what `/check verify` covers instead: file ownership, cluster DNS, the
+real bucket, and anything needing the private identity.
+
+[snapshot_internal_test.go](snapshot_internal_test.go) is in package `backup`
+rather than `backup_test`, because the temp files are deleted on every exit path
+and nothing outside the package can see their mode. It exists because `/check
+verify` found the snapshot at 0644 on the cluster, which is the root
+[AGENTS.md](../../AGENTS.md) rule about pinning whatever the fakes let through.
 
 _Drafted by /sync from the introducing change, worth a quick human pass._
