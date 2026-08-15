@@ -8,6 +8,9 @@ kind: Kustomization
 # checking where something lands should be able to see in the file itself.
 resources:
   - namespace.yaml
+  # The fence around the control plane namespace itself: ingress only, so the
+  # platform's own outbound path to the API server is untouched (spec 0019).
+  - deployer-system-networkpolicy.yaml
   - builds-namespace.yaml
   - builds-networkpolicy.yaml
   # The Dockerfile path's own namespace, at `privileged`, holding rootless
