@@ -407,8 +407,8 @@ spec [0019](../specs/0019-open-internet-hardening/index.md) · code in `deploy/d
   - [x] The token machinery: the hex nonce cookie, the name and flags chosen off `s.secure`, the HMAC derive and the constant time compare, plus the form aware refusal beside the existing one — AC-2, AC-2a, AC-3, AC-5, AC-6, AC-9
   - [x] The thin thread on `/login`, then the other four posts with `/resend` taking its cookie from `/unverified` — AC-1, AC-4, AC-7, AC-8, AC-10
   - [x] The leftovers: every existing caller that posts to a page path given a cookie jar, the leak crawl extended, and the two mechanisms written down in `internal/web/AGENTS.md` — AC-4, AC-9, AC-17
-- [ ] Verify it: `/check verify open internet hardening`
-- [ ] Test it: `/test open internet hardening`
+- [x] Verify it: `/check verify open internet hardening`
+- [x] Test it: `/test open internet hardening`
 - [ ] Review it (fresh model): `/check review open internet hardening`
 - [ ] Document it: `/document open internet hardening`
 
