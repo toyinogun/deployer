@@ -60,23 +60,36 @@ func Restore(ctx context.Context, store ObjectStore, opts RestoreOptions) error 
 		return fmt.Errorf("backup: decrypting the object: %w", err)
 	}
 
-	out, err := os.OpenFile(opts.Out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// Written beside the destination and renamed into place only once it is
+	// sound, so a copy that dies partway or a file that decrypts and is not a
+	// database leaves nothing behind. Writing straight to opts.Out would leave a
+	// partial plaintext database on the operator's disk and, worse, would make
+	// the retry hit the never overwrites guard above and be refused for the
+	// wrong reason. It also makes that guarantee atomic rather than a check
+	// followed by a write.
+	tmp := opts.Out + ".partial"
+	out, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return fmt.Errorf("backup: creating %s: %w", opts.Out, err)
+		return fmt.Errorf("backup: creating %s: %w", tmp, err)
 	}
+	defer func() { _ = os.Remove(tmp) }()
+
 	if _, err := io.Copy(out, plain); err != nil {
 		_ = out.Close()
-		return fmt.Errorf("backup: writing %s: %w", opts.Out, err)
+		return fmt.Errorf("backup: writing %s: %w", tmp, err)
 	}
 	if err := out.Close(); err != nil {
-		return fmt.Errorf("backup: writing %s: %w", opts.Out, err)
+		return fmt.Errorf("backup: writing %s: %w", tmp, err)
 	}
 
 	// The same check the run made before uploading, made again on what came
 	// back. A file that decrypts and is not a sound database is worth knowing
 	// about now rather than on the volume.
-	if err := checkSnapshot(ctx, opts.Out); err != nil {
+	if err := checkSnapshot(ctx, tmp); err != nil {
 		return fmt.Errorf("backup: the restored file is not a sound database: %w", err)
+	}
+	if err := os.Rename(tmp, opts.Out); err != nil {
+		return fmt.Errorf("backup: moving the restored database to %s: %w", opts.Out, err)
 	}
 	return nil
 }

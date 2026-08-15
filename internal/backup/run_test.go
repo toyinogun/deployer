@@ -436,7 +436,7 @@ func TestSweepEmptiesTempDirAndStrandsRuns(t *testing.T) {
 		t.Fatalf("leaving a plaintext file behind: %v", err)
 	}
 
-	h.svc.Sweep(t.Context())
+	backup.Sweep(t.Context(), h.runs, h.tempDir)
 
 	if left := h.leftovers(t); len(left) != 0 {
 		t.Fatalf("the sweep should have emptied the directory, holds %v", left)
@@ -489,7 +489,6 @@ func TestNilServiceIsSafe(t *testing.T) {
 	if svc.Configured() {
 		t.Fatal("a nil service should not read as configured")
 	}
-	svc.Sweep(t.Context())
 	svc.Schedule(t.Context())
 	if _, err := svc.Run(t.Context(), ""); err == nil {
 		t.Fatal("running an unconfigured backup should be refused")

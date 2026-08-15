@@ -425,8 +425,8 @@ spec [0020](../specs/0020-platform-backup-restore/index.md) · code in `internal
   - [x] Knowing it broke: failure and recovery mail through the existing Resend path carrying the reason code and nothing else, the admin page with its not configured state, and the run now post with its CSRF token, its in flight refusal, and its audit row — AC-13, AC-14, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22
   - [x] Getting it back: the `deployer restore` subcommand reading the identity from a file, the Longhorn job for the registry volume, the manual sealed secrets key export, the SealedSecret for the bucket credential, and the runbook — AC-23, AC-24, AC-26, AC-27, AC-28, AC-29
 - [ ] Verify it: `/check verify platform backup & restore` — includes AC-25, a real object restored into a scratch instance and signed in to
-- [ ] Test it: `/test platform backup & restore`
-- [ ] Review it (fresh model): `/check review platform backup & restore`
+- [x] Test it: `/test platform backup & restore`
+- [x] Review it (fresh model): `/check review platform backup & restore`
 - [ ] Document it: `/document platform backup & restore`
 
 ## Slice 13: The public edge

@@ -32,7 +32,11 @@ Governing spec: [docs/specs/0020-platform-backup-restore/index.md](../../docs/sp
   that finds nothing is `ErrNoRun`, a state rather than a fault.
 - Every temporary file goes in one fixed directory, mode 0700, and both files are
   removed whether the run worked or not. The directory is emptied again at
-  startup, because a pod killed mid run leaves its files behind. The path is a
+  startup, because a pod killed mid run leaves its files behind. `Sweep` is a
+  package function rather than a `Service` method for that reason: it takes the
+  record and the directory, and it runs whether or not backups are configured,
+  because a platform someone switched them off on still has the plaintext and
+  the row a killed run left behind. The path is a
   constant rather than configuration, so it does not follow `DEPLOYER_DB_PATH`:
   off cluster, where `/data` is not writable, the startup sweep logs an error and
   everything else still works.

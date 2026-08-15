@@ -55,7 +55,7 @@ cluster and the real bucket unless it says otherwise.
 - AC-2, AC-2a covered by the temp directory listings and the mid run pod delete
 - AC-3 covered by the restored account count and by `TestRunEmptyDatabaseUploadsNothing`
 - AC-4, AC-4a, AC-4b covered by the object header check and the absent identity sweep
-- AC-4c covered by unit test only, and note the deviation: an X25519 header names no recipient, so the run compares the stanzas the configured recipient produced against the finished file
+- AC-4c covered by unit test only, in `internal/backup/snapshot_internal_test.go`: the happy path, a file encrypted to a second generated recipient being refused, and the empty stanza guard. Note the deviation: an X25519 header names no recipient, so the run compares the stanzas the configured recipient produced against the finished file
 - AC-5, AC-6 covered by the bucket listing and the size comparison
 - AC-6a covered by the retention and lifecycle rule checks
 - AC-7, AC-8, AC-8a, AC-10, AC-11 covered by `internal/store/backups_test.go` and the double press

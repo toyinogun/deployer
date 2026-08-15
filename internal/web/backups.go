@@ -82,12 +82,21 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	reason, err := s.backups.Run(r.Context(), admin.ID)
+	// The run does not belong to the caller's connection. Go cancels a request's
+	// context the moment the client disconnects, and a run cancelled halfway
+	// through cannot close its own row or send its own alert on that same
+	// context: the row stays running, the unique index then refuses every later
+	// run, and the schedule skips every tick, silently, until the pod restarts.
+	// Detaching keeps the values (the audit and log context) and drops only the
+	// cancellation, so a closed tab costs an unread page rather than the backups.
+	runCtx := context.WithoutCancel(r.Context())
+
+	reason, err := s.backups.Run(runCtx, admin.ID)
 	switch {
 	case errors.Is(err, backup.ErrInFlight):
 		// The refusal comes from the unique index, not from a read followed by a
 		// write, and the caller is told with the closed code (AC-20).
-		auth.Record(r.Context(), s.auditor, auth.Audit{
+		auth.Record(runCtx, s.auditor, auth.Audit{
 			AccountID: admin.ID, Action: auth.ActionAdmin,
 			TargetType: "backup", Reason: "run: in_flight",
 		})
@@ -95,7 +104,7 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 			"A backup is already running. Wait for it to finish, then try again.")
 		return
 	case reason != "":
-		auth.Record(r.Context(), s.auditor, auth.Audit{
+		auth.Record(runCtx, s.auditor, auth.Audit{
 			AccountID: admin.ID, Action: auth.ActionAdmin, Allowed: true,
 			TargetType: "backup", Reason: "run: " + reason.String(),
 		})
@@ -104,7 +113,7 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	auth.Record(r.Context(), s.auditor, auth.Audit{
+	auth.Record(runCtx, s.auditor, auth.Audit{
 		AccountID: admin.ID, Action: auth.ActionAdmin, Allowed: true,
 		TargetType: "backup", Reason: "run: succeeded",
 	})
@@ -124,8 +133,20 @@ func (s *Server) renderBackups(w http.ResponseWriter, r *http.Request, admin aut
 	if s.backupRuns != nil {
 		rows, err := s.backupRuns.ListBackupRuns(r.Context(), backupListLimit)
 		if err != nil {
-			data.Message = "The backup record could not be read just now."
-			status = http.StatusInternalServerError
+			// Appended rather than substituted: the admin who just pressed the
+			// button is owed the answer to what happened to their run, and a
+			// failed list read is a second thing that went wrong, not a
+			// replacement for the first. The status is only raised when the
+			// caller had none more specific.
+			const readFailed = "The backup record could not be read just now."
+			if data.Message == "" {
+				data.Message = readFailed
+			} else {
+				data.Message += " " + readFailed
+			}
+			if status == http.StatusOK {
+				status = http.StatusInternalServerError
+			}
 		} else {
 			data.Runs = make([]backupRunRow, 0, len(rows))
 			for _, row := range rows {

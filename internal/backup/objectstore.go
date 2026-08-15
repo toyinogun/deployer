@@ -90,6 +90,17 @@ func (s *S3Store) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, fmt.Errorf("backup: opening the object: %w", err)
 	}
+	// GetObject issues no request: it hands back a reader that fetches on the
+	// first Read. Without this, a mistyped key or an expired credential surfaces
+	// inside age.Decrypt and restore reports a decryption failure, which points
+	// the operator at the one thing they cannot re-derive. Stat makes the fetch
+	// happen here, where the error is still its own. The message stays free of
+	// the bucket and the key, as every error that can reach an alert does
+	// (AC-14).
+	if _, err := obj.Stat(); err != nil {
+		_ = obj.Close()
+		return nil, fmt.Errorf("backup: reading the object: %w", err)
+	}
 	return obj, nil
 }
 

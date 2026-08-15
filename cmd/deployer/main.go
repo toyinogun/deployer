@@ -258,13 +258,13 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 // predecessor left running is ended, and the plaintext a hard kill left on the
 // volume is removed (AC-2a, AC-9).
 func startBackups(ctx context.Context, st *store.Store, cfg config.Config, sender *mail.Sender) *backup.Service {
-	// Emptied whether or not backups are on, and before anything below decides
+	// Swept whether or not backups are on, and before anything below decides
 	// that. A platform someone turned backups off on still has whatever a killed
 	// run left there, and what a killed run leaves is a full unencrypted copy of
-	// every password hash, session, token and app secret (AC-2a).
-	if err := backup.EmptyTempDir(backup.DefaultTempDir); err != nil {
-		slog.Error("could not empty the backup temporary directory", "error", err)
-	}
+	// every password hash, session, token and app secret, plus a row the admin
+	// page shows as running forever (AC-2a, AC-9).
+	backup.Sweep(ctx, store.ForBackup(st), backup.DefaultTempDir)
+
 	if !cfg.BackupsConfigured() {
 		slog.Warn("backups are off, so nothing copies this database out of the cluster",
 			"missing", cfg.MissingBackupValues(os.Getenv))
@@ -293,7 +293,6 @@ func startBackups(ctx context.Context, st *store.Store, cfg config.Config, sende
 			TempDir:   backup.DefaultTempDir,
 			Interval:  cfg.BackupInterval,
 		})
-	svc.Sweep(ctx)
 	go svc.Schedule(ctx)
 	return svc
 }

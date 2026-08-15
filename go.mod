@@ -3,6 +3,8 @@ module github.com/toyinogun/deployer
 go 1.26.5
 
 require (
+	filippo.io/age v1.3.1
+	github.com/minio/minio-go/v7 v7.2.1
 	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/oklog/ulid/v2 v2.1.2
 	github.com/pressly/goose/v3 v3.27.3
@@ -15,7 +17,6 @@ require (
 )
 
 require (
-	filippo.io/age v1.3.1 // indirect
 	filippo.io/hpke v0.4.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -39,7 +40,6 @@ require (
 	github.com/mfridman/interpolate v0.0.2 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/minio/minio-go/v7 v7.2.1 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

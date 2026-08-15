@@ -11,21 +11,29 @@ import (
 // anything: the temp directory emptied, and any row a dead predecessor left
 // running ended.
 //
+// It takes the record and the directory rather than a Service, because both
+// halves have to happen on a platform backups are switched off on. What a killed
+// run left behind is on the volume either way, and a row left running is what
+// the admin page shows as still going forever and what the unique index then
+// refuses every later run against, so a platform that turns backups back on
+// depends on a sweep that already ran (AC-2a, AC-9).
+//
 // One replica and a Recreate strategy make a running row definitionally dead, so
-// there is no sweeper, no grace period, and no timer (AC-9). The directory is
-// emptied because a hard kill runs no exit path, and what it leaves behind is a
-// full unencrypted copy of the database (AC-2a).
+// there is no sweeper, no grace period, and no timer (AC-9).
 //
 // Neither half stops the platform starting. A backup that cannot run is worth
 // far less than a platform that will not boot, and both failures are loud.
-func (s *Service) Sweep(ctx context.Context) {
-	if s == nil {
-		return
+func Sweep(ctx context.Context, runs Runs, tempDir string) {
+	if tempDir == "" {
+		tempDir = DefaultTempDir
 	}
-	if err := EmptyTempDir(s.opts.TempDir); err != nil {
+	if err := EmptyTempDir(tempDir); err != nil {
 		slog.ErrorContext(ctx, "could not empty the backup temporary directory", "error", err)
 	}
-	n, err := s.runs.StrandBackupRuns(ctx)
+	if runs == nil {
+		return
+	}
+	n, err := runs.StrandBackupRuns(ctx)
 	if err != nil {
 		slog.ErrorContext(ctx, "could not end the backup runs a previous process left behind", "error", err)
 		return
