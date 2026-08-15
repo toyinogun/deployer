@@ -427,7 +427,7 @@ spec [0020](../specs/0020-platform-backup-restore/index.md) · code in `internal
 - [ ] Verify it: `/check verify platform backup & restore` — includes AC-25, a real object restored into a scratch instance and signed in to
 - [x] Test it: `/test platform backup & restore`
 - [x] Review it (fresh model): `/check review platform backup & restore`
-- [ ] Document it: `/document platform backup & restore`
+- [x] Document it: `/document platform backup & restore`
 
 ## Slice 13: The public edge
 
