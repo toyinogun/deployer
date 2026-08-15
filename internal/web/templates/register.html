@@ -11,6 +11,7 @@
   {{end}}
   {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
   <form method="post" action="/register" class="stack">
+    <input type="hidden" name="csrf" value="{{.Data.CSRF}}">
     <input type="hidden" name="invite" value="{{.Data.Invite}}">
     <div class="field">
       <label for="email">Email address</label>

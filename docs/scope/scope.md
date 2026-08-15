@@ -60,7 +60,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 17 | Per account app cap | Slice 12 | done |
 | 18 | Bounded app egress | Slice 12 | done |
 | 19 | Account suspension | Slice 12 | done |
-| 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | planned |
+| 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | in-progress |
 | 21 | Platform backup & restore | Slice 12 | planned |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | planned |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
@@ -395,10 +395,22 @@ spec [0018](../specs/0018-account-suspension/index.md) · code in `internal/susp
 - [x] Review it (fresh model): `/check review account suspension` — reviewed on sonnet, approve with nits
 - [x] Document it: `/document account suspension`
 
-### 20. Open internet hardening: login CSRF & control plane policy · needs a decision
+### 20. Open internet hardening: login CSRF & control plane policy · in-progress
 Two hardening items were weighed and skipped on tailnet grounds and are named as such in their specs. From spec 0013: the pre authentication posts carry no synchroniser token, because there is no session to bind one to. From spec 0008: nothing stops a workload elsewhere on the cluster reaching the platform API at all, since tokens guard it.
-**Done when:** the sign in, register, forgot and reset posts each carry a token bound to a pre session cookie and a forged post is refused, and `deployer-system` accepts ingress only from the ingress controller and the build namespaces, with the platform still fully working from both.
-- [ ] Design it (spec): `/architect open internet hardening`
+**Done when:** the sign in, register, forgot, reset and resend posts each carry a token bound to a pre session cookie and a forged post is refused, and `deployer-system` accepts ingress only from the tailnet proxy, the four nodes and the two build namespaces, with the platform still fully working from all of them.
+Spec 0019 corrects the line above: the control plane is not behind ingress-nginx at all, it sits on the `tailscale` ingress class, and the node addresses have to be a peer because containerd pulls images from the in cluster registry as the node rather than as a pod.
+spec [0019](../specs/0019-open-internet-hardening/index.md)
+- [x] Design it (spec): `/architect open internet hardening`
+- [ ] Build it: `/develop open internet hardening`
+  - [ ] The policy, riskiest first: the proxy pod's namespace confirmed live, the ingress only pair with its three peer groups against container ports, and the parse test pinning the shape — AC-11, AC-12, AC-15, AC-16, AC-18
+  - [ ] Proved on the real cluster: an app namespace refused on 5000 and 8080, and the console, both build paths and an image pull all still working — AC-13, AC-14, AC-19
+  - [ ] The token machinery: the hex nonce cookie, the name and flags chosen off `s.secure`, the HMAC derive and the constant time compare, plus the form aware refusal beside the existing one — AC-2, AC-2a, AC-3, AC-5, AC-6, AC-9
+  - [ ] The thin thread on `/login`, then the other four posts with `/resend` taking its cookie from `/unverified` — AC-1, AC-4, AC-7, AC-8, AC-10
+  - [ ] The leftovers: every existing caller that posts to a page path given a cookie jar, the leak crawl extended, and the two mechanisms written down in `internal/web/AGENTS.md` — AC-4, AC-9, AC-17
+- [ ] Verify it: `/check verify open internet hardening`
+- [ ] Test it: `/test open internet hardening`
+- [ ] Review it (fresh model): `/check review open internet hardening`
+- [ ] Document it: `/document open internet hardening`
 
 ### 21. Platform backup & restore · needs a decision
 The SQLite file is a secret store, not just metadata: every release snapshots the app's configuration in clear, releases are never pruned, and since slice 7 those are live third party credentials rather than hypothetical ones. Right now one lost volume is every account, every app, and every secret anyone ever set.
@@ -411,6 +423,7 @@ The flip. One manifest change plus the pieces that only matter once the traffic 
 
 ### 22. Public edge: tunnel, real certificates & the console hostname · needs a decision
 The control plane sits on the `tailscale` ingress class and the wildcard certificate is still issued by the staging authority. This gives the console a name of its own, moves both onto certificates a browser trusts, and puts a tunnel in front so your home address is never in DNS. It also has to solve the smaller thing the tunnel breaks: behind a proxy the rate limiter and the audit trail see the proxy, not the visitor.
+From spec 0019: this feature has to add its tunnel's namespace as an ingress peer on the new `deployer-system` policy, or the console goes dark on the flip, since that policy's only inbound peer today is the `tailscale` namespace it is replacing.
 **Done when:** from a machine with no Tailscale the console answers on its own public hostname with a trusted certificate and a deployed app answers on its wildcard hostname, the console name is reserved so no app slug can ever claim it, your home address appears in no DNS record or certificate, the rate limiter and audit rows carry the visitor's real address, and cluster administration stays on the tailnet.
 - [ ] Design it (spec): `/architect public edge`
 
@@ -436,6 +449,9 @@ Out of scope for the current build pass, kept so the plan stays honest.
 - **Kubernetes events for an app that prints nothing**: surfacing image pull failures, out of memory kills, and probe failures, which explain a failed app that produced no output of its own. From spec 0006, only worth building if `state: failed` with an empty log turns out to be a common dead end · needs a decision
 - **Push based deploy outcome**: a progress notification on the open call, or a webhook, so an agent that never polls still learns how its deploy ended. From spec 0005, only worth building if deploys start silently going unread · needs a decision
 - **Network policy on the control plane namespace**: ingress to `deployer-system` from `ingress-nginx` and `deployer-builds` only, so a workload elsewhere on the cluster cannot reach the platform API at all. From spec 0008, deliberately left out of slice 5; the API is guarded by tokens, so this is defence in depth rather than an open door · promoted into feature 20
+- **Egress policy on the control plane namespace**: feature 20 policies ingress only, on purpose. Locking outbound would mean enumerating the Kubernetes API server on node addresses, cluster DNS, the registry, and Resend on a public address that can change, and the API server peer moves whenever a node is added, so a mistake there is a full outage rather than a warning. From spec 0019, worth deciding on its own once the node list stops moving · needs a decision
+- **A check that the policy's node addresses match the cluster**: feature 20 writes the four node addresses into static YAML with nothing enforcing them, so adding a node and forgetting the file breaks image pulls on that node alone, which is the hardest kind of failure to attribute. From spec 0019, cheap only if there turns out to be a sensible place to run it, CI having no cluster access and the startup sweep being an odd home for it · needs a decision
+- **CSRF on the JSON identity endpoints**: feature 20 guards the page posts only, on the reasoning that the JSON register, login, forgot and reset endpoints are not cookie authenticated, so a forged post achieves nothing curl could not. From spec 0019, worth reopening if a browser surface is ever built on top of them · needs a decision
 - **Egress by hostname for apps**: a per app allow list of external hosts, using CiliumNetworkPolicy `toFQDNs`, which would bound exfiltration and not just cluster reach. From spec 0008, only expressible once slice 7 gives an app a way to declare its configuration. Feature 18 takes the cheap half of this, closing the known abuse ports, and leaves the hostname allow list here: it breaks every app that calls an API until its owner declares it, which is a support burden with non technical users · needs a decision
 - **Stranded recovery for `pushing` and `deploying`**: from spec 0014, which covers `building` only because a build Job is cheap, unambiguous evidence. The later phases need registry and workload evidence that is more expensive and easier to misread, and mistaking a rollout in progress for a stranded one would end a deploy that was going to succeed. They keep the deploy budget as their backstop, which is no worse than today · needs a decision
 - **A test that a tool description matches its behaviour**: every MCP tool description is contract rather than documentation, and nothing checks one against what the code does. From spec 0011, which adds two more, taking the gap to eight tools wide · needs a decision

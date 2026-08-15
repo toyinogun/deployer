@@ -47,7 +47,7 @@ func TestTheRegisterPageNeverValidatesTheCode(t *testing.T) {
 		if !strings.Contains(rec.Body.String(), `name="invite" value="`+code+`"`) {
 			t.Errorf("the page dropped the code it was handed")
 		}
-		pages = append(pages, strings.ReplaceAll(rec.Body.String(), code, "CODE"))
+		pages = append(pages, withoutCSRF(strings.ReplaceAll(rec.Body.String(), code, "CODE")))
 	}
 	for i, page := range pages {
 		if page != pages[0] {

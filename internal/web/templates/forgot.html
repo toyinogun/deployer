@@ -9,6 +9,7 @@
   {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
   <p>Give the address on your account and we will send a link to set a new password.</p>
   <form method="post" action="/forgot" class="stack">
+    <input type="hidden" name="csrf" value="{{.Data.CSRF}}">
     <div class="field">
       <label for="email">Email address</label>
       <input id="email" name="email" type="email" autocomplete="username" required value="{{.Data.Email}}">

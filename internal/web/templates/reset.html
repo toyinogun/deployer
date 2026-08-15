@@ -5,6 +5,7 @@
   <h1>Set a new password</h1>
   {{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
   <form method="post" action="/reset" class="stack">
+    <input type="hidden" name="csrf" value="{{.Data.CSRF}}">
     {{/* The link's token rides in a hidden field rather than staying in the
          address bar, so the new URL after submitting carries nothing. */}}
     <input type="hidden" name="token" value="{{.Data.Token}}">

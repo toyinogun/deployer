@@ -329,7 +329,7 @@ func TestSigningInIsNotAnAccountStateOracle(t *testing.T) {
 		t.Errorf("a suspended account with the right password answers %d and a wrong password answers %d; "+
 			"they must be identical", rightPassword.Code, wrongPassword.Code)
 	}
-	if rightPassword.Body.String() != wrongPassword.Body.String() {
+	if withoutCSRF(rightPassword.Body.String()) != withoutCSRF(wrongPassword.Body.String()) {
 		t.Error("the right password on a suspended account renders a different page than a wrong one, " +
 			"so the form is an account state oracle")
 	}
