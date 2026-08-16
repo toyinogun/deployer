@@ -3,34 +3,34 @@ _Steps derived from spec 0025 acceptance criteria and its Value sourcing table. 
 
 ## UI / manual
 
-- [ ] Sign in as an admin, visit `/admin/invites`, submit the mint form with a note and an empty address → the link is shown once, no message is sent, the list row reads `not sent` → AC-1
+- [x] Sign in as an admin, visit `/admin/invites`, submit the mint form with a note and an empty address → the link is shown once, no message is sent, the list row reads `not sent` → AC-1
 - [ ] Mint with the address `Sam@Example.Test` → the page shows the link plus one line naming `sam@example.test`, and exactly one message arrives at that address → AC-4, AC-5, AC-9
 - [ ] Read that message → it carries the register link, the minting admin's display name, and the seven day expiry → AC-4
 - [ ] Open the mailed link in a clean browser and register as `sam@example.test` → the account is created and the invite becomes `spent` → AC-1, AC-4
-- [ ] Open the same link and register as `mallory@example.test` → refused with the invite only sentence, byte for byte the same page and status an unknown code gets, no account created → AC-8
-- [ ] Reload `/admin/invites` after that refusal → the invite is still `live` → AC-8
-- [ ] Mint with `not an address` → refused `email_invalid`, no new row in the list, no message → AC-2
-- [ ] Mint with an address that already has an account → refused at 409 `address_registered`, no new row, no message → AC-3
-- [ ] With the Resend key deliberately wrong so sends fail, mint with an address → the page shows the link and says the send failed, the invite is live and bound, and that link still registers that address by hand → AC-6
-- [ ] Check the platform log for that failed send → the line carries neither the address nor the invite code → AC-6, AC-12
-- [ ] Visit `/admin/invites` with both a bound and an unbound invite listed → the address has its own column, the unbound row's cell is empty, the note column is unchanged → AC-14
-- [ ] Visit `GET /register?invite=<a live bound code>` and `GET /register?invite=nonsense` → both render the identical form, neither validates → AC-18
-- [ ] Look for a resend control anywhere on `/admin/invites` → there is none; recovering a lost message means revoke plus a fresh mint → AC-17
+- [x] Open the same link and register as `mallory@example.test` → refused with the invite only sentence, byte for byte the same page and status an unknown code gets, no account created → AC-8
+- [x] Reload `/admin/invites` after that refusal → the invite is still `live` → AC-8
+- [x] Mint with `not an address` → refused `email_invalid`, no new row in the list, no message → AC-2
+- [x] Mint with an address that already has an account → refused at 409 `address_registered`, no new row, no message → AC-3
+- [x] With the Resend key deliberately wrong so sends fail, mint with an address → the page shows the link and says the send failed, the invite is live and bound, and that link still registers that address by hand → AC-6
+- [x] Check the platform log for that failed send → the line carries neither the address nor the invite code → AC-6, AC-12
+- [x] Visit `/admin/invites` with both a bound and an unbound invite listed → the address has its own column, the unbound row's cell reads `not sent`, the note column is unchanged → AC-14
+- [x] Visit `GET /register?invite=<a live bound code>` and `GET /register?invite=nonsense` → both render the identical form, neither validates → AC-18
+- [x] Look for a resend control anywhere on `/admin/invites` → there is none; recovering a lost message means revoke plus a fresh mint → AC-17
 
 ## Commands
 
 - [ ] `curl -X POST /v1/admin/invites -d '{"note":"x","email":"Sam@Example.com"}'` with an admin cookie → 201 carrying `email` normalized to lowercase, `sent: true`, and the link → AC-15, AC-9
-- [ ] The same call with `"email":""` → 201, `email` empty, `sent: false`, no message → AC-1, AC-15
-- [ ] The same call with a malformed address → 422 `email_invalid`; with a registered address → 409 `address_registered` → AC-2, AC-3, AC-15
-- [ ] `curl GET /v1/admin/invites` → each row carries `email`, empty on the unbound ones → AC-14
-- [ ] Unset `DEPLOYER_RESEND_API_KEY`, restart, then mint with an address → 503 `mail_unavailable` and no row written; mint with an empty address → 201 → AC-7
-- [ ] Against a database holding invites minted before this deploy, including the bootstrap one, register with any valid address → it still works → AC-16
-- [ ] `sqlite3 <db> "select email from invites"` after a bound mint → the stored value is the normalized address, and no other table holds it → AC-4, AC-13
-- [ ] `sqlite3 <db> "select * from audit_log order by occurred_at desc limit 5"` after a bound mint, revoke and spend → no row carries the address; the invite id is the only link to it → AC-13
-- [ ] Post a mismatched address with a deliberately short password → the answer is the invite refusal at 403, never the password message, so the gate ran first → AC-10
-- [ ] Post mismatched registrations repeatedly from one address → the rate limit bucket is spent exactly as a refused registration spends it → AC-11
-- [ ] `grep` the platform logs after a whole bound mint and registration cycle → the raw code appears in no log line other than a bootstrap mint → AC-12
-- [ ] Roll back to the previous image against the migrated database → it reads the schema and serves invites unharmed → AC-16
+- [x] The same call with `"email":""` → 201, `email` empty, `sent: false`, no message → AC-1, AC-15
+- [x] The same call with a malformed address → 422 `email_invalid`; with a registered address → 409 `address_registered` → AC-2, AC-3, AC-15
+- [x] `curl GET /v1/admin/invites` → each row carries `email`, empty on the unbound ones → AC-14
+- [x] Unset `DEPLOYER_RESEND_API_KEY`, restart, then mint with an address → 503 `mail_unavailable` and no row written; mint with an empty address → 201 → AC-7
+- [x] Against a database holding invites minted before this deploy, including the bootstrap one, register with any valid address → it still works → AC-16
+- [x] `sqlite3 <db> "select email from invites"` after a bound mint → the stored value is the normalized address, and no other table holds it → AC-4, AC-13
+- [x] `sqlite3 <db> "select * from audit_log order by occurred_at desc limit 5"` after a bound mint, revoke and spend → no row carries the address; the invite id is the only link to it → AC-13
+- [x] Post a mismatched address with a deliberately short password → the answer is the invite refusal at 403, never the password message, so the gate ran first → AC-10
+- [x] Post mismatched registrations repeatedly from one address → the rate limit bucket is spent exactly as a refused registration spends it → AC-11
+- [x] `grep` the platform logs after a whole bound mint and registration cycle → the raw code appears in no log line other than a bootstrap mint → AC-12
+- [x] Roll back to the previous image against the migrated database → it reads the schema and serves invites unharmed → AC-16
 
 ## Acceptance-criteria coverage
 

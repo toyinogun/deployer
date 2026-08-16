@@ -31,7 +31,7 @@ Today an admin mints an invite and copies the link out of the admin page by hand
 - **AC-11**: A registration refused for a mismatched address spends the same rate limit bucket a refused registration already spends, exactly as spec 0015 AC-17 requires of a refused invite.
 - **AC-12**: A raw invite code exists in exactly three places the platform controls: the admin response that minted it, the bootstrap log line, and the one message sent to the bound address. It is still never in the database, never in another platform log line, and never in an audit row. This amends spec 0015 AC-14, which named only the first two.
 - **AC-13**: No audit row carries the bound address. The issue, revoke and spend rows keep the shape spec 0015 gave them, and the invite id is the link to the address.
-- **AC-14**: The invite list shows the bound address in its own column. An unbound invite renders that cell empty, and the note column is unchanged in meaning and content.
+- **AC-14**: The invite list shows the bound address in its own column. An unbound invite renders that cell as `not sent`, and the note column is unchanged in meaning and content.
 - **AC-15**: The JSON mint route accepts the same optional address, applies the same validation, the same refusals and the same inline send, so neither surface can mint an invite the other cannot.
 - **AC-16**: Every existing invite keeps working unchanged, including the platform's own bootstrap invite, which is unbound forever. The migration is additive and the previous binary reads the resulting schema without harm.
 - **AC-17**: There is no resend. Once the mint response is rendered the platform cannot reproduce the link, and recovering from a lost message means revoking the invite and minting a fresh one.
