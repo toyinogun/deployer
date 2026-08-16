@@ -457,14 +457,14 @@ Joining is still a developer's job even though using the platform is not. Removi
 Spec 0023 settles the row three ways it did not anticipate. Verification creates no session, so the landing cannot happen at verification time without turning a link in a mailbox into a session grant: it is the first sign in after verifying that redirects, gated by one nullable column, and a `next` deep link still outranks it. The one block is four, because named client tabs beat a generic block for the person but commit the platform to three configuration formats it does not own and which go stale silently. And the row's own token is an ordinary token throughout, which is what keeps the whole feature a new surface rather than a new credential path.
 spec [0023](../specs/0023-joining-agent-configuration/index.md) · code in `internal/web`, `internal/identity`, `internal/auth`, `internal/store` (migration `00006`)
 - [x] Design it (spec): `/architect joining`
-- [ ] Build it: `/develop joining`
+- [x] Build it: `/develop joining`
   - [x] The schema and the account fields: migration `00006`, the conditional stamp that cannot race, and both `connected_at` and `email_verified_at` threaded onto the account structs off the read `Login` already does — AC-3a, AC-4a, AC-24
-  - [ ] The thin thread end to end: both routes in the public list so they answer on the console host, the sign in redirect with `next` still winning, the stamp on first serve, and one real Claude Code block with a real token, proved by pasting it into a client and driving a deploy to healthy — AC-1, AC-2, AC-3, AC-4, AC-5, AC-8, AC-15
+  - [x] The thin thread end to end: both routes in the public list so they answer on the console host, the sign in redirect with `next` still winning, the stamp on first serve, and one real Claude Code block with a real token, proved by pasting it into a client and driving a deploy to healthy — AC-1, AC-2, AC-3, AC-4, AC-5, AC-8, AC-15
   - [x] The naming rule and the remaining clients: the dated default name with its ordinal fallback so a second mint is not refused, the other three tabs with the default selection and their placeholders, and the configuration swap test asserting every endpoint follows — AC-7, AC-9, AC-10, AC-11, AC-12, AC-16, AC-16a, AC-23
   - [x] The credential discipline: the CSRF check, the `token_mint` audit row with its client address, the tab field fallback, the refusal and internal fault paths, and the leak crawl extended over the new page — AC-17, AC-18, AC-19, AC-22
   - [x] The surface and the proof nothing else moved: tabs and copy in `app.js`, the `<noscript>` stacked fallback, the navigation link, and a token minted here listed, revoked and authenticating the deploy path with `/tokens` unchanged — AC-6, AC-13, AC-14, AC-20, AC-21
-- [ ] Verify it: `/check verify joining`
-- [ ] Test it: `/test joining`
+- [x] Verify it: `/check verify joining`
+- [x] Test it: `/test joining` — `internal/web/connect_test.go` covers the two routes, the redirect and the deep link that outranks it, the stamp and the race on it, the four blocks with their endpoint and placeholder, the mint and the second mint on the same day, the unknown tab, the missing CSRF token and the refusal; `consoleedge_test.go` and `leak_test.go` extend over the new page
 - [ ] Review it (fresh model): `/check review joining`
 - [ ] Document it: `/document joining`
 
