@@ -42,9 +42,9 @@ the mux sees a console request without any DNS involved.
 
 ### The console hostname through the tunnel, before DNS
 
-- [ ] `curl -sv --resolve console.deploy.toyintest.org:443:<a Cloudflare edge address> https://console.deploy.toyintest.org/login` → the sign in page, over a certificate the client accepts → AC-9
-- [ ] the same for `/admin/accounts` → 404, proving the split holds through the real path and not only in the mux → AC-2
-- [ ] `curl -sv --resolve <slug>.deploy.toyintest.org:443:<the same edge address> https://<slug>.deploy.toyintest.org/` → the app answers, so the wildcard route reaches `ingress-nginx` with `originServerName` accepted → AC-9, AC-9a
+- [x] `curl -sv --resolve console.deploy.toyintest.org:443:<a Cloudflare edge address> https://console.deploy.toyintest.org/login` → the sign in page, over a certificate the client accepts → AC-9 · run against real public DNS after the flip rather than with `--resolve`: `200` with `<title>Sign in · Deployer</title>` and a clean verify, and the same page rendered in a real browser through Playwright
+- [x] the same for `/admin/accounts` → 404, proving the split holds through the real path and not only in the mux → AC-2 · `404` through the edge, together with `/admin/invites`, `/mcp` and `/v1/uploads`
+- [x] `curl -sv --resolve <slug>.deploy.toyintest.org:443:<the same edge address> https://<slug>.deploy.toyintest.org/` → the app answers, so the wildcard route reaches `ingress-nginx` with `originServerName` accepted → AC-9, AC-9a · `hello-4dfssb`, `gohello-df28mf` and `verify-go-7rmxp3` each `200` through the edge
 - [ ] the same for a hostname the tunnel does not route, such as `nothing.deploy.toyintest.org` → 404 from the tunnel's catch all, not from the cluster → AC-12
 
 ### The visitor's address
@@ -112,7 +112,9 @@ still a valid policy. Only this walk can, which is the lesson spec 0019 recorded
 - [x] the same machine opens `https://<slug>.deploy.toyintest.org` → the app answers the same way → AC-14 · `hello-4dfssb`, `gohello-df28mf` and `verify-go-7rmxp3` each answer `200` with `ssl_verify=0` through the Cloudflare edge
 - [x] the same machine tries `/admin/accounts`, `/mcp` and `/v1/uploads` on the console hostname → 404 on all three → AC-2 · through the real edge after the rule order fix: `303 /`, `200 /login`, `200 /register`, `404 /admin/invites`, `404 /admin/accounts`, `404 /mcp`, `404 /v1/uploads`, and the sign in page renders no `/admin` link. These are real refusals now, not the earlier false pass where nothing reached the console at all
 - [x] the same machine tries the Kubernetes API, ArgoCD, Longhorn and the registry by every name you can think of → nothing answers: cluster administration stays on the tailnet, and the tunnel's two routes are the proof → AC-26 · `argocd`, `longhorn`, `registry`, `k8s` and `kubernetes` under the app domain all answer `404` from the default backend, and names outside the zone do not resolve
-- [ ] a deployed app reads `X-Forwarded-For` and `CF-Connecting-IP` and sees the forwarded chain unchanged, with no app manifest, no controller wide setting and no redeploy → AC-25 · blocked: none of the deployed sample apps echo request headers, so this needs an app that does
+- [x] a deployed app reads `X-Forwarded-For` and `CF-Connecting-IP` and sees the forwarded chain unchanged, with no app manifest, no controller wide setting and no redeploy → AC-25 · proved with a throwaway `traefik/whoami` app hand applied in the shape of `deploy/hello-world.yaml`, then deleted. Through the tunnel it received `CF-Connecting-IP: 77.164.220.19`, the real visitor address, and `Cf-Ipcountry: NL`, with nothing in this feature rewriting either and no controller setting added.
+
+  **Read this before trusting `X-Forwarded-For` on the tunnel path.** The same request arrived with `X-Forwarded-For: 10.42.2.29` and `X-Real-Ip: 10.42.2.29`, which is the `cloudflared` pod, not the visitor. `ingress-nginx` sets both to its own immediate peer, because `use-forwarded-headers` is deliberately not set (that is the "no controller wide setting" the criterion asks for, and setting it would change behaviour for the twelve other apps on the shared controller). The contrast is the proof: the same app hit directly on the LAN, bypassing Cloudflare, saw `X-Forwarded-For: 172.16.50.100`, the real client, because that was nginx's peer that time. So on the public path `CF-Connecting-IP` is the only header carrying the visitor, and the sentence in [deploy/AGENTS.md](../../../deploy/AGENTS.md) that says nginx "forwards what it received, so an app reads `X-Forwarded-For`" is wrong for this path and wants a `/sync` pass
 
 ## Value sourcing coverage
 
@@ -125,7 +127,7 @@ breaks if the source is wrong.
 - the rate limit bucket key → the two surface, two machine limiter steps
 - `audit_log.client_address` from a request → the sign in then read back step
 - the same from a platform initiated write → the scheduled backup run step
-- the link in a verification, reset or invite mail → register a new account after the flip and confirm the link points at `console.deploy.toyintest.org`, not the tailnet name → AC-1
+- the link in a verification, reset or invite mail → **done 2026-08-16** → AC-1 · driven with Playwright against `https://console.deploy.toyintest.org/forgot` over the public edge, which answered `Check your email`. Registration itself was not usable for this, since it is invite only and minting an invite needs an admin session. The mail that arrived carries `https://console.deploy.toyintest.org/reset?token=HBwF0kde...`, and every earlier reset in the same Gmail thread carries `https://deployer.tail62ceef.ts.net/reset?token=...`, so the switch to the derived console base URL is visible in one thread
 - the `deploy_app` upload endpoint → confirm the tool description still names the tailnet `DEPLOYER_PUBLIC_URL`, unchanged
 - whether a slug is refused → the reserved name steps
 - the session cookie's name → the `Set-Cookie` step, on both a secure and a plain HTTP deployment
