@@ -64,6 +64,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 21 | Platform backup & restore | Slice 12 | done |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | done |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
+| 24 | Publishing the deploy path | Slice 13 | planned |
 
 ## Foundations
 
@@ -455,10 +456,15 @@ Joining is still a developer's job even though using the platform is not. Removi
 **Done when:** a newly verified person lands on one page holding a ready to paste MCP client block with a token already in it, the token is minted at that moment and shown once, it appears in their token list afterwards like any other, and the page never shows a token again on a later visit.
 - [ ] Design it (spec): `/architect joining`
 
+### 24. Publishing the deploy path · needs a decision
+The MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one.
+**Done when:** an agent on a machine with no Tailscale can upload a source tarball and drive a deploy to a healthy hostname, the upload ceiling and what happens to a body the edge refuses are both settled and enforced by the platform rather than discovered at the edge, and the controls the tailnet was providing on this path are named and either held elsewhere or accepted in writing.
+- [ ] Design it (spec): `/architect publishing the deploy path`
+
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
 
-- **Publishing the deploy path**: the MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one · needs a decision
+- **Publishing the deploy path**: the MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one · promoted into feature 24
 - **App databases**: a provisioned Postgres database and role per app · needs a decision
 - **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
 - **Public exposure per app**: a real public hostname with a certificate, chosen per app. Narrowed by slice 13: the shared wildcard becomes publicly reachable there, so what is left here is an app choosing its own name rather than taking its slug · needs a decision
