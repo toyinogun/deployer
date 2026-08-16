@@ -112,10 +112,12 @@ type Clock interface{ Now() time.Time }
 
 // Options configures a Service.
 type Options struct {
-	// PublicURL is the base address a mailed link points at. It is the public one
-	// rather than the internal one because this text is handed to a person, and a
-	// person's browser cannot resolve cluster DNS.
-	PublicURL string
+	// ConsoleURL is the base address a mailed link points at. It is the console's
+	// public address rather than the internal one because this text is handed to a
+	// person, and a person's browser cannot resolve cluster DNS. Since spec 0022
+	// there are two derived public addresses and this is named for the one it
+	// takes, so wiring the deploy host in here does not compile.
+	ConsoleURL string
 	// HashConcurrency bounds simultaneous password hashes. Zero means the default.
 	HashConcurrency int
 	// Hasher overrides the password hasher. Nil means one at the parameters the
@@ -149,7 +151,7 @@ func NewService(s Store, m Mailer, c Clock, opts Options) *Service {
 		mailer:  m,
 		clock:   c,
 		hasher:  hasher,
-		baseURL: opts.PublicURL,
+		baseURL: opts.ConsoleURL,
 		limits:  NewLimiter(c, SignInSettings()),
 	}
 }

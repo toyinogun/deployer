@@ -265,8 +265,8 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 	// key derivation each time buys nothing here. The real parameters are pinned
 	// in internal/identity's own tests.
 	svc := identity.NewService(store.ForIdentity(st), box, clock, identity.Options{
-		PublicURL: testConsoleURL,
-		Hasher:    identity.NewHasherWith(2, 64, 1),
+		ConsoleURL: testConsoleURL,
+		Hasher:     identity.NewHasherWith(2, 64, 1),
 	})
 
 	h := &harness{

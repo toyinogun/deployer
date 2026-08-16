@@ -98,7 +98,7 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	svcIdentity := identity.NewService(store.ForIdentity(st), nil, ids.SystemClock{},
-		identity.Options{PublicURL: "https://deploy.example.org", Hasher: identity.NewHasherWith(2, 64, 1)})
+		identity.Options{ConsoleURL: "https://deploy.example.org", Hasher: identity.NewHasherWith(2, 64, 1)})
 	scaler := &fakeScaler{scaled: map[string]int32{}, refuse: map[string]bool{}}
 	audit := &recorder{}
 

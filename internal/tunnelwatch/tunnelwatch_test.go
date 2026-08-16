@@ -22,6 +22,18 @@ func (r *recorder) Send(_ context.Context, to, subject, _ string) error {
 	return r.err
 }
 
+// ownClient gives one test its own connection pool. Without it every watcher
+// here shares http.DefaultTransport, and httptest.Server.Close calls
+// CloseIdleConnections on that shared transport, so a parallel test shutting its
+// server down breaks another test's reused connection and reads as an outage
+// that never happened.
+func ownClient(t *testing.T) *http.Client {
+	t.Helper()
+	tr := &http.Transport{}
+	t.Cleanup(tr.CloseIdleConnections)
+	return &http.Client{Transport: tr, Timeout: checkTimeout}
+}
+
 // edge is a stand in for cloudflared's ready endpoint whose answer a test can
 // change between checks.
 func edge(t *testing.T, status *int) string {
@@ -41,7 +53,7 @@ func TestOneMailWhenItBreaksAndOneWhenItRecovers(t *testing.T) {
 	t.Parallel()
 	status := http.StatusOK
 	box := &recorder{}
-	w := New(box, Options{ReadyURL: edge(t, &status), To: "owner@example.test"})
+	w := New(box, Options{ReadyURL: edge(t, &status), To: "owner@example.test", Client: ownClient(t)})
 	if w == nil {
 		t.Fatal("the watcher is nil with a mailer, an address and an endpoint all present")
 	}
@@ -98,7 +110,7 @@ func TestTheMailNamesWhichThingBrokeAndNothingElse(t *testing.T) {
 	status := http.StatusServiceUnavailable
 	box := &recorder{}
 	url := edge(t, &status)
-	w := New(box, Options{ReadyURL: url, To: "owner@example.test"})
+	w := New(box, Options{ReadyURL: url, To: "owner@example.test", Client: ownClient(t)})
 	w.check(t.Context())
 
 	if len(box.sent) != 1 {
@@ -131,7 +143,7 @@ func TestAnUnreachableEndpointIsAnOutage(t *testing.T) {
 	box := &recorder{}
 	// Not a server that answers badly: a port with nothing on it at all, which is
 	// what the tunnel namespace looks like from here with zero connectors.
-	w := New(box, Options{ReadyURL: "http://127.0.0.1:1/ready", To: "owner@example.test"})
+	w := New(box, Options{ReadyURL: "http://127.0.0.1:1/ready", To: "owner@example.test", Client: ownClient(t)})
 	w.check(t.Context())
 	if len(box.sent) != 1 {
 		t.Fatalf("a totally unreachable edge sent %d messages, want 1: an outage nobody is told about is "+
@@ -184,7 +196,7 @@ func TestARestartCostsExactlyOneExtraMail(t *testing.T) {
 	url := edge(t, &status)
 
 	before := &recorder{}
-	w := New(before, Options{ReadyURL: url, To: "owner@example.test"})
+	w := New(before, Options{ReadyURL: url, To: "owner@example.test", Client: ownClient(t)})
 	for range 3 {
 		w.check(t.Context())
 	}
@@ -195,7 +207,7 @@ func TestARestartCostsExactlyOneExtraMail(t *testing.T) {
 	// The restart. Same endpoint, still down, nothing carried across, because
 	// nothing about the flag was ever written down.
 	after := &recorder{}
-	restarted := New(after, Options{ReadyURL: url, To: "owner@example.test"})
+	restarted := New(after, Options{ReadyURL: url, To: "owner@example.test", Client: ownClient(t)})
 	for range 5 {
 		restarted.check(t.Context())
 	}
@@ -212,7 +224,7 @@ func TestASendFailureChangesNothing(t *testing.T) {
 	t.Parallel()
 	status := http.StatusServiceUnavailable
 	box := &recorder{err: context.DeadlineExceeded}
-	w := New(box, Options{ReadyURL: edge(t, &status), To: "owner@example.test"})
+	w := New(box, Options{ReadyURL: edge(t, &status), To: "owner@example.test", Client: ownClient(t)})
 	w.check(t.Context())
 	w.check(t.Context())
 	if len(box.sent) != 1 {

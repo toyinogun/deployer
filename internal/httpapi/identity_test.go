@@ -106,7 +106,7 @@ func newIDHarness(t *testing.T, withMailer bool) *idHarness {
 		mailer = box
 	}
 	svc := identity.NewService(store.ForIdentity(st), mailer, clock, identity.Options{
-		PublicURL: "https://deploy.example.org",
+		ConsoleURL: "https://deploy.example.org",
 		// A cheap hasher. This suite signs in dozens of times, and paying the
 		// production cost each time buys nothing here while starving whatever
 		// else `go test ./...` is running beside it. The real parameters are
@@ -276,7 +276,7 @@ func TestCookieIsNotSecureOnPlainHTTP(t *testing.T) {
 	as := store.ForAuth(h.store)
 	authenticator := auth.NewAuthenticator(as, as).WithSessions(as, identity.SessionLifetime)
 	svc := identity.NewService(store.ForIdentity(h.store), h.mail, h.clock,
-		identity.Options{PublicURL: "http://localhost:8080", Hasher: identity.NewHasherWith(2, 64, 1)})
+		identity.Options{ConsoleURL: "http://localhost:8080", Hasher: identity.NewHasherWith(2, 64, 1)})
 	mux := http.NewServeMux()
 	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(h.store), svc, nil, as),
 		"http://localhost:8080", []string{"console.apps.example.org"}, true).Register(mux)

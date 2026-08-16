@@ -299,8 +299,8 @@ func TestAnExpiredInviteListsAsExpired(t *testing.T) {
 func TestBootstrapMintsOnceAndOnlyOnEmpty(t *testing.T) {
 	h := newIDHarness(t, true)
 	svc := identity.NewService(store.ForIdentity(h.store), h.mail, h.clock, identity.Options{
-		PublicURL: "https://deploy.example.org",
-		Hasher:    identity.NewHasherWith(2, 64, 1),
+		ConsoleURL: "https://deploy.example.org",
+		Hasher:     identity.NewHasherWith(2, 64, 1),
 	})
 
 	link, minted, err := svc.BootstrapInvite(t.Context())
@@ -321,8 +321,8 @@ func TestBootstrapMintsOnceAndOnlyOnEmpty(t *testing.T) {
 	fresh := newIDHarness(t, true)
 	fresh.registerAndVerify(t, "someone@example.com")
 	freshSvc := identity.NewService(store.ForIdentity(fresh.store), fresh.mail, fresh.clock, identity.Options{
-		PublicURL: "https://deploy.example.org",
-		Hasher:    identity.NewHasherWith(2, 64, 1),
+		ConsoleURL: "https://deploy.example.org",
+		Hasher:     identity.NewHasherWith(2, 64, 1),
 	})
 	if _, minted, err := freshSvc.BootstrapInvite(t.Context()); err != nil || minted {
 		t.Errorf("a database with an account minted a bootstrap invite: %v %v", minted, err)
