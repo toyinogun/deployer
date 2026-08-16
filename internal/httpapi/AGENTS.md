@@ -37,15 +37,26 @@ The MCP tool surface is `internal/mcp`, and the browser page surface is
   pattern is opt in, so a route added here is private by default and nobody has
   to remember to exclude it. That is the property to preserve: do not add a
   console host registration for a `/v1` route without reading AC-2 first.
-- `uploadAddress` passes an empty console host to `auth.ClientAddress` on
-  purpose, while `clientAddress` passes the real one. That is not an oversight.
-  `CF-Connecting-IP` is only ever trusted on the console hostname, no `/v1` route
-  is reachable there, so handing the upload path a host it can never see would
-  read as though the header might apply.
+- **The deploy host is a third pattern with the same opt in shape**, added by
+  spec 0022. `API.Register` takes an `Options` carrying `MCPHost`, registers
+  exactly `POST /v1/uploads` and `/mcp` a second time under it, and one catch all
+  answers 404 for everything else on that hostname. The two properties to keep
+  are that a route nobody registers there is absent by default (AC-2), and that
+  **`GET /v1/uploads/{id}` is deliberately not among them** (AC-4): the single use
+  fetch is what a build's init container reads over cluster DNS on
+  `DEPLOYER_INTERNAL_URL`, and it has no reason to be on the open internet.
+  `deployhost_test.go` pins both halves.
+- **The upload path and the identity path now derive the visitor's address the
+  same way.** `uploadAddress` used to pass an empty console host to
+  `auth.ClientAddress` deliberately, because no `/v1` route was reachable on the
+  only hostname the header was trusted on. Spec 0022 put `POST /v1/uploads` on a
+  public hostname of its own, so that reasoning expired with it: the function is
+  gone and every surface passes the same trusted host set, the console and the
+  deploy host (AC-13, AC-14).
 - The address derivation itself lives once, in `auth.ClientAddress`. The page
   surface and this one must derive it identically or they spend from two
   different buckets, and a limit a second surface resets is not a limit
-  (spec 0021, AC-16).
+  (spec 0021, AC-16; spec 0022, AC-14).
 - `fail` is the one place an error becomes a status, and `statusFor` is the one
   place a code becomes one, so a code cannot mean two things on two endpoints.
   **There is a second copy of `statusFor` in `internal/web/identity_pages.go`.**

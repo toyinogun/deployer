@@ -3,6 +3,18 @@
 **Date**: 2026-08-15
 **Status**: Accepted
 
+## Narrowed by spec 0022
+
+Everything below was true and was verified when this shipped. [Spec 0022](../0022-publishing-the-deploy-path/index.md) then published the deploy path, which narrowed seven specific points here. The body is left as written, because it records what was decided and checked on 2026-08-15. Read these first, then read the body as history:
+
+- **The deploy path no longer stays on the tailnet.** The Summary, the route group table and AC-3 all say the MCP endpoint and the tarball upload are reachable only on the tailnet name. They moved to a third public hostname, and after the cutover both answer 404 on the tailnet (0022, AC-2 and AC-5). The admin pages did **not** move: AC-26 and the "administering means the tailnet name" consequence still hold.
+- **`DEPLOYER_PUBLIC_URL` is gone.** AC-3 is keyed off it. Spec 0022 removed the variable outright, and a boot that still sets it now fails naming it (0022, AC-9).
+- **The tunnel routes three hostnames, not two.** Both the invariant and the traffic path table say two. The deploy host is the third, pointed straight at the `deployer` Service like the console, and listed above the wildcard for the shadowing reason this spec already gives (0022, AC-6).
+- **`CF-Connecting-IP` is read on two hostnames, not exactly one.** The invariant says one. It is the console and the deploy host, and `auth.ClientAddress` takes the trusted set rather than a single host (0022, AC-13). What makes it safe is unchanged: each origin is the Service directly, so network policy names the peers. The second hostname added no peer (0022, AC-22).
+- **`deploy_app`'s upload endpoint is derived.** The interface table points it at `DEPLOYER_PUBLIC_URL`. It now comes from `DEPLOYER_MCP_HOST`, and the ceiling it states follows the configured value (0022, AC-10).
+- **The session cookie's `Secure` flag follows the console.** The table derives it from `DEPLOYER_PUBLIC_URL`'s scheme. The cookie belongs to the console surface, so it follows `ConsoleURL` (0022, AC-9).
+- **AC-21's accepted origin set is now a comparison, not a pair.** This spec made it the console origin plus the one from `DEPLOYER_PUBLIC_URL`. Removing that variable left a set of one, which refused every post on the tailnet name and made the admin surface unreachable, since admin is 404 on the console. A post is now accepted from the console's configured origin or from the name it was itself addressed to, so every name the bare pattern serves works without being configured. `AC-21a` is untouched: the `__Host-` nonce cookie still scopes a token to one hostname. See `acceptedOrigin` in `internal/web/csrf.go`.
+
 ## Summary
 
 Everything the platform serves is reachable today only from your tailnet or your LAN. This opens two of those surfaces to the open internet and leaves the rest where they are. A Cloudflare Tunnel (a small process in the cluster that dials out to Cloudflare, so no port is ever opened on your router) carries the app wildcard and a new console hostname, `console.<app domain>`. App traffic goes on through `ingress-nginx` as it does today; console traffic goes straight to the control plane Service, so the tunnel is the only thing that can reach it and network policy can say so. The MCP endpoint, the tarball upload, and every admin page stay on the tailnet, refused on the console hostname by the router itself. Behind a proxy the platform can no longer see who is calling, so the visitor's real address is read from Cloudflare's own header, keyed into the rate limiter, and written to a new nullable column on `audit_log` that a daily sweep clears after the retention window.

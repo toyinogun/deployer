@@ -62,12 +62,16 @@ cookie and a header is the job, but only to read a request, never to serve one.
 - **`ClientAddress` is one function on purpose.** Both surfaces that rate limit
   call it, because a limit one of them spends from a different bucket is not a
   limit. A second copy is how that property is lost.
-- **`CF-Connecting-IP` is read on the console host and nowhere else**, and what
-  makes that safe is the path rather than the header: the console origin is the
-  control plane Service directly, so network policy can name the only pods that
-  may reach it. Move the console behind the shared ingress controller and the
-  header becomes writable from most of the cluster, with nothing in this package
-  or the suite noticing.
+- **`CF-Connecting-IP` is read on the platform's public hostnames and nowhere
+  else**, and what makes that safe is the path rather than the header: each
+  public origin is the control plane Service directly, so network policy can name
+  the only pods that may reach it. Move one behind the shared ingress controller
+  and the header becomes writable from most of the cluster, with nothing in this
+  package or the suite noticing. Since spec 0022 that set is two names, the
+  console and the deploy host, so `ClientAddress` takes the trusted hosts as a
+  variadic set rather than a single host (AC-13). Every surface passes the same
+  set: the upload route, the MCP endpoint and the pages derive one address per
+  visitor and spend from one bucket rather than three (AC-14).
 - **Both shapes of "more than one value" are refused**, and the two checks are
   not redundant. Repeated headers arrive as several entries from `Values`, and
   one header carrying `a, b` arrives as a single entry with a comma in it,
