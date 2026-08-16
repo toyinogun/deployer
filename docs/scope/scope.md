@@ -461,12 +461,12 @@ The MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an
 **Done when:** an agent on a machine with no Tailscale can upload a source tarball and drive a deploy to a healthy hostname, the upload ceiling and what happens to a body the edge refuses are both settled and enforced by the platform rather than discovered at the edge, and the controls the tailnet was providing on this path are named and either held elsewhere or accepted in writing.
 spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `internal/config`, `internal/httpapi`, `internal/mcp`, `internal/auth`, `internal/identity`, `internal/domain`, `internal/store`, `internal/uploads`, `internal/web`, `cmd/deployer`, `deploy/` (the `cloudflared` ConfigMap), plus one DNS record
 - [x] Design it (spec): `/architect publishing the deploy path`
-- [ ] Build it: `/develop publishing the deploy path`
+- [x] Build it: `/develop publishing the deploy path`
   - [x] The name and the route: `DEPLOYER_MCP_HOST` with its validation and derived URL, the four `DEPLOYER_PUBLIC_URL` consumers each given a replacement, the host qualified registrations with their catch all, and the tunnel rule listed above the wildcard — AC-2, AC-3, AC-4, AC-6, AC-7, AC-8, AC-9, AC-10, AC-22
-  - [ ] One real deploy through the public hostname, from a machine with no Tailscale, before any bound is thickened — AC-1
+  - [x] One real deploy through the public hostname, from a machine with no Tailscale, before any bound is thickened — AC-1
   - [x] The ceiling and the visitor: the 90 MB default so the platform always refuses before Cloudflare does, and `CF-Connecting-IP` trusted on both origins that bypass `ingress-nginx` — AC-11, AC-12, AC-13, AC-14
   - [x] The controls the tailnet was providing: the deploy path limiter with its own numbers, the bad token lockout inside the authenticator with its two reason codes, the unclaimed upload cap, the expiry sweep, and the corrected limiter reasoning — AC-15, AC-16, AC-17, AC-18, AC-19, AC-23
-  - [ ] The flip, last and alone: every tool timed against the 125 second edge bound, then the tailnet registrations removed in their own commit — AC-5, AC-20, AC-21
+  - [x] The flip, last and alone: every tool timed against the 125 second edge bound, then the tailnet registrations removed in their own commit — AC-5, AC-20, AC-21
 - [ ] Verify it: `/check verify publishing the deploy path`
 - [ ] Test it: `/test publishing the deploy path`
 - [ ] Review it (fresh model): `/check review publishing the deploy path`
