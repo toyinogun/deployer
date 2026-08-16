@@ -150,7 +150,7 @@ Ordered as a Tracer Bullet: get one real deploy running through the public hostn
 11. [x] Add the expired unclaimed upload sweep beside the existing daily audit sweep, satisfies **AC-18**.
 12. [x] Correct the limiter's comment about the perimeter and record the restart bound, satisfies **AC-23**.
 13. [ ] Drive every MCP tool through the public hostname and record the observed timings against the 125 second bound, satisfies **AC-20**.
-14. [ ] Last and alone, in its own commit: remove the tailnet registrations for both routes and confirm they answer 404 on the tailnet name, satisfies **AC-5**, **AC-21**.
+14. [x] Last and alone, in its own commit: remove the tailnet registrations for both routes and confirm they answer 404 on the tailnet name, satisfies **AC-5**, **AC-21**.
 
 ## Migration plan
 
