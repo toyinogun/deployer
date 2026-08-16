@@ -52,16 +52,18 @@ func TestTheSessionCookieDropsThePrefixOverPlainHTTP(t *testing.T) {
 	if got := auth.SessionCookieName(true); got != auth.SessionCookieSecure {
 		t.Errorf("over HTTPS the cookie is named %q, want %q", got, auth.SessionCookieSecure)
 	}
-	// Both names resolve, because only one of the two is ever written and the
-	// reader does not hold the platform's scheme.
-	for _, name := range []string{auth.SessionCookieSecure, auth.SessionCookiePlain} {
+	// Each scheme resolves its own name and not the other one. This used to
+	// assert that both names resolved either way, which is what let a pre rename
+	// cookie keep authenticating and let a sibling app plant a parent scoped one.
+	// The cases live in internal/auth/session_test.go, beside the read itself.
+	for _, secure := range []bool{true, false} {
 		req, err := http.NewRequest(http.MethodGet, "http://example.test/", nil)
 		if err != nil {
 			t.Fatalf("building a request: %v", err)
 		}
-		req.AddCookie(&http.Cookie{Name: name, Value: "the-session"})
-		if got := auth.SessionID(req); got != "the-session" {
-			t.Errorf("a %s cookie resolved to %q, want the session id", name, got)
+		req.AddCookie(&http.Cookie{Name: auth.SessionCookieName(secure), Value: "the-session"})
+		if got := auth.SessionID(req, secure); got != "the-session" {
+			t.Errorf("with secure=%t the cookie resolved to %q, want the session id", secure, got)
 		}
 	}
 }
