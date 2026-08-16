@@ -183,6 +183,9 @@ func (s *Server) Register(mux *http.ServeMux) {
 		{"GET /apps/{slug}/config", http.HandlerFunc(s.configPage)},
 		{"POST /apps/{slug}/config/{key}/reveal", http.HandlerFunc(s.configReveal)},
 
+		{"GET /connect", http.HandlerFunc(s.connectPage)},
+		{"POST /connect", http.HandlerFunc(s.connectMint)},
+
 		{"GET /tokens", http.HandlerFunc(s.tokensPage)},
 		{"POST /tokens", http.HandlerFunc(s.tokenMint)},
 		{"POST /tokens/{id}/revoke", http.HandlerFunc(s.tokenRevoke)},
