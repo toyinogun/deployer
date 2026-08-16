@@ -58,18 +58,26 @@ func New(a *auth.Authenticator, auditor auth.Auditor, u *uploads.Service,
 // because the two share a hostname and a bearer token.
 //
 // Registration under the deploy host is opt in, exactly as it is for the console
-// in internal/web: each route that answers there is registered a second time
-// under the deploy host pattern, and one catch all answers 404 for the rest. A
-// route added to this mux later is absent from the deploy host until somebody
-// registers it there, so the direction this fails in is the private one
-// (spec 0022, AC-2).
+// in internal/web: each route that answers there is registered under the deploy
+// host pattern, and one catch all answers 404 for the rest. A route added to
+// this mux later is absent from the deploy host until somebody registers it
+// there, so the direction this fails in is the private one (spec 0022, AC-2).
 //
-// GET /v1/uploads/{id} is deliberately not among them. It is the single use
-// fetch a build's init container reads over cluster DNS, so it stays on the
-// default pattern and is never reachable from the internet (AC-4).
+// The deploy routes are registered on that pattern and on no other. They used to
+// be registered on the default pattern too, which is what the tailnet name
+// reaches, and spec 0022's last step retired that half once a real deploy had
+// run through the public one (AC-5, AC-21). So an empty MCPHost now leaves the
+// deploy path served nowhere rather than served on the tailnet. That is the safe
+// direction, and it cannot happen on a real boot: internal/config requires
+// DEPLOYER_MCP_HOST, so only a test constructs an API without one.
+//
+// GET /v1/uploads/{id} is deliberately not among them, and it is the one route
+// that must stay on the default pattern. It is the single use fetch a build's
+// init container reads over cluster DNS, which knows no public name, so it stays
+// off the deploy host and off the internet (AC-4).
 func (a *API) Register(mux *http.ServeMux, mcpHandler http.Handler) {
-	// public is every route the deploy host serves. Each is registered on both
-	// patterns by the loop below.
+	// public is every route the deploy host serves, and the deploy host is the
+	// only place they answer.
 	public := []struct {
 		pattern string
 		handler http.Handler
@@ -78,13 +86,10 @@ func (a *API) Register(mux *http.ServeMux, mcpHandler http.Handler) {
 		{"/mcp", mcpHandler},
 	}
 	for _, route := range public {
-		if route.handler == nil {
+		if route.handler == nil || a.opts.MCPHost == "" {
 			continue
 		}
-		mux.Handle(route.pattern, route.handler)
-		if a.opts.MCPHost != "" {
-			mux.Handle(withHost(route.pattern, a.opts.MCPHost), route.handler)
-		}
+		mux.Handle(withHost(route.pattern, a.opts.MCPHost), route.handler)
 	}
 	mux.HandleFunc("GET /v1/uploads/{id}", a.fetchUpload)
 
