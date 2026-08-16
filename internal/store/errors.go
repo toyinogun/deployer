@@ -68,6 +68,10 @@ var (
 	// ErrUploadRedeemed means the single use fetch token was already spent.
 	ErrUploadRedeemed = errors.New("store: upload already redeemed")
 
+	// ErrUploadLimit means the account already holds as many uploads that no
+	// deploy has claimed as it may. Nothing was written (spec 0022, AC-17).
+	ErrUploadLimit = errors.New("store: unclaimed upload limit reached")
+
 	// ErrInvalidKey means a configuration key does not match the platform's
 	// naming rule.
 	ErrInvalidKey = errors.New("store: invalid configuration key")

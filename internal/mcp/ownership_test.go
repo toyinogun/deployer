@@ -72,7 +72,7 @@ func newCappedHarness(t *testing.T, cap int) *ownershipHarness {
 
 	as := store.ForAuth(st)
 	authenticator := auth.NewAuthenticator(as, as).WithSessions(as, identity.SessionLifetime)
-	uploadSvc := uploads.NewService(store.ForUploads(st), filepath.Join(dir, "uploads"), 4096, nil)
+	uploadSvc := uploads.NewService(store.ForUploads(st), filepath.Join(dir, "uploads"), 4096, 0, nil)
 
 	h := &ownershipHarness{store: st, auth: authenticator, auditor: as, uploadSvc: uploadSvc}
 	h.recap(t, cap)
@@ -91,9 +91,20 @@ func (h *ownershipHarness) recap(t *testing.T, cap int) {
 	}
 	tools := mcp.New(h.auth, h.auditor, store.ForMCPApps(h.store), store.ForMCPDeployments(h.store),
 		forTool{svc: h.uploadSvc}, nil, acceptingCluster{}, mcp.Options{
-			PublicURL:         "https://deploy.example.org",
+			MCPURL:            "https://deploy.example.org",
 			AppDomain:         "apps.example.org",
 			MaxAppsPerAccount: cap,
+			// A bucket far wider than the real one. These tests open a fresh MCP
+			// session per case from one address, and the deploy path's real
+			// capacity is sized for an agent rather than for a suite
+			// (spec 0022, AC-15).
+			Limiter: identity.NewLimiter(ids.SystemClock{}, identity.Settings{
+				BucketCapacity:        1 << 20,
+				BucketRefill:          time.Second,
+				FailuresBeforeLockout: 1 << 20,
+				LockoutBase:           time.Second,
+				LockoutCeiling:        time.Second,
+			}),
 		})
 	h.server = httptest.NewServer(tools.Handler())
 	t.Cleanup(h.server.Close)
@@ -211,7 +222,7 @@ func (h *ownershipHarness) upload(t *testing.T, who person) string {
 		SHA256:         "sha-" + who.account.ID,
 		FetchTokenHash: identity.HashSecret(fresh),
 		ExpiresAt:      ids.Stamp(ids.SystemClock{}.Now().Add(time.Hour)),
-	})
+	}, 0)
 	if createErr != nil {
 		t.Fatalf("creating an upload: %v", createErr)
 	}

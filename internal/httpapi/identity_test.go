@@ -116,7 +116,7 @@ func newIDHarness(t *testing.T, withMailer bool) *idHarness {
 
 	mux := http.NewServeMux()
 	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(st), svc, nil, as),
-		"https://deploy.example.org", "console.apps.example.org", withMailer).Register(mux)
+		"https://console.apps.example.org", []string{"console.apps.example.org"}, withMailer).Register(mux)
 	return &idHarness{mux: mux, store: st, mail: box, clock: clock}
 }
 
@@ -259,7 +259,7 @@ func TestTheThinThread(t *testing.T) {
 	// The token actually authenticates on the machine route, which is the whole
 	// point of minting one.
 	as := store.ForAuth(h.store)
-	who, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token)
+	who, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token, "")
 	if err != nil {
 		t.Fatalf("the minted token did not authenticate: %v", err)
 	}
@@ -279,7 +279,7 @@ func TestCookieIsNotSecureOnPlainHTTP(t *testing.T) {
 		identity.Options{PublicURL: "http://localhost:8080", Hasher: identity.NewHasherWith(2, 64, 1)})
 	mux := http.NewServeMux()
 	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(h.store), svc, nil, as),
-		"http://localhost:8080", "console.apps.example.org", true).Register(mux)
+		"http://localhost:8080", []string{"console.apps.example.org"}, true).Register(mux)
 	h.mux = mux
 
 	cookie := h.registerAndVerify(t, "a@example.com")
@@ -538,7 +538,7 @@ func TestBootstrapAccountCannotBeSignedInTo(t *testing.T) {
 	}
 	// And its token still works, which is the whole point of leaving it alone.
 	as := store.ForAuth(h.store)
-	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), goodToken); err != nil {
+	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), goodToken, ""); err != nil {
 		t.Errorf("the bootstrap token stopped working: %v", err)
 	}
 }
@@ -620,7 +620,7 @@ func TestUnverifiedAccountCannotMintOrAuthenticate(t *testing.T) {
 	}
 
 	as := store.ForAuth(h.store)
-	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token); err == nil {
+	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token, ""); err == nil {
 		t.Error("an unverified account's token still authenticated on the machine route")
 	}
 	// The person route refuses too, and says which refusal it is, because the
@@ -636,7 +636,7 @@ func TestUnverifiedAccountCannotMintOrAuthenticate(t *testing.T) {
 	}
 
 	// And the bootstrap account, which holds no address, stays exempt.
-	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), goodToken); err != nil {
+	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), goodToken, ""); err != nil {
 		t.Errorf("the bootstrap token was caught by the verified gate: %v", err)
 	}
 }
@@ -679,7 +679,7 @@ func TestTokensAreScopedToTheirOwner(t *testing.T) {
 		t.Fatalf("revoking my own token: got %d", got.Code)
 	}
 	as := store.ForAuth(h.store)
-	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token); err == nil {
+	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token, ""); err == nil {
 		t.Error("a revoked token still authenticated")
 	}
 }
@@ -762,7 +762,7 @@ func TestAdminDisablesAndRevokes(t *testing.T) {
 		t.Fatalf("revoking another account's token: got %d %s", got.Code, got.Body)
 	}
 	as := store.ForAuth(h.store)
-	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token); err == nil {
+	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), minted.Token, ""); err == nil {
 		t.Error("the revoked token still authenticated")
 	}
 
@@ -949,7 +949,7 @@ func TestNoMailerRefusesOnlyTheMailEndpoints(t *testing.T) {
 
 	// The machine route is untouched.
 	as := store.ForAuth(h.store)
-	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), goodToken); err != nil {
+	if _, err := auth.NewAuthenticator(as, as).Authenticate(t.Context(), goodToken, ""); err != nil {
 		t.Errorf("the bootstrap token stopped working with no mailer: %v", err)
 	}
 }

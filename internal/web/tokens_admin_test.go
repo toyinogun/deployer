@@ -154,7 +154,7 @@ func TestRevokingYourOwnTokenStopsItAuthenticating(t *testing.T) {
 	if rec.Code != http.StatusSeeOther {
 		t.Fatalf("revoking: got %d, want 303", rec.Code)
 	}
-	if _, err := h.srv.auth.Authenticate(t.Context(), minted.Raw); err == nil {
+	if _, err := h.srv.auth.Authenticate(t.Context(), minted.Raw, ""); err == nil {
 		t.Error("the revoked token still authenticates")
 	}
 	row, ok := h.audit.last(auth.ActionTokenRevoke)
@@ -292,7 +292,7 @@ func TestAdminRevokesAnotherAccountsToken(t *testing.T) {
 	if wrongPair.Code != http.StatusNotFound {
 		t.Errorf("a mismatched account and token: got %d, want 404", wrongPair.Code)
 	}
-	if _, err := h.srv.auth.Authenticate(t.Context(), minted.Raw); err != nil {
+	if _, err := h.srv.auth.Authenticate(t.Context(), minted.Raw, ""); err != nil {
 		t.Error("a mismatched pair revoked the token anyway")
 	}
 
@@ -301,7 +301,7 @@ func TestAdminRevokesAnotherAccountsToken(t *testing.T) {
 	if right.Code != http.StatusSeeOther {
 		t.Fatalf("revoking: got %d, want 303: %s", right.Code, right.Body)
 	}
-	if _, err := h.srv.auth.Authenticate(t.Context(), minted.Raw); err == nil {
+	if _, err := h.srv.auth.Authenticate(t.Context(), minted.Raw, ""); err == nil {
 		t.Error("the revoked token still authenticates")
 	}
 	row, ok := h.audit.last(auth.ActionAdmin)

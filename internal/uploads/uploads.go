@@ -47,6 +47,12 @@ var (
 
 	// ErrRedeemed means the single use fetch token was already spent.
 	ErrRedeemed = errors.New("uploads: already redeemed")
+
+	// ErrTooManyUnclaimed means the account already holds as many uploads that
+	// no deploy has claimed as it may. It bounds what one valid token can cost
+	// the volume, which is a bound the tailnet used to provide by keeping the
+	// endpoint unreachable (spec 0022, AC-17).
+	ErrTooManyUnclaimed = errors.New("uploads: too many unclaimed uploads")
 )
 
 // Upload is one recorded tarball, carrying only what this package and its
@@ -74,11 +80,30 @@ type New struct {
 	ExpiresAt      string
 }
 
+// Sweepable is one expired upload nothing references: the row to delete and the
+// file that goes with it.
+type Sweepable struct {
+	ID   string
+	Path string
+}
+
 // Store is the slice of persistence this package needs. internal/store
 // satisfies it through the adapter in that package.
 type Store interface {
-	// CreateUpload records a tarball and the token a build will present for it.
-	CreateUpload(ctx context.Context, u New) (Upload, error)
+	// CreateUpload records a tarball and the token a build will present for it,
+	// refusing one that would take the account past limit unclaimed uploads with
+	// ErrTooManyUnclaimed. The count and the insert are one transaction, so the
+	// cap cannot be raced.
+	CreateUpload(ctx context.Context, u New, limit int) (Upload, error)
+	// CountUnclaimed is how many unexpired uploads the account holds that no
+	// deploy has claimed. It answers the same question CreateUpload asks inside
+	// its transaction, and exists so the refusal can happen before a byte
+	// reaches the volume rather than after (spec 0022, AC-17).
+	CountUnclaimed(ctx context.Context, accountID string) (int, error)
+	// ListSweepable reads the expired uploads no deployment references.
+	ListSweepable(ctx context.Context) ([]Sweepable, error)
+	// DeleteRow removes one upload row.
+	DeleteRow(ctx context.Context, id string) error
 	// GetUpload reads one upload, or ErrNotFound.
 	GetUpload(ctx context.Context, id string) (Upload, error)
 	// RedeemUpload spends a fetch token, once, returning ErrRedeemed, ErrExpired,
@@ -95,15 +120,19 @@ type Service struct {
 	store    Store
 	dir      string
 	maxBytes int64
-	clock    ids.Clock
+	// maxUnclaimed is how many uploads one account may hold that no deploy has
+	// claimed. Zero or less means no cap.
+	maxUnclaimed int
+	clock        ids.Clock
 }
 
-// NewService returns a service writing into dir, refusing bodies over maxBytes.
-func NewService(s Store, dir string, maxBytes int64, clock ids.Clock) *Service {
+// NewService returns a service writing into dir, refusing bodies over maxBytes
+// and accounts already holding maxUnclaimed uploads no deploy has claimed.
+func NewService(s Store, dir string, maxBytes int64, maxUnclaimed int, clock ids.Clock) *Service {
 	if clock == nil {
 		clock = ids.SystemClock{}
 	}
-	return &Service{store: s, dir: dir, maxBytes: maxBytes, clock: clock}
+	return &Service{store: s, dir: dir, maxBytes: maxBytes, maxUnclaimed: maxUnclaimed, clock: clock}
 }
 
 // Accept streams body onto the upload volume, hashing and measuring it on the
@@ -114,6 +143,20 @@ func NewService(s Store, dir string, maxBytes int64, clock ids.Clock) *Service {
 // a write. The body stops being read one byte past the cap, so an oversized or
 // endless body costs one byte more than the limit rather than a full volume.
 func (s *Service) Accept(ctx context.Context, accountID string, body io.Reader) (Upload, error) {
+	// The cap, asked before anything is written, so a refused upload costs the
+	// volume nothing at all. It is not the guard: CreateUpload asks the same
+	// question inside the transaction that inserts the row, which is what makes
+	// the cap exact under two racing uploads. This one only makes the ordinary
+	// refusal cheap (spec 0022, AC-17).
+	if s.maxUnclaimed > 0 {
+		held, err := s.store.CountUnclaimed(ctx, accountID)
+		if err != nil {
+			return Upload{}, err
+		}
+		if held >= s.maxUnclaimed {
+			return Upload{}, ErrTooManyUnclaimed
+		}
+	}
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return Upload{}, fmt.Errorf("uploads: preparing %s: %w", s.dir, err)
 	}
@@ -145,7 +188,7 @@ func (s *Service) Accept(ctx context.Context, accountID string, body io.Reader) 
 		SHA256:         sum,
 		FetchTokenHash: hex.EncodeToString(placeholder[:]),
 		ExpiresAt:      ids.Stamp(now.Add(Window)),
-	})
+	}, s.maxUnclaimed)
 	if err != nil {
 		s.discard(ctx, path)
 		return Upload{}, err
@@ -272,4 +315,34 @@ func (s *Service) MintFetchToken(ctx context.Context, uploadID string) (string, 
 // Get reads one upload.
 func (s *Service) Get(ctx context.Context, id string) (Upload, error) {
 	return s.store.GetUpload(ctx, id)
+}
+
+// Sweep removes every expired upload no deployment references, the file and the
+// row together, and reports how many it took.
+//
+// An upload a deployment still names is left alone, so deploy history stays
+// intact: the row carries the source a release was built from and deleting it is
+// what ON DELETE RESTRICT is there to refuse. The query excludes those rather
+// than the sweep discovering them by error (spec 0022, AC-18).
+//
+// The file goes before the row. A row whose file is already gone is a case the
+// fetch path handles and answers as expired, while a file whose row is gone is a
+// leak nothing would ever find again, so the order that fails safely is this one.
+func (s *Service) Sweep(ctx context.Context) (int, error) {
+	rows, err := s.store.ListSweepable(ctx)
+	if err != nil {
+		return 0, err
+	}
+	swept := 0
+	for _, row := range rows {
+		s.discard(ctx, row.Path)
+		if err := s.store.DeleteRow(ctx, row.ID); err != nil {
+			// One row that will not delete must not stop the rest. The next
+			// sweep sees it again, and its file is already gone.
+			slog.ErrorContext(ctx, "deleting a swept upload row failed", "error", err, "upload", row.ID)
+			continue
+		}
+		swept++
+	}
+	return swept, nil
 }

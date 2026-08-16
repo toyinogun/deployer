@@ -31,27 +31,105 @@ type NewUpload struct {
 }
 
 // CreateUpload records an uploaded tarball and the single use token a build will
-// present to fetch it.
-func (s *Store) CreateUpload(ctx context.Context, u NewUpload) (Upload, error) {
+// present to fetch it, refusing one that would take the account past limit
+// unclaimed uploads.
+//
+// The count and the insert are one transaction, in the same shape CreateApp uses
+// for the per account app cap: inTx opens with BEGIN IMMEDIATE, so the write lock
+// is already held when the count runs and two racing uploads cannot both pass the
+// cap. That also means any future caller reaches the cap by using this method
+// rather than by repeating the check (spec 0022, AC-17).
+//
+// A limit of zero or less means no cap, which is what a caller that has no
+// business enforcing one passes.
+func (s *Store) CreateUpload(ctx context.Context, u NewUpload, limit int) (Upload, error) {
 	now := s.now()
 	if u.ID == "" {
 		u.ID = ids.New(ids.Upload, s.clock.Now())
 	}
-	up, err := s.q.CreateUpload(ctx, sqlcgen.CreateUploadParams{
-		ID:             u.ID,
-		AccountID:      u.AccountID,
-		Path:           u.Path,
-		SizeBytes:      u.SizeBytes,
-		Sha256:         u.SHA256,
-		FetchTokenHash: u.FetchTokenHash,
-		ExpiresAt:      u.ExpiresAt,
-		CreatedAt:      now,
-		UpdatedAt:      now,
+	var created Upload
+	err := s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		if limit > 0 {
+			held, err := q.CountUnclaimedUploads(ctx, sqlcgen.CountUnclaimedUploadsParams{
+				AccountID: u.AccountID,
+				Now:       now,
+			})
+			if err != nil {
+				return fmt.Errorf("store: counting unclaimed uploads for account %s: %w", u.AccountID, err)
+			}
+			if held >= int64(limit) {
+				return ErrUploadLimit
+			}
+		}
+		up, err := q.CreateUpload(ctx, sqlcgen.CreateUploadParams{
+			ID:             u.ID,
+			AccountID:      u.AccountID,
+			Path:           u.Path,
+			SizeBytes:      u.SizeBytes,
+			Sha256:         u.SHA256,
+			FetchTokenHash: u.FetchTokenHash,
+			ExpiresAt:      u.ExpiresAt,
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		})
+		if err != nil {
+			return fmt.Errorf("store: recording upload: %w", err)
+		}
+		created = up
+		return nil
 	})
 	if err != nil {
-		return Upload{}, fmt.Errorf("store: recording upload: %w", err)
+		return Upload{}, err
 	}
-	return up, nil
+	return created, nil
+}
+
+// CountUnclaimedUploads is how many unexpired uploads the account holds that no
+// deploy has claimed. It answers the same question CreateUpload asks inside its
+// transaction, for a caller that wants to refuse before it spends the volume.
+func (s *Store) CountUnclaimedUploads(ctx context.Context, accountID string) (int, error) {
+	n, err := s.q.CountUnclaimedUploads(ctx, sqlcgen.CountUnclaimedUploadsParams{
+		AccountID: accountID,
+		Now:       s.now(),
+	})
+	if err != nil {
+		return 0, fmt.Errorf("store: counting unclaimed uploads for account %s: %w", accountID, err)
+	}
+	return int(n), nil
+}
+
+// SweepableUpload is one expired upload no deployment references: the row to
+// delete and the file that goes with it.
+type SweepableUpload struct {
+	ID   string
+	Path string
+}
+
+// ListSweepableUploads reads the expired uploads nothing still references. The
+// caller removes each file and then calls DeleteUpload, so the row outlives the
+// file rather than the other way round: a row with no file is already a handled
+// case on the fetch path, and a file with no row is a leak nothing would ever
+// find (spec 0022, AC-18).
+func (s *Store) ListSweepableUploads(ctx context.Context) ([]SweepableUpload, error) {
+	rows, err := s.q.ListSweepableUploads(ctx, s.now())
+	if err != nil {
+		return nil, fmt.Errorf("store: listing sweepable uploads: %w", err)
+	}
+	out := make([]SweepableUpload, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SweepableUpload{ID: r.ID, Path: r.Path})
+	}
+	return out, nil
+}
+
+// DeleteUpload removes one upload row. A row a deployment still names is
+// protected by ON DELETE RESTRICT and is never handed here, because
+// ListSweepableUploads excludes it.
+func (s *Store) DeleteUpload(ctx context.Context, id string) error {
+	if _, err := s.q.DeleteUpload(ctx, id); err != nil {
+		return fmt.Errorf("store: deleting upload %s: %w", id, err)
+	}
+	return nil
 }
 
 // GetUpload reads one upload.

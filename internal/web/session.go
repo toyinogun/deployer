@@ -115,9 +115,9 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 }
 
 // clientAddress is who a rate limit bucket belongs to and whose address an audit
-// row records. It is auth.ClientAddress with this surface's console host filled
-// in: the derivation itself lives in one place, so the page surface and the JSON
-// surface cannot spend from two different buckets (spec 0021, AC-16).
+// row records. It is auth.ClientAddress with the platform's public hosts filled
+// in: the derivation itself lives in one place, so no two surfaces can spend
+// from two different buckets (spec 0021, AC-16; spec 0022, AC-14).
 func (s *Server) clientAddress(r *http.Request) string {
-	return auth.ClientAddress(r, s.opts.ConsoleHost)
+	return auth.ClientAddress(r, s.opts.TrustedHosts...)
 }

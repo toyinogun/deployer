@@ -73,26 +73,27 @@ func tunnelConfig(t *testing.T) struct {
 	return out
 }
 
-// AC-12: exactly two hostnames and a catch all that refuses. No other name
-// reaches the cluster through this tunnel, and anything that becomes public is a
-// deliberate edit to a reviewed file.
-func TestTheTunnelRoutesExactlyTwoHostnames(t *testing.T) {
+// Spec 0021 AC-12, and spec 0022 AC-7: exactly three hostnames and a catch all
+// that refuses. No other name reaches the cluster through this tunnel, and
+// anything that becomes public is a deliberate edit to a reviewed file. Adding
+// the deploy host made nothing else public, and this count is what says so.
+func TestTheTunnelRoutesExactlyThreeHostnames(t *testing.T) {
 	cfg := tunnelConfig(t)
-	if len(cfg.Ingress) != 3 {
-		t.Fatalf("the tunnel carries %d rules, want exactly 3 (the apps, the console, the catch all)",
+	if len(cfg.Ingress) != 4 {
+		t.Fatalf("the tunnel carries %d rules, want exactly 4 (the apps, the console, the deploy host, the catch all)",
 			len(cfg.Ingress))
 	}
 
 	var named int
-	for i, rule := range cfg.Ingress[:2] {
+	for i, rule := range cfg.Ingress[:len(cfg.Ingress)-1] {
 		if rule.Hostname == "" {
 			t.Errorf("rule[%d] names no hostname, so it catches everything before the rules after it", i)
 			continue
 		}
 		named++
 	}
-	if named != 2 {
-		t.Errorf("the tunnel names %d hostnames, want 2", named)
+	if named != 3 {
+		t.Errorf("the tunnel names %d hostnames, want 3", named)
 	}
 
 	// The catch all is last and refuses. cloudflared requires a final rule with
@@ -108,27 +109,59 @@ func TestTheTunnelRoutesExactlyTwoHostnames(t *testing.T) {
 	}
 }
 
-// tunnelRules returns the app wildcard rule and the console rule, found by shape
-// rather than by position. Position is exactly what this file got wrong once, and
-// reading the rules by index is what let every assertion here agree with a broken
-// order: see TestNoTunnelRuleIsShadowedByAnEarlierOne.
-func tunnelRules(t *testing.T) (apps, console tunnelIngress) {
+// tunnelRules returns the app wildcard rule and every named rule keyed by its
+// hostname, found by shape and by name rather than by position. Position is
+// exactly what this file got wrong once, and reading the rules by index is what
+// let every assertion here agree with a broken order: see
+// TestNoTunnelRuleIsShadowedByAnEarlierOne. Since spec 0022 there are two named
+// rules rather than one, which is the other reason a positional read is no
+// longer even close to safe.
+func tunnelRules(t *testing.T) (apps tunnelIngress, named map[string]tunnelIngress) {
 	t.Helper()
+	named = map[string]tunnelIngress{}
 	for _, rule := range tunnelConfig(t).Ingress {
 		switch {
 		case strings.HasPrefix(rule.Hostname, "*."):
 			apps = rule
 		case rule.Hostname != "":
-			console = rule
+			named[rule.Hostname] = rule
 		}
 	}
 	if apps.Hostname == "" {
 		t.Fatal("no rule names an app wildcard hostname")
 	}
-	if console.Hostname == "" {
-		t.Fatal("no rule names the console hostname")
+	return apps, named
+}
+
+// platformConfigMap reads deploy/configmap.yaml, the file that holds the two
+// hostnames the platform itself is configured with.
+func platformConfigMap(t *testing.T) map[string]string {
+	t.Helper()
+	raw, err := os.ReadFile("../../deploy/configmap.yaml")
+	if err != nil {
+		t.Fatalf("reading the platform ConfigMap: %v", err)
 	}
-	return apps, console
+	var cm corev1.ConfigMap
+	if err := yaml.Unmarshal(raw, &cm); err != nil {
+		t.Fatalf("parsing the platform ConfigMap: %v", err)
+	}
+	return cm.Data
+}
+
+// directRule is the rule for one of the two hostnames whose origin is the
+// control plane Service itself, looked up by the value the platform is
+// configured with rather than by position.
+func directRule(t *testing.T, named map[string]tunnelIngress, key string) tunnelIngress {
+	t.Helper()
+	host := platformConfigMap(t)[key]
+	if host == "" {
+		t.Fatalf("%s is unset in deploy/configmap.yaml", key)
+	}
+	rule, ok := named[host]
+	if !ok {
+		t.Fatalf("%s is %q but the tunnel routes no such hostname: it would answer 404 through the tunnel", key, host)
+	}
+	return rule
 }
 
 // tunnelHostnameShadows reports whether an earlier cloudflared rule's hostname
@@ -183,7 +216,8 @@ func TestNoTunnelRuleIsShadowedByAnEarlierOne(t *testing.T) {
 // originServerName only proves to cloudflared that its TLS peer holds a
 // certificate for that name.
 func TestTheTunnelSendsTheAppsAndTheConsoleToDifferentOrigins(t *testing.T) {
-	apps, console := tunnelRules(t)
+	apps, named := tunnelRules(t)
+	console := directRule(t, named, "DEPLOYER_CONSOLE_HOST")
 
 	if !strings.HasPrefix(apps.Service, "https://") {
 		t.Errorf("the app route serves %q, want https: tailnet traffic already reaches nginx over TLS "+
@@ -239,24 +273,66 @@ func TestTheTunnelNeverSkipsOriginVerification(t *testing.T) {
 // mismatch is a console that answers 404 through the tunnel while every test
 // here passes.
 func TestTheTunnelConsoleRouteMatchesTheConfiguredHost(t *testing.T) {
-	apps, consoleRule := tunnelRules(t)
-	console := consoleRule.Hostname
-	raw, err := os.ReadFile("../../deploy/configmap.yaml")
-	if err != nil {
-		t.Fatalf("reading the platform ConfigMap: %v", err)
-	}
-	var cm corev1.ConfigMap
-	if err := yaml.Unmarshal(raw, &cm); err != nil {
-		t.Fatalf("parsing the platform ConfigMap: %v", err)
-	}
-	if got := cm.Data["DEPLOYER_CONSOLE_HOST"]; got != console {
-		t.Errorf("DEPLOYER_CONSOLE_HOST is %q but the tunnel routes %q: the console would answer 404 "+
-			"through the tunnel", got, console)
-	}
+	apps, named := tunnelRules(t)
+	// Both public hostnames, each looked up by the value the platform is
+	// configured with. directRule fails when the tunnel routes no such name,
+	// which is the mismatch this test exists for (spec 0021, AC-1; spec 0022,
+	// AC-6).
+	directRule(t, named, "DEPLOYER_CONSOLE_HOST")
+	directRule(t, named, "DEPLOYER_MCP_HOST")
 	// The same pairing for the app domain, which the app route's hostname and
 	// originServerName are both built from.
-	if got, want := cm.Data["DEPLOYER_APP_DOMAIN"], apps.OriginRequest.OriginServerName; got != want {
+	if got, want := platformConfigMap(t)["DEPLOYER_APP_DOMAIN"], apps.OriginRequest.OriginServerName; got != want {
 		t.Errorf("DEPLOYER_APP_DOMAIN is %q but the tunnel verifies its origin against %q", got, want)
+	}
+}
+
+// Spec 0022 AC-6, AC-13: the deploy host reaches the control plane Service
+// directly, exactly as the console does, and is listed above the app wildcard.
+//
+// The direct origin is what makes CF-Connecting-IP believable on this hostname:
+// network policy can name the tunnel namespace as the only outside peer on 8080,
+// which it could not do behind the shared ingress controller. The ordering is the
+// other half, and it is read by name here rather than by index, because a leading
+// `*.` matches exactly one label and `mcp` is one label.
+func TestTheDeployHostGoesStraightToTheControlPlaneAboveTheWildcard(t *testing.T) {
+	apps, named := tunnelRules(t)
+	deploy := directRule(t, named, "DEPLOYER_MCP_HOST")
+
+	if strings.Contains(deploy.Service, "ingress-nginx") {
+		t.Errorf("the deploy route serves %q, want the deployer Service directly: behind the shared "+
+			"controller the visitor address header would be writable from most of the cluster",
+			deploy.Service)
+	}
+	if !strings.Contains(deploy.Service, "deployer.deployer-system") {
+		t.Errorf("the deploy route serves %q, want the deployer Service in deployer-system", deploy.Service)
+	}
+	// The same origin as the console, deliberately: one Service carries both
+	// public hostnames, so a second public name adds no peer to any network
+	// policy (AC-22).
+	console := directRule(t, named, "DEPLOYER_CONSOLE_HOST")
+	if deploy.Service != console.Service {
+		t.Errorf("the deploy route serves %q and the console serves %q: two public names on one Service "+
+			"is what keeps the network policies unchanged", deploy.Service, console.Service)
+	}
+
+	rules := tunnelConfig(t).Ingress
+	deployAt, wildcardAt := -1, -1
+	for i, rule := range rules {
+		switch rule.Hostname {
+		case deploy.Hostname:
+			deployAt = i
+		case apps.Hostname:
+			wildcardAt = i
+		}
+	}
+	if deployAt < 0 || wildcardAt < 0 {
+		t.Fatalf("could not find both rules: deploy at %d, wildcard at %d", deployAt, wildcardAt)
+	}
+	if deployAt > wildcardAt {
+		t.Errorf("the deploy host is rule %d and the app wildcard is rule %d: the wildcard matches one "+
+			"label, so the deploy host listed after it is unreachable and every deploy is handed to "+
+			"ingress-nginx", deployAt, wildcardAt)
 	}
 }
 

@@ -64,12 +64,9 @@ type Config struct {
 	// seeding runs and the platform boots with no usable token, which is a
 	// warning rather than a failure so a local run needs no secret.
 	BootstrapToken string
-	// PublicURL is the platform's own reachable base address. It goes into the
-	// deploy_app tool description, so an agent can only upload if it is right.
-	PublicURL string
 	// InternalURL is the platform's address as reached from inside the cluster.
 	// The build Job's init container fetches the source through it, and it runs
-	// on cluster DNS, which cannot resolve the tailnet name PublicURL carries.
+	// on cluster DNS, which resolves neither public name.
 	InternalURL string
 	// BuilderImage is the digest pinned Paketo builder the lifecycle runs from.
 	BuilderImage string
@@ -173,16 +170,31 @@ type Config struct {
 	// edge.go.
 
 	// ConsoleHost is the public console hostname, exactly one label under
-	// AppDomain. It is the one hostname the tunnel points at the control plane
-	// Service, the one hostname CF-Connecting-IP is read on, and the host every
-	// public page route is registered a second time under.
+	// AppDomain. It is one of the two hostnames the tunnel points at the control
+	// plane Service, one of the two CF-Connecting-IP is read on, and the host
+	// every public page route is registered a second time under.
 	ConsoleHost string
 	// ConsoleURL is the console's own base address, derived as https:// plus
 	// ConsoleHost and never configured separately. It is the base of every link
-	// a person clicks in a mail, and one of the two origins a page POST is
-	// accepted from. PublicURL keeps its meaning and its tailnet value: it is
-	// the address an agent is told about, not the address a person clicks.
+	// a person clicks in a mail, one of the two origins a page POST is accepted
+	// from, and what decides whether the session cookie is marked Secure.
 	ConsoleURL string
+
+	// Added by spec 0022, publishing the deploy path.
+
+	// MCPHost is the public deploy hostname, exactly one label under AppDomain
+	// and different from ConsoleHost. The upload endpoint and the MCP endpoint
+	// are registered a second time under it, and nothing else answers there.
+	MCPHost string
+	// MCPURL is the deploy path's own base address, derived as https:// plus
+	// MCPHost and never configured separately. It is the address deploy_app's
+	// description tells an agent to upload to, and the address the console's
+	// onboarding panel shows.
+	MCPURL string
+	// MaxUnclaimedUploads is how many uploads one account may hold that no
+	// deploy has redeemed yet. It bounds what a single valid token can cost the
+	// upload volume now that the tailnet no longer stands in front of it.
+	MaxUnclaimedUploads int
 }
 
 // Load reads the DEPLOYER_* environment through getenv and returns the config,
@@ -215,9 +227,14 @@ func Load(getenv func(string) string) (Config, error) {
 		// The Dockerfile path's own namespace, at `privileged`. Validated below
 		// beside the one above, and refused if the two are the same.
 		BuildkitNamespace: optional("BUILDKIT_NAMESPACE", "deployer-builds-dockerfile"),
-		MaxUploadBytes:    100 << 20,
-		DBBusyTimeout:     5000 * time.Millisecond,
-		Retention:         90 * 24 * time.Hour,
+		// Strictly under Cloudflare's 100 MB body cap on the free plan, so the
+		// platform is always the thing that refuses an oversized body. At or
+		// past 100 MB one failure mode is handed to the edge, where it produces
+		// an error page rather than a reason code and an audit row (spec 0022,
+		// AC-11).
+		MaxUploadBytes: 90 << 20,
+		DBBusyTimeout:  5000 * time.Millisecond,
+		Retention:      90 * 24 * time.Hour,
 
 		// The control plane's own namespace comes from the downward API, so an
 		// unset value means the pod spec is wrong rather than the operator being
@@ -228,7 +245,8 @@ func Load(getenv func(string) string) (Config, error) {
 		AppQuotaMemory:   optional("APP_QUOTA_MEMORY", "1Gi"),
 		AppQuotaPods:     5,
 
-		MaxAppsPerAccount: 10,
+		MaxAppsPerAccount:   10,
+		MaxUnclaimedUploads: 3,
 	}
 
 	var errs []string
@@ -326,6 +344,14 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, fmt.Sprintf("DEPLOYER_MAX_UPLOAD_BYTES must be a positive integer, got %q", raw))
 		} else {
 			c.MaxUploadBytes = n
+		}
+	}
+	if raw := getenv("DEPLOYER_MAX_UNCLAIMED_UPLOADS"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n <= 0 {
+			errs = append(errs, fmt.Sprintf("DEPLOYER_MAX_UNCLAIMED_UPLOADS must be a positive integer, got %q", raw))
+		} else {
+			c.MaxUnclaimedUploads = n
 		}
 	}
 	if raw := getenv("DEPLOYER_LOG_LEVEL"); raw != "" {

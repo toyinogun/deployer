@@ -31,8 +31,9 @@ func row(u Upload) uploads.Upload {
 	}
 }
 
-// CreateUpload records a tarball and the token a build will present for it.
-func (a UploadStore) CreateUpload(ctx context.Context, u uploads.New) (uploads.Upload, error) {
+// CreateUpload records a tarball and the token a build will present for it,
+// refusing one past the account's unclaimed ceiling.
+func (a UploadStore) CreateUpload(ctx context.Context, u uploads.New, limit int) (uploads.Upload, error) {
 	up, err := a.s.CreateUpload(ctx, NewUpload{
 		ID:             u.ID,
 		AccountID:      u.AccountID,
@@ -41,11 +42,38 @@ func (a UploadStore) CreateUpload(ctx context.Context, u uploads.New) (uploads.U
 		SHA256:         u.SHA256,
 		FetchTokenHash: u.FetchTokenHash,
 		ExpiresAt:      u.ExpiresAt,
-	})
+	}, limit)
+	if errors.Is(err, ErrUploadLimit) {
+		return uploads.Upload{}, uploads.ErrTooManyUnclaimed
+	}
 	if err != nil {
 		return uploads.Upload{}, err
 	}
 	return row(up), nil
+}
+
+// CountUnclaimed is how many unexpired uploads the account holds that no deploy
+// has claimed.
+func (a UploadStore) CountUnclaimed(ctx context.Context, accountID string) (int, error) {
+	return a.s.CountUnclaimedUploads(ctx, accountID)
+}
+
+// ListSweepable reads the expired uploads no deployment references.
+func (a UploadStore) ListSweepable(ctx context.Context) ([]uploads.Sweepable, error) {
+	rows, err := a.s.ListSweepableUploads(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]uploads.Sweepable, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, uploads.Sweepable{ID: r.ID, Path: r.Path})
+	}
+	return out, nil
+}
+
+// DeleteRow removes one upload row.
+func (a UploadStore) DeleteRow(ctx context.Context, id string) error {
+	return a.s.DeleteUpload(ctx, id)
 }
 
 // GetUpload reads one upload.

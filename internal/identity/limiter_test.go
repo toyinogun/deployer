@@ -39,7 +39,7 @@ func (d *dial) advance(by time.Duration) {
 func TestLockoutStartsAtThirtySecondsAndDoubles(t *testing.T) {
 	const email = "a@example.com"
 	clock := newDial()
-	l := identity.NewLimiter(clock)
+	l := identity.NewLimiter(clock, identity.SignInSettings())
 
 	for i := range 4 {
 		l.Failed(email)
@@ -86,7 +86,7 @@ func TestLockoutStartsAtThirtySecondsAndDoubles(t *testing.T) {
 func TestLockoutIsCappedSoAnAddressIsNeverLostForGood(t *testing.T) {
 	const email = "a@example.com"
 	clock := newDial()
-	l := identity.NewLimiter(clock)
+	l := identity.NewLimiter(clock, identity.SignInSettings())
 
 	// Far past the point where 30s doubled would overflow a duration.
 	for range 80 {
@@ -110,7 +110,7 @@ func TestLockoutIsCappedSoAnAddressIsNeverLostForGood(t *testing.T) {
 // covers: AC-23
 func TestOneGoodSignInClearsTheRun(t *testing.T) {
 	const email = "a@example.com"
-	l := identity.NewLimiter(newDial())
+	l := identity.NewLimiter(newDial(), identity.SignInSettings())
 
 	for range 4 {
 		l.Failed(email)
@@ -130,7 +130,7 @@ func TestOneGoodSignInClearsTheRun(t *testing.T) {
 //
 // covers: AC-23
 func TestLockoutIsPerAddress(t *testing.T) {
-	l := identity.NewLimiter(newDial())
+	l := identity.NewLimiter(newDial(), identity.SignInSettings())
 	for range 6 {
 		l.Failed("a@example.com")
 	}
@@ -148,7 +148,7 @@ func TestLockoutIsPerAddress(t *testing.T) {
 func TestBucketSpendsTenThenRefillsOneEverySixSeconds(t *testing.T) {
 	const client = "100.64.0.5"
 	clock := newDial()
-	l := identity.NewLimiter(clock)
+	l := identity.NewLimiter(clock, identity.SignInSettings())
 
 	for i := range 10 {
 		if !l.Allow(client) {
@@ -175,7 +175,7 @@ func TestBucketSpendsTenThenRefillsOneEverySixSeconds(t *testing.T) {
 func TestBucketRefillIsCappedAtCapacity(t *testing.T) {
 	const client = "100.64.0.5"
 	clock := newDial()
-	l := identity.NewLimiter(clock)
+	l := identity.NewLimiter(clock, identity.SignInSettings())
 
 	if !l.Allow(client) {
 		t.Fatal("the first call was refused")
@@ -198,7 +198,7 @@ func TestBucketRefillIsCappedAtCapacity(t *testing.T) {
 //
 // covers: AC-24
 func TestBucketsAreSeparatePerClient(t *testing.T) {
-	l := identity.NewLimiter(newDial())
+	l := identity.NewLimiter(newDial(), identity.SignInSettings())
 	for range 10 {
 		l.Allow("100.64.0.5")
 	}
@@ -217,7 +217,7 @@ func TestBucketsAreSeparatePerClient(t *testing.T) {
 //
 // covers: AC-24
 func TestAnUnidentifiableClientIsAlwaysAllowed(t *testing.T) {
-	l := identity.NewLimiter(newDial())
+	l := identity.NewLimiter(newDial(), identity.SignInSettings())
 	for i := range 50 {
 		if !l.Allow("") {
 			t.Fatalf("call %d with no client address was refused, so blank keys share one bucket", i+1)
@@ -231,7 +231,7 @@ func TestAnUnidentifiableClientIsAlwaysAllowed(t *testing.T) {
 func TestSweepDropsIdleEntriesRatherThanGrowingForever(t *testing.T) {
 	const email = "a@example.com"
 	clock := newDial()
-	l := identity.NewLimiter(clock)
+	l := identity.NewLimiter(clock, identity.SignInSettings())
 
 	for range 4 {
 		l.Failed(email)
@@ -252,7 +252,7 @@ func TestSweepDropsIdleEntriesRatherThanGrowingForever(t *testing.T) {
 // TestLimiterIsSafeUnderConcurrentUse is the -race half: both maps are reached
 // from every request goroutine at once.
 func TestLimiterIsSafeUnderConcurrentUse(t *testing.T) {
-	l := identity.NewLimiter(newDial())
+	l := identity.NewLimiter(newDial(), identity.SignInSettings())
 	var wg sync.WaitGroup
 	for i := range 50 {
 		wg.Add(1)

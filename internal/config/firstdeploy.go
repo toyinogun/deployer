@@ -79,7 +79,6 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 	}
 
 	c.BootstrapToken = getenv("DEPLOYER_BOOTSTRAP_TOKEN")
-	c.PublicURL = required("PUBLIC_URL")
 	c.InternalURL = required("INTERNAL_URL")
 	c.BuilderImage = required("BUILDER_IMAGE")
 	c.SelfImage = required("SELF_IMAGE")
@@ -96,21 +95,14 @@ func loadFirstDeploy(getenv func(string) string, c *Config) (missing, errs []str
 	c.BuildkitUID = id("BUILDKIT_UID")
 	c.BuildkitGID = id("BUILDKIT_GID")
 
-	for _, addr := range []struct {
-		key   string
-		value *string
-	}{
-		{"DEPLOYER_PUBLIC_URL", &c.PublicURL},
-		{"DEPLOYER_INTERNAL_URL", &c.InternalURL},
-	} {
-		if *addr.value == "" {
-			continue
-		}
-		u, err := url.Parse(*addr.value)
+	// The one configured address left. Both public ones are derived from their
+	// hostnames in edge.go, so they cannot be malformed (spec 0022, AC-9).
+	if c.InternalURL != "" {
+		u, err := url.Parse(c.InternalURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			errs = append(errs, fmt.Sprintf("%s must be an absolute http or https address, got %q", addr.key, *addr.value))
+			errs = append(errs, fmt.Sprintf("DEPLOYER_INTERNAL_URL must be an absolute http or https address, got %q", c.InternalURL))
 		}
-		*addr.value = strings.TrimRight(*addr.value, "/")
+		c.InternalURL = strings.TrimRight(c.InternalURL, "/")
 	}
 	// Both images run somewhere the platform cannot re-check later, so a mutable
 	// tag here would quietly break the rule that the platform only ever runs what

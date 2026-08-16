@@ -182,8 +182,20 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// session route a person uses resolve through the same object, which is what
 	// makes the verified and disabled gate impossible for a new surface to forget
 	// (spec 0007, Key invariants).
-	authenticator := auth.NewAuthenticator(as, as).WithSessions(as, identity.SessionLifetime)
-	uploadSvc := uploads.NewService(store.ForUploads(st), cfg.UploadDir, cfg.MaxUploadBytes, nil)
+	// The deploy path's own limiter, sized for an agent polling a build rather
+	// than for a person typing a password. Its lockout half goes into the
+	// authenticator, so both routes on that path inherit one rule and neither
+	// handler holds a copy (spec 0022, AC-15, AC-16).
+	deployLimiter := identity.NewLimiter(ids.SystemClock{}, identity.DeployPathSettings())
+	authenticator := auth.NewAuthenticator(as, as).
+		WithSessions(as, identity.SessionLifetime).
+		WithLockout(deployLimiter)
+	uploadSvc := uploads.NewService(store.ForUploads(st), cfg.UploadDir,
+		cfg.MaxUploadBytes, cfg.MaxUnclaimedUploads, nil)
+	// The two public hostnames, the only ones CF-Connecting-IP is read on. Every
+	// surface takes the same set, so one visitor is one address across the
+	// pages, the upload endpoint and the MCP endpoint (spec 0022, AC-13, AC-14).
+	trustedHosts := []string{cfg.ConsoleHost, cfg.MCPHost}
 
 	// A nil sender is a supported state: register, resend and password reset
 	// answer mail_unavailable, and the whole MCP and upload path works normally
@@ -193,16 +205,13 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		slog.Warn("DEPLOYER_RESEND_API_KEY is unset, so nobody can register or reset a password")
 	}
 	// The links in a verification, reset or invite mail are built from the
-	// console address, not from PublicURL. PublicURL narrows to one job here: the
-	// tailnet address an agent is told about in the deploy_app description. A
-	// person clicking a link needs the name they can reach without a VPN
-	// (spec 0021, Value sourcing).
+	// console address. A person clicking a link needs the name they can reach in
+	// a browser, which is never the deploy host (spec 0021, Value sourcing).
 	identitySvc := identity.NewService(store.ForIdentity(st), mailerOrNil(sender), ids.SystemClock{},
 		identity.Options{PublicURL: cfg.ConsoleURL})
 	bootstrapInvite(ctx, identitySvc)
 
 	mux := http.NewServeMux()
-	httpapi.New(authenticator, as, uploadSvc, cfg.MaxUploadBytes).Register(mux)
 
 	// One cluster client, shared by the loop that drives deploys and the tool
 	// surface that reads an app's own output back. Nil when there is no in
@@ -218,19 +227,30 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// suspended account's apps at zero (spec 0018, AC-19).
 	suspensions := suspend.New(store.ForSuspend(st), identitySvc, suspendCluster(cluster), as)
 	httpapi.NewIdentity(identitySvc, authenticator, as, suspensions,
-		cfg.PublicURL, cfg.ConsoleHost, sender != nil).Register(mux)
+		cfg.ConsoleURL, trustedHosts, sender != nil).Register(mux)
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
 		forTool{svc: uploadSvc}, podReader(cluster), clusterPort(cluster), mcp.Options{
-			PublicURL:         cfg.PublicURL,
+			MCPURL:            cfg.MCPURL,
 			AppDomain:         cfg.AppDomain,
+			MaxUploadBytes:    cfg.MaxUploadBytes,
+			TrustedHosts:      trustedHosts,
+			Limiter:           deployLimiter,
 			MaxAppsPerAccount: cfg.MaxAppsPerAccount,
 			// The registry pull credential is the one secret the platform placed
 			// in the app's namespace itself, so it is the one it can redact
 			// exactly (spec 0006, AC-6).
 			SecretLiterals: []string{cfg.RegistryPass},
 		})
-	mux.Handle("/mcp", tools.Handler())
+	// The machine surface, registered last of the three because it carries the
+	// MCP endpoint with it: the upload route and /mcp share a hostname and a
+	// bearer token, so one place registers both on the deploy host and nothing
+	// else answers there (spec 0022, AC-2).
+	httpapi.New(authenticator, as, uploadSvc, deployLimiter, httpapi.Options{
+		MaxBytes:     cfg.MaxUploadBytes,
+		MCPHost:      cfg.MCPHost,
+		TrustedHosts: trustedHosts,
+	}).Register(mux, tools.Handler())
 
 	// The browser surface, at the root paths of the same host. It reads through
 	// the same identity service and the same store this function already built,
@@ -238,11 +258,12 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// (spec 0013, AC-4).
 	backups := startBackups(ctx, st, cfg, sender)
 	startAuditSweep(ctx, st, cfg.Retention)
+	startUploadSweep(ctx, uploadSvc)
 	startTunnelWatch(ctx, cfg, sender)
 
 	web.New(identitySvc, authenticator, as, st, webPods(cluster), suspensions,
 		webBackups(backups), st, web.Options{
-			PublicURL:         cfg.PublicURL,
+			MCPURL:            cfg.MCPURL,
 			AppDomain:         cfg.AppDomain,
 			CSRFKey:           []byte(cfg.CSRFKey),
 			SecretLiterals:    []string{cfg.RegistryPass},
@@ -250,6 +271,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 			MaxAppsPerAccount: cfg.MaxAppsPerAccount,
 			ConsoleHost:       cfg.ConsoleHost,
 			ConsoleURL:        cfg.ConsoleURL,
+			TrustedHosts:      trustedHosts,
 		}).Register(mux)
 
 	if cluster != nil {
@@ -347,6 +369,47 @@ func startAuditSweep(ctx context.Context, st *store.Store, retention time.Durati
 		}
 	}()
 	slog.Info("audit address sweep started", "interval", auditSweepInterval, "retention", retention)
+}
+
+// uploadSweepInterval is how often expired uploads are cleared off the volume.
+// An upload is usable for an hour, and the cap on unclaimed ones is what bounds
+// the volume in the moment, so this only has to keep up with expiry rather than
+// with arrivals. Ten minutes means an expired tarball occupies the volume for at
+// most ten minutes longer than it was ever usable (spec 0022, AC-18).
+const uploadSweepInterval = 10 * time.Minute
+
+// startUploadSweep removes expired uploads no deployment references, the file
+// and the row together, at boot and then on that interval.
+//
+// It runs on a ticker in this process, the same shape the audit sweep and the
+// suspension sweep already use, rather than as a CronJob. A second workload
+// writing this database would put two writers on one SQLite file, which the whole
+// deployment is built to prevent, and only this process has the volume mounted.
+func startUploadSweep(ctx context.Context, svc *uploads.Service) {
+	sweep := func() {
+		n, err := svc.Sweep(ctx)
+		if err != nil {
+			slog.ErrorContext(ctx, "could not sweep expired uploads", "error", err)
+			return
+		}
+		if n > 0 {
+			slog.InfoContext(ctx, "swept expired uploads", "uploads", n)
+		}
+	}
+	go func() {
+		sweep()
+		ticker := time.NewTicker(uploadSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweep()
+			}
+		}
+	}()
+	slog.Info("upload sweep started", "interval", uploadSweepInterval)
 }
 
 // startBackups builds the backup service and gets it going, or returns nil when

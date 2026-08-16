@@ -129,6 +129,19 @@ type TokenToucher interface {
 	TouchToken(ctx context.Context, tokenID string) error
 }
 
+// Lockout is the growing penalty a run of bad credentials from one address
+// earns. internal/identity's limiter satisfies it, keyed here on the visitor's
+// network address rather than on an email: a bearer token names no account until
+// it resolves, so there is nothing else to key on (spec 0022, AC-16).
+type Lockout interface {
+	// LockedOut reports whether key is inside its penalty window.
+	LockedOut(key string) (time.Duration, bool)
+	// Failed records one bad credential, extending the window.
+	Failed(key string)
+	// Succeeded clears the run, so one good token undoes the backoff.
+	Succeeded(key string)
+}
+
 // Authenticator turns a presented bearer token into an account. It is the only
 // thing in the platform that sees a raw token, and it never keeps or logs one.
 type Authenticator struct {
@@ -138,6 +151,10 @@ type Authenticator struct {
 	// which is what lets a build with no session surface leave it out.
 	sessions        SessionStore
 	sessionLifetime time.Duration
+	// The bad token penalty, added by spec 0022. Nil until WithLockout is
+	// called, which leaves a build with no public deploy path unbounded exactly
+	// as it was.
+	lockout Lockout
 }
 
 // NewAuthenticator returns an authenticator over the given store.
@@ -145,8 +162,17 @@ func NewAuthenticator(s Store, t TokenToucher) *Authenticator {
 	return &Authenticator{store: s, toucher: t}
 }
 
-// Authenticate resolves a raw bearer token to its account, ErrTokenInvalid, or
-// ErrAccountSuspended.
+// WithLockout adds the penalty a run of bad bearer tokens from one address
+// earns. It goes here rather than into either handler, so both routes on the
+// deploy path inherit exactly one rule and a third surface cannot be written
+// without it (spec 0022, AC-16).
+func (a *Authenticator) WithLockout(l Lockout) *Authenticator {
+	a.lockout = l
+	return a
+}
+
+// Authenticate resolves a raw bearer token to its account, ErrTokenInvalid,
+// ErrAccountSuspended, or ErrTooManyAttempts.
 //
 // Unknown, revoked, expired, and held by an account that never confirmed its
 // address are all the same error on purpose: a caller learns only that the token
@@ -155,15 +181,39 @@ func NewAuthenticator(s Store, t TokenToucher) *Authenticator {
 // AC-12). The token's last use is recorded on success, and a failure to record
 // it is logged rather than allowed to refuse a caller who presented a good
 // token.
-func (a *Authenticator) Authenticate(ctx context.Context, raw string) (Account, error) {
+//
+// clientAddr is the visitor's derived address, from ClientAddress. A run of bad
+// tokens from one address earns a growing penalty here, which is why the rule is
+// not in either handler: two routes call this and a rule only one of them applies
+// is not a rule. An empty address is never penalised, for the same reason the
+// token bucket lets one through: a caller the platform cannot tell apart from
+// another is not a key worth holding (spec 0022, AC-16).
+func (a *Authenticator) Authenticate(ctx context.Context, raw, clientAddr string) (Account, error) {
+	penalised := a.lockout != nil && clientAddr != ""
+	if penalised {
+		if _, locked := a.lockout.LockedOut(clientAddr); locked {
+			return Account{}, ErrTooManyAttempts
+		}
+	}
+	// fail records one bad credential against the address before handing the
+	// refusal back, so every path out of this function that is a refusal counts,
+	// and none of them can be counted twice by a caller.
+	fail := func(err error) (Account, error) {
+		if penalised {
+			a.lockout.Failed(clientAddr)
+		}
+		return Account{}, err
+	}
 	if raw == "" {
-		return Account{}, ErrTokenInvalid
+		return fail(ErrTokenInvalid)
 	}
 	account, token, err := a.store.ResolveToken(ctx, HashToken(raw))
 	if err != nil {
 		if errors.Is(err, ErrTokenInvalid) {
-			return Account{}, ErrTokenInvalid
+			return fail(ErrTokenInvalid)
 		}
+		// A fault inside the platform is not a wrong credential, so it earns no
+		// penalty: an unreachable database must not lock every caller out.
 		return Account{}, fmt.Errorf("auth: resolving the presented token: %w", err)
 	}
 	// The suspension gate, on the bearer route. The store no longer filters a
@@ -176,6 +226,10 @@ func (a *Authenticator) Authenticate(ctx context.Context, raw string) (Account, 
 	// refused, and the caller already proved it holds that account's credential.
 	// Every caller branches on the error first, so the account is only ever read
 	// by one that meant to.
+	//
+	// It is not a bad credential either, so it earns no penalty: the caller
+	// holds a working token and is being refused for a reason it cannot guess
+	// its way past.
 	if account.Disabled {
 		return account, ErrAccountSuspended
 	}
@@ -184,7 +238,10 @@ func (a *Authenticator) Authenticate(ctx context.Context, raw string) (Account, 
 	// gets, on every surface, MCP and upload alike (AC-16). The gate must be
 	// readable in one place rather than split across two layers.
 	if !account.usable() {
-		return Account{}, ErrTokenInvalid
+		return fail(ErrTokenInvalid)
+	}
+	if penalised {
+		a.lockout.Succeeded(clientAddr)
 	}
 	if a.toucher != nil {
 		if err := a.toucher.TouchToken(ctx, token.ID); err != nil {

@@ -234,7 +234,7 @@ func startServer(t *testing.T, dbPath string) string {
 	t.Setenv("DEPLOYER_CONSOLE_HOST", "console.deploy.example.test")
 	t.Setenv("DEPLOYER_NAMESPACE", "deployer-system")
 	t.Setenv("DEPLOYER_POD_NAME", "deployer-test-0")
-	t.Setenv("DEPLOYER_PUBLIC_URL", "https://deployer.example.test")
+	t.Setenv("DEPLOYER_MCP_HOST", "mcp.deploy.example.test")
 	t.Setenv("DEPLOYER_INTERNAL_URL", "http://deployer.deployer-system.svc")
 	t.Setenv("DEPLOYER_BUILDER_IMAGE", "paketobuildpacks/builder-jammy-base@sha256:"+strings.Repeat("a", 64))
 	t.Setenv("DEPLOYER_SELF_IMAGE", "ghcr.io/toyinogun/deployer@sha256:"+strings.Repeat("b", 64))
@@ -402,7 +402,7 @@ func TestReconcileOptions_carriesEveryDurationAcrossFromTheConfig(t *testing.T) 
 			"DEPLOYER_APP_DOMAIN":        "apps.example.ts.net",
 			"DEPLOYER_CONSOLE_HOST":      "console.apps.example.ts.net",
 			"DEPLOYER_NAMESPACE":         "deployer-system",
-			"DEPLOYER_PUBLIC_URL":        "https://deployer.example.ts.net",
+			"DEPLOYER_MCP_HOST":          "mcp.apps.example.ts.net",
 			"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",
 			"DEPLOYER_BUILDER_IMAGE":     "paketobuildpacks/builder-jammy-base@sha256:" + strings.Repeat("a", 64),
 			"DEPLOYER_SELF_IMAGE":        "ghcr.io/toyinogun/deployer@sha256:" + strings.Repeat("b", 64),

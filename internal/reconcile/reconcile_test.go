@@ -95,7 +95,7 @@ func setup(t *testing.T) *world {
 	}
 
 	uploadDir := filepath.Join(dir, "uploads")
-	svc := uploads.NewService(store.ForUploads(st), uploadDir, 1<<20, nil)
+	svc := uploads.NewService(store.ForUploads(st), uploadDir, 1<<20, 0, nil)
 	// A real file on the volume, because the loop deletes it at the end and the
 	// test asserts that it did (AC-22). It is a readable gzip tar rather than two
 	// magic bytes, because the loop now walks its headers to choose a build

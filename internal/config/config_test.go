@@ -17,7 +17,7 @@ var valid = map[string]string{
 	"DEPLOYER_APP_DOMAIN":        "apps.example.ts.net",
 	"DEPLOYER_CONSOLE_HOST":      "console.apps.example.ts.net",
 	"DEPLOYER_NAMESPACE":         "deployer-system",
-	"DEPLOYER_PUBLIC_URL":        "https://deployer.example.ts.net",
+	"DEPLOYER_MCP_HOST":          "mcp.apps.example.ts.net",
 	"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",
 	"DEPLOYER_BUILDER_IMAGE":     "paketobuildpacks/builder-jammy-base@sha256:" + strings.Repeat("a", 64),
 	"DEPLOYER_SELF_IMAGE":        "ghcr.io/toyinogun/deployer@sha256:" + strings.Repeat("b", 64),
@@ -50,8 +50,17 @@ func TestLoadDefaults(t *testing.T) {
 	if c.Listen != ":8080" || c.BuildNamespace != "deployer-builds" {
 		t.Errorf("defaults not applied: %+v", c)
 	}
-	if c.MaxUploadBytes != 100<<20 {
-		t.Errorf("MaxUploadBytes = %d, want %d", c.MaxUploadBytes, 100<<20)
+	// Strictly under Cloudflare's 100 MB cap on the free plan, so the platform
+	// always refuses an oversized body before the edge can (spec 0022, AC-11).
+	if c.MaxUploadBytes != 90<<20 {
+		t.Errorf("MaxUploadBytes = %d, want %d", c.MaxUploadBytes, 90<<20)
+	}
+	if c.MaxUploadBytes >= 100<<20 {
+		t.Error("the upload ceiling is at or past the edge's body cap, so one failure mode is handed to " +
+			"Cloudflare, where it produces an error page rather than a reason code and an audit row")
+	}
+	if c.MaxUnclaimedUploads != 3 {
+		t.Errorf("MaxUnclaimedUploads = %d, want 3", c.MaxUnclaimedUploads)
 	}
 	if c.LogLevel != slog.LevelInfo {
 		t.Errorf("LogLevel = %v, want info", c.LogLevel)

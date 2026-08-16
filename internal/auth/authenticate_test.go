@@ -52,7 +52,7 @@ func TestAuthenticateResolvesAGoodTokenToItsAccount(t *testing.T) {
 	s := seeded("good-token")
 	toucher := &recordingToucher{}
 
-	account, err := auth.NewAuthenticator(s, toucher).Authenticate(context.Background(), "good-token")
+	account, err := auth.NewAuthenticator(s, toucher).Authenticate(context.Background(), "good-token", "")
 
 	if err != nil {
 		t.Fatalf("Authenticate: %v", err)
@@ -82,7 +82,7 @@ func TestAuthenticateRefusesEveryBadTokenTheSameWay(t *testing.T) {
 			t.Parallel()
 			a := auth.NewAuthenticator(seeded("good-token"), &recordingToucher{})
 
-			account, err := a.Authenticate(context.Background(), tt.raw)
+			account, err := a.Authenticate(context.Background(), tt.raw, "")
 
 			if !errors.Is(err, auth.ErrTokenInvalid) {
 				t.Errorf("err = %v, want ErrTokenInvalid", err)
@@ -100,7 +100,7 @@ func TestAuthenticateNeverTouchesATokenItRefused(t *testing.T) {
 	toucher := &recordingToucher{}
 
 	_, _ = auth.NewAuthenticator(seeded("good-token"), toucher).
-		Authenticate(context.Background(), "wrong-token")
+		Authenticate(context.Background(), "wrong-token", "")
 
 	if len(toucher.touched) != 0 {
 		t.Errorf("touched %v on a refused call, want nothing", toucher.touched)
@@ -113,7 +113,7 @@ func TestAuthenticateAcceptsAGoodTokenEvenWhenRecordingItsUseFails(t *testing.T)
 	toucher := &recordingToucher{err: errors.New("db busy")}
 
 	account, err := auth.NewAuthenticator(seeded("good-token"), toucher).
-		Authenticate(context.Background(), "good-token")
+		Authenticate(context.Background(), "good-token", "")
 
 	if err != nil {
 		t.Fatalf("a failed touch refused a good token: %v", err)
@@ -127,7 +127,7 @@ func TestAuthenticateWorksWithNoToucherAtAll(t *testing.T) {
 	// covers: AC-2
 	t.Parallel()
 	if _, err := auth.NewAuthenticator(seeded("good-token"), nil).
-		Authenticate(context.Background(), "good-token"); err != nil {
+		Authenticate(context.Background(), "good-token", ""); err != nil {
 		t.Fatalf("Authenticate with no toucher: %v", err)
 	}
 }
@@ -138,7 +138,7 @@ func TestAuthenticateWrapsAStoreFailureRatherThanCallingItInvalid(t *testing.T) 
 	s := seeded("good-token")
 	s.resolveErr = errors.New("database is locked")
 
-	_, err := auth.NewAuthenticator(s, nil).Authenticate(context.Background(), "good-token")
+	_, err := auth.NewAuthenticator(s, nil).Authenticate(context.Background(), "good-token", "")
 
 	if err == nil {
 		t.Fatal("want an error")

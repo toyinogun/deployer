@@ -7,8 +7,11 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
+	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/ids"
 )
 
 // tokenStore is the whole of auth.Store, holding one live token. Only
@@ -48,7 +51,7 @@ func (t tokenStore) CreateAPIToken(context.Context, auth.NewToken) (auth.Token, 
 // it, behind the real middleware.
 func guarded(store auth.Store, auditor auth.Auditor) (http.Handler, *reached) {
 	seen := &reached{}
-	s := &Server{auth: auth.NewAuthenticator(store, nil), auditor: auditor}
+	s := &Server{auth: auth.NewAuthenticator(store, nil), auditor: auditor, limiter: testLimiter()}
 	return s.authenticate(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen.ran = true
 		seen.account = accountFrom(r.Context())
@@ -269,3 +272,19 @@ var errStoreDown = errStore("the database is locked")
 type errStore string
 
 func (e errStore) Error() string { return string(e) }
+
+// testLimiter is a bucket far wider than the real one. These tests drive many
+// calls from one address in a moment, and the deploy path's real capacity is
+// sized for an agent rather than for a suite. What the real numbers are is
+// pinned in internal/identity, and that a limit exists at all is pinned by the
+// rate limit tests in this package, which build their own narrow one
+// (spec 0022, AC-15).
+func testLimiter() *identity.Limiter {
+	return identity.NewLimiter(ids.SystemClock{}, identity.Settings{
+		BucketCapacity:        1 << 20,
+		BucketRefill:          time.Second,
+		FailuresBeforeLockout: 1 << 20,
+		LockoutBase:           time.Second,
+		LockoutCeiling:        time.Second,
+	})
+}

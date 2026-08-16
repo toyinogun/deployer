@@ -85,8 +85,8 @@ func (s *Server) appsPage(w http.ResponseWriter, r *http.Request) {
 
 	data := appsPageData{
 		Apps:           make([]appRow, 0, len(rows)),
-		MCPEndpoint:    s.opts.PublicURL + "/mcp",
-		UploadEndpoint: s.opts.PublicURL + "/v1/uploads",
+		MCPEndpoint:    s.opts.MCPURL + "/mcp",
+		UploadEndpoint: s.opts.MCPURL + "/v1/uploads",
 		AppsUsed:       used,
 		AppLimit:       s.opts.MaxAppsPerAccount,
 		AtLimit:        used >= s.opts.MaxAppsPerAccount,

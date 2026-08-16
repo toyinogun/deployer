@@ -30,12 +30,19 @@ import (
 
 const (
 	testPassword  = "a long enough password"
-	testPublicURL = "https://deploy.example.test"
 	testAppDomain = "apps.example.test"
 	// The public console hostname. Requests these tests build carry httptest's
 	// own Host, so the whole existing suite runs on the "any other host" branch,
 	// which is AC-4 held by every test in the package at once.
 	testConsoleHost = "console.apps.example.test"
+	// Derived from the host exactly as config does it, so a test cannot pass
+	// against a pair the platform could never hold (spec 0022, AC-8).
+	testConsoleURL = "https://" + testConsoleHost
+	// The public deploy hostname and its address. A different name from the
+	// console on purpose: the two endpoints the apps page shows are on the
+	// deploy host, and the pages themselves never are (spec 0022, AC-9).
+	testMCPHost = "mcp.apps.example.test"
+	testMCPURL  = "https://" + testMCPHost
 )
 
 // csrfInPage pulls the synchroniser token out of a rendered form, which is the
@@ -258,7 +265,7 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 	// key derivation each time buys nothing here. The real parameters are pinned
 	// in internal/identity's own tests.
 	svc := identity.NewService(store.ForIdentity(st), box, clock, identity.Options{
-		PublicURL: testPublicURL,
+		PublicURL: testConsoleURL,
 		Hasher:    identity.NewHasherWith(2, 64, 1),
 	})
 
@@ -278,7 +285,7 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 	h.backups = &fakeBackups{configured: true}
 	h.srv = New(svc, authenticator, h.audit, h.data, podsIface,
 		suspend.New(store.ForSuspend(st), svc, h.scaler, h.audit), h.backups, st, Options{
-			PublicURL:      testPublicURL,
+			MCPURL:         testMCPURL,
 			AppDomain:      testAppDomain,
 			CSRFKey:        []byte("a test csrf key"),
 			SecretLiterals: []string{"the-platform-credential"},
@@ -287,7 +294,8 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 			// the cap never renders the at cap notice (spec 0016).
 			MaxAppsPerAccount: 10,
 			ConsoleHost:       testConsoleHost,
-			ConsoleURL:        "https://" + testConsoleHost,
+			ConsoleURL:        testConsoleURL,
+			TrustedHosts:      []string{testConsoleHost, testMCPHost},
 		})
 	h.mux = http.NewServeMux()
 	h.srv.Register(h.mux)
@@ -388,7 +396,7 @@ func (h *harness) postRaw(t *testing.T, path string, form url.Values,
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Sec-Fetch-Site", "same-origin")
-	req.Header.Set("Origin", testPublicURL)
+	req.Header.Set("Origin", testConsoleURL)
 	for k, v := range headers {
 		if v == "" {
 			req.Header.Del(k)

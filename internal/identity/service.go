@@ -150,7 +150,7 @@ func NewService(s Store, m Mailer, c Clock, opts Options) *Service {
 		clock:   c,
 		hasher:  hasher,
 		baseURL: opts.PublicURL,
-		limits:  NewLimiter(c),
+		limits:  NewLimiter(c, SignInSettings()),
 	}
 }
 
