@@ -63,7 +63,7 @@ and pin their whole shape. They are the only thing standing behind those files.
 - `buildspolicy_test.go` and `buildsnamespace_test.go` do the same for the two
   build namespaces and their pod security levels.
 - `tunnel_test.go` pins the Cloudflare tunnel's own files: the routing
-  `ConfigMap`'s two hostnames, its two distinct origins, its refusing catch all,
+  `ConfigMap`'s three hostnames, its distinct origins, its refusing catch all,
   and the tunnel namespace's policy in both directions. It also pins their
   **order**, through `TestNoTunnelRuleIsShadowedByAnEarlierOne`, because
   cloudflared takes the first hostname that matches and `*.deploy.toyintest.org`
@@ -74,6 +74,15 @@ and pin their whole shape. They are the only thing standing behind those files.
   `DEPLOYER_CONSOLE_HOST` out of `deploy/configmap.yaml` and pairs it against the
   console route, because those two values live in different files and a mismatch
   is a console that answers 404 through the tunnel while every other test passes.
+  Spec 0022 added the deploy host to the same shape: `DEPLOYER_MCP_HOST` is
+  validated in `edge.go` as one label under the app domain and not equal to the
+  console host, its base URL is derived from it rather than configured, and
+  `TestTheDeployHostGoesStraightToTheControlPlaneAboveTheWildcard` pins its rule
+  above the wildcard for the same shadowing reason (AC-6, AC-8).
+- `edge.go` fails the boot when `DEPLOYER_PUBLIC_URL` is still set. Spec 0022
+  removed that variable, and a removed variable that is merely ignored is how a
+  stale ConfigMap goes on looking correct, so the refusal names itself and says
+  which two variables replaced it (AC-9).
 - `blockeddrift_test.go` pins the blocked range list, which exists three times:
   as `defaultBlockedCIDRs` in `isolation.go` and as literal text in each build
   namespace's policy file. Editing one without the others is what this catches.

@@ -467,8 +467,8 @@ spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `inter
   - [x] The ceiling and the visitor: the 90 MB default so the platform always refuses before Cloudflare does, and `CF-Connecting-IP` trusted on both origins that bypass `ingress-nginx` — AC-11, AC-12, AC-13, AC-14
   - [x] The controls the tailnet was providing: the deploy path limiter with its own numbers, the bad token lockout inside the authenticator with its two reason codes, the unclaimed upload cap, the expiry sweep, and the corrected limiter reasoning — AC-15, AC-16, AC-17, AC-18, AC-19, AC-23
   - [x] The flip, last and alone: every tool timed against the 125 second edge bound, then the tailnet registrations removed in their own commit — AC-5, AC-20, AC-21
-- [ ] Verify it: `/check verify publishing the deploy path`
-- [ ] Test it: `/test publishing the deploy path`
+- [x] Verify it: `/check verify publishing the deploy path`
+- [x] Test it: `/test publishing the deploy path`
 - [ ] Review it (fresh model): `/check review publishing the deploy path`
 - [ ] Document it: `/document publishing the deploy path`
 

@@ -57,9 +57,19 @@ narrow interfaces declared here.
   spree locking out everyone behind a shared address. Read every "per address"
   comment in that file against the parameter name before trusting it.
 - The limiter lives in memory and is lost on every restart, and ArgoCD restarts
-  the pod on each sync. Its own comment justifies that with "the perimeter is a
-  tailnet", which spec 0021 retired when the console went public. That assumption
-  has not been revisited; treat it as owed rather than settled.
+  the pod on each sync. Its own comment used to justify that with "the perimeter
+  is a tailnet", which spec 0021 retired when the console went public. Spec 0022
+  settled it rather than leaving it owed: the comment no longer claims a tailnet,
+  and the cost is recorded in the open, a restart forgives every run of bad
+  credentials in flight (AC-23). It is accepted, not overlooked, so do not
+  rediscover it as a finding.
+- **There are two limiters, and their numbers are a parameter rather than
+  constants.** `NewLimiter` takes a `Settings`, `SignInSettings()` holds exactly
+  the values that were package constants before spec 0022, and
+  `DeployPathSettings()` is the upload and MCP endpoint's own, wider and refilling
+  faster because an agent polls `deployment_status` through a build that runs for
+  minutes. Keeping them separate is the point: a burst on the deploy path must
+  never spend a person's sign in budget or lock them out of the console (AC-15).
 - Answers are uniform on purpose, and the uniformity is the feature. Register,
   resend and forgot all answer the same sentence whether or not the address
   exists. All five ways an invite can be bad are one sentence. A row that belongs
