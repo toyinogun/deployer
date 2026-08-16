@@ -34,7 +34,11 @@ ideas about what a metadata document should say.
 - [x] Authorize a registered `http://localhost/callback` as `http://localhost:54321/callback` → matched → AC-10a
 - [x] Authorize with `code_challenge_method=plain`, then with no challenge at all → both redirect to the registered address with `invalid_request`, carrying `state` and `iss` → AC-11
 - [x] Authorize with `resource=https://someone-else.example/mcp` → redirects with `invalid_target` → AC-12
-- [x] Exchange a code twice → the second is `400 invalid_grant`, and the token the first issued no longer authenticates `/mcp` → AC-16a
+- [x] Exchange a code twice, the second time with a wrong `code_verifier` → the second is `400 invalid_grant`, and the token the first issued no longer authenticates `/mcp` → AC-16a, AC-16b
+- [ ] Exchange a code, then exchange it again with the **right** verifier once the first has finished → the second is still `400 invalid_grant`, and the token the first issued still authenticates `/mcp` → AC-16b
+- [ ] Do that again with a mismatched `client_id` but the right verifier → refused, and the first token still authenticates, so the verifier alone decided → AC-16b
+- [ ] Exchange the same code twice concurrently, then use the token that came back → it authenticates, rather than having been revoked by its own duplicate → AC-16b, AC-18a
+- [ ] Register a loopback client with no port, authorize with one, and follow the whole flow → the redirect carries `localhost:<port>`, and the exchange against that same address succeeds → AC-10a, AC-10d
 - [x] Wait 61 seconds after approving, then exchange → `400 invalid_grant` → AC-16a
 - [x] `curl -X POST .../oauth/token -H 'Content-Type: application/json' -d '{}'` → `400 invalid_request`, never `415` → AC-17
 - [x] Exchange with a wrong `code_verifier` → `400 invalid_grant`, and the body names no check → AC-18
@@ -88,4 +92,6 @@ value taken from the wrong place is visible rather than merely plausible.
 
 ## Owed
 
-- **AC-25b** as written expects `405` for a wrong method on a path that exists. On the console hostname that is not what this mux does and never was: the `<host>/` catch all matches every verb, so it claims the request first and a wrong method reads as `404`, exactly as it already does for `/login`. The build asserts what is true, in `TestAWrongMethodOnAnOAuthRoute­IsRefused`: `405` on the bare pattern, where there is no catch all, and `404` on the console host. The criterion's wording needs correcting to match, which is `/architect`'s call rather than this build's.
+Nothing. The three wordings this file used to owe were settled by `/architect` on 2026-08-16, in the spec rather than here: **AC-25b** now says `404` on a host scoped pattern and `405` on the bare one, which is what `TestAWrongMethodOnAnOAuthRouteIsRefused` already asserts; **AC-26** records that the connector tab sits before the generic one because the last entry in the set is the fallback; and **AC-10d** pins which of the two addresses a redirect URI match yields, after the build yielded the wrong one.
+
+**AC-16b** is not owed, it is unbuilt. The replay revoke is being changed to fire only when the replay cannot prove its PKCE verifier, so the three steps above tagged AC-16b fail until that lands, and the AC-16a step passes throughout because a second exchange is refused either way.

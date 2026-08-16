@@ -83,6 +83,18 @@ Dynamic client registration over Client ID Metadata Documents is the one place t
 
 Option 4 is not chosen but it is not dismissed. It is recorded in Follow-up, because if `static_headers` turns out to be available it is worth ten minutes of checking before any of this is built.
 
+## Amendment, 2026-08-16: what driving the built thing decided
+
+Three of the four changes made on this date are corrections rather than decisions. AC-10d writes down which of the two addresses a redirect URI match yields, after the build yielded the registered one and killed the loopback flow. AC-25b now says what this mux actually does, `404` on a host scoped pattern rather than the `405` the original wording expected, because the alternative is loosening a catch all to satisfy a sentence. AC-26 records that the connector tab sits before the generic one because `genericClient` is the last entry in the set, so the tab order is a constraint on the fallback rather than a matter of taste.
+
+The fourth, AC-16b, is a real decision, and it was forced by the same run. Three ways to judge a code arriving twice were on the table.
+
+**Revoke on every second arrival**, which is what was built and the strictest reading of OAuth 2.1. It is unambiguous and needs no new state. It also costs a legitimate client its credential on an ordinary retry: a lost response or a double submit revokes the token the winning request minted, and the caller is handed a `200` carrying a credential that is already dead, which is worse than a plain refusal because nothing tells it so.
+
+**A grace window on an identical retry**, refusing to revoke when the same client, redirect URI and verifier arrive again within a couple of seconds. It fixes the retry, and it puts a clock into a security decision. A thief racing inside the window still keeps the token alive, so the window buys nothing the third option does not, and it adds a duration nobody can justify from first principles.
+
+**Let PKCE decide**, which is chosen. The revoke fires only when the replay cannot hash its verifier to the stored challenge. It is worth being clear about what the revoke is for: OAuth 2.1 asks for it because a code arriving twice suggests somebody other than the client has the code, and on a public client the verifier is the one thing that says which caller this is. A thief who captured a code out of a redirect cannot produce it and loses the token, which is the case the rule exists for. A client retrying its own request always can, and keeps what it was issued. The case this gives up, a thief holding both the code and the verifier, was already lost: whoever holds both can win the race outright and take the token, so revoking afterwards protects nothing that was still there. It needs no clock, no extra column and no new failure mode, and the refusal itself is unchanged, so a second token is still impossible.
+
 ## References
 
 **Project sources**:
