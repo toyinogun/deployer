@@ -44,6 +44,15 @@ func TestTheDeployHostAnswersOnlyTheDeployRoutes(t *testing.T) {
 		{http.MethodGet, "/"},
 		{http.MethodGet, "/login"},
 		{http.MethodGet, "/healthz"},
+		// The five console OAuth routes, spec 0024 AC-25a. The deploy host
+		// pattern gains the two discovery documents and nothing else: the
+		// authorization server, the registration, the consent page and the
+		// token endpoint all belong to the console.
+		{http.MethodGet, "/.well-known/oauth-authorization-server"},
+		{http.MethodPost, "/oauth/register"},
+		{http.MethodGet, "/oauth/authorize"},
+		{http.MethodPost, "/oauth/authorize"},
+		{http.MethodPost, "/oauth/token"},
 	} {
 		if rec := h.onHost(t, tc.method, testMCPHost, tc.path); rec.Code != http.StatusNotFound {
 			t.Errorf("%s %s on the deploy host = %d, want 404", tc.method, tc.path, rec.Code)

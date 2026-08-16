@@ -38,6 +38,25 @@ const (
 
 	// ConnectorScope is the single scope this authorization server knows.
 	ConnectorScope = "deploy"
+
+	// ProtectedResourcePath is where the deploy host serves its RFC 9728
+	// document. It is a constant here rather than a literal in two packages
+	// because one package serves it and another points at it in a
+	// WWW-Authenticate header, and the two disagreeing is a client that
+	// discovers nothing (AC-1, AC-2).
+	ProtectedResourcePath = "/.well-known/oauth-protected-resource"
+
+	// AuthorizationServerPath is where the console host serves its RFC 8414
+	// document (AC-3).
+	AuthorizationServerPath = "/.well-known/oauth-authorization-server"
+
+	// The three machine endpoints, on the console host. They are namespaced
+	// under /oauth/ because POST /register is already the account signup form
+	// there, and all three are advertised in the AC-3 document, so no client
+	// hardcodes one (AC-25).
+	RegisterPath  = "/oauth/register"
+	AuthorizePath = "/oauth/authorize"
+	TokenPath     = "/oauth/token"
 )
 
 // ConnectorSettings is the rate limit the OAuth endpoints spend from. It is

@@ -73,6 +73,8 @@ func newHarness(t *testing.T) *harness {
 		MaxBytes:     maxTestSize,
 		MCPHost:      testMCPHost,
 		TrustedHosts: []string{testConsoleHost, testMCPHost},
+		MCPURL:       "https://" + testMCPHost,
+		ConsoleURL:   "https://" + testConsoleHost,
 	}).Register(mux, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		// A stand in for the real MCP handler. This package's tests are about
 		// where /mcp is registered, never about what it answers.

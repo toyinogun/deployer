@@ -52,6 +52,23 @@ func (s *Server) toLogin(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.Path), http.StatusSeeOther)
 }
 
+// authorizeSession is the session gate for the authorize endpoint, and the one
+// place the query string survives the trip to the sign in form.
+//
+// toLogin drops it deliberately, because a token in a link must never travel
+// through a redirect. Nothing in an authorize URL is a secret: the client id,
+// the redirect URI, the state and the PKCE challenge are all the public halves
+// of the exchange, and losing them would send the person back to a request that
+// no longer says what it was for (spec 0024, AC-9, AC-9a).
+func (s *Server) authorizeSession(w http.ResponseWriter, r *http.Request) (auth.Account, auth.Session, bool) {
+	account, sess, ok := s.currentSession(r)
+	if !ok {
+		http.Redirect(w, r, "/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusSeeOther)
+		return auth.Account{}, auth.Session{}, false
+	}
+	return account, sess, true
+}
+
 // adminSession is session plus the admin check. An ordinary account gets the
 // 403 page and an audit row; a signed out one is redirected, because being
 // signed out is not a refusal, it is not having answered yet (AC-24).

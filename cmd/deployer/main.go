@@ -187,6 +187,11 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// authenticator, so both routes on that path inherit one rule and neither
 	// handler holds a copy (spec 0022, AC-15, AC-16).
 	deployLimiter := identity.NewLimiter(ids.SystemClock{}, identity.DeployPathSettings())
+	// The OAuth endpoints' own bucket, the third of the three. Adding one
+	// connector spends it three times in a row from one address, so it must not
+	// be the sign in bucket or a person adding a connector could lock themselves
+	// out of the console they are signing in to (spec 0024, AC-6, AC-22).
+	connectorLimiter := identity.NewLimiter(ids.SystemClock{}, identity.ConnectorSettings())
 	authenticator := auth.NewAuthenticator(as, as).
 		WithSessions(as, identity.SessionLifetime).
 		WithLockout(deployLimiter)
@@ -250,6 +255,8 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		MaxBytes:     cfg.MaxUploadBytes,
 		MCPHost:      cfg.MCPHost,
 		TrustedHosts: trustedHosts,
+		MCPURL:       cfg.MCPURL,
+		ConsoleURL:   cfg.ConsoleURL,
 	}).Register(mux, tools.Handler())
 
 	// The browser surface, at the root paths of the same host. It reads through
@@ -272,6 +279,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 			ConsoleHost:       cfg.ConsoleHost,
 			ConsoleURL:        cfg.ConsoleURL,
 			TrustedHosts:      trustedHosts,
+			ConnectorLimiter:  connectorLimiter,
 		}).Register(mux)
 
 	if cluster != nil {

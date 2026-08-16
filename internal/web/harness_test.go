@@ -296,6 +296,10 @@ func newHarness(t *testing.T, pods *fakePods) *harness {
 			ConsoleHost:       testConsoleHost,
 			ConsoleURL:        testConsoleURL,
 			TrustedHosts:      []string{testConsoleHost, testMCPHost},
+			// A real connector bucket rather than nil, so the OAuth endpoints
+			// are exercised through the same limit production runs (spec 0024,
+			// AC-6). Its capacity is well clear of what any one test spends.
+			ConnectorLimiter: identity.NewLimiter(clock, identity.ConnectorSettings()),
 		})
 	h.mux = http.NewServeMux()
 	h.srv.Register(h.mux)

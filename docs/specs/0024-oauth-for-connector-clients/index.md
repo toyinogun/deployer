@@ -29,7 +29,7 @@ Discovery
 
 Registration
 
-- **AC-4**: `POST /register` on the console host takes an RFC 7591 `application/json` body, needs no credential, and answers `201` with `client_id`, `client_id_issued_at`, `token_endpoint_auth_method: "none"` and the accepted `client_name` and `redirect_uris` echoed back. `client_id_issued_at` is Unix seconds, a JSON number, per RFC 7591. No client secret is ever issued, because every client here is public and PKCE is what binds the exchange.
+- **AC-4**: `POST /oauth/register` on the console host takes an RFC 7591 `application/json` body, needs no credential, and answers `201` with `client_id`, `client_id_issued_at`, `token_endpoint_auth_method: "none"` and the accepted `client_name` and `redirect_uris` echoed back. `client_id_issued_at` is Unix seconds, a JSON number, per RFC 7591. No client secret is ever issued, because every client here is public and PKCE is what binds the exchange.
 - **AC-4a**: A body that does not parse, one carrying no `redirect_uris` or an empty array, or a `client_name` longer than the bound in AC-20a, refuses with `invalid_client_metadata`. That code exists for exactly those three cases and a bad redirect URI takes AC-5's code instead, so the two never overlap.
 - **AC-5**: A `redirect_uris` entry is accepted only when it is an absolute URI with no fragment that is either `https`, or `http` with a host of exactly `localhost`, `127.0.0.1` or `[::1]`. RFC 8252 covers both loopback literals, so excluding the IPv6 one would refuse a conforming client for no reason. Anything else refuses the whole registration with `invalid_redirect_uri`. At least one entry is required and at most ten are accepted.
 - **AC-6**: Registration spends a limiter bucket of its own, a third `identity.Settings` value beside `SignInSettings` and `DeployPathSettings`, using the shared address derivation. It must not be the sign in bucket: one connector being added spends it three times in a row from one address, so sharing it would let a person adding a connector lock themselves out of the console they are signing in to. Over the bucket answers `429`.
@@ -39,7 +39,7 @@ Registration
 
 Authorize, the machine half
 
-- **AC-9**: `GET /authorize` on the console host takes `client_id`, `redirect_uri`, `response_type`, `code_challenge`, `code_challenge_method`, `resource`, and optionally `state` and `scope`. A request carrying no session takes the existing session gate.
+- **AC-9**: `GET /oauth/authorize` on the console host takes `client_id`, `redirect_uri`, `response_type`, `code_challenge`, `code_challenge_method`, `resource`, and optionally `state` and `scope`. A request carrying no session takes the existing session gate.
 - **AC-9a**: Signing in from that gate returns the person to the same authorize URL with its query string intact. `safeNext` is exercised with a query string carrying an encoded `redirect_uri` and a `state`, and a test drives the whole round trip rather than asserting the helper alone.
 - **AC-10**: Validation order is load bearing. An unknown `client_id`, or a `redirect_uri` that matches none registered for that client, renders an error page on the console and **never redirects**. Every other invalid parameter redirects to the matched `redirect_uri` carrying `error`, `error_description`, the `state` if one was given, and `iss`. That order is what stops this endpoint being an open redirect.
 - **AC-10a**: A registered `https` redirect URI matches the request exactly. A registered loopback URI matches with the port ignored, so `http://localhost/callback` matches `http://localhost:3118/callback`, while scheme, host and path must be equal. Claude Code declares both `http://localhost/callback` and `http://127.0.0.1/callback`, so both forms are accepted, as is the `[::1]` form from AC-5.
@@ -59,7 +59,7 @@ Authorize, the person's half
 
 Token
 
-- **AC-17**: `POST /token` on the console host accepts `application/x-www-form-urlencoded` and nothing else, because Claude sends that content type and a JSON only parser answers `415`, which reads as an outage. A body of another type answers `400 invalid_request`. Fields: `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `code_verifier`.
+- **AC-17**: `POST /oauth/token` on the console host accepts `application/x-www-form-urlencoded` and nothing else, because Claude sends that content type and a JSON only parser answers `415`, which reads as an outage. A body of another type answers `400 invalid_request`. Fields: `grant_type=authorization_code`, `code`, `redirect_uri`, `client_id`, `code_verifier`.
 - **AC-18**: The exchange succeeds only when all of these hold: the code exists, is unconsumed and unexpired; it was issued to this `client_id`; the `redirect_uri` equals the one stored on it under AC-10b's comparison rule; the `resource`, when the token request carries one, equals the one stored on the code, and an absent one takes the stored value; and the S256 hash of `code_verifier` equals the stored `code_challenge`. Any failure answers `400` with `invalid_grant`, and the response never says which check failed.
 - **AC-18a**: Consuming the code is one conditional statement, `UPDATE oauth_codes SET consumed_at = ? WHERE code_hash = ? AND consumed_at IS NULL`, and only a row count of one proceeds to mint. It is never a read followed by a write, because two token requests arriving together would both read the code as unconsumed and both mint from it. A test drives that race rather than assuming it, the same way spec 0023 drove the `connected_at` stamp.
 - **AC-19**: On success the platform revokes any live token this account already holds for this client and mints a new one carrying `oauth_client_id`. The response is `{"access_token": ..., "token_type": "Bearer", "scope": "deploy"}` with no `expires_in` and no `refresh_token`, sent with `Cache-Control: no-store`.
@@ -73,8 +73,8 @@ Token
 
 Boundaries
 
-- **AC-24**: `/register`, `/authorize` and `/token` answer OAuth error codes, in the RFC 6749 JSON shape or as redirect parameters, never a `internal/domain` reason code. `internal/domain/reason.go` gains no member, and the MCP tools' reason codes are unchanged. This is a written exception to the closed reason code rule and it covers exactly those three routes, named here so the exception is a list rather than a principle. A later route claiming it needs its own criterion saying so, because "some routes answer OAuth codes" is how a closed set stops being closed.
-- **AC-25**: Route registration is deliberate on both hostnames. The deploy host pattern gains exactly the two documents in AC-1. The console host pattern gains exactly `GET /.well-known/oauth-authorization-server`, `POST /register`, `GET /authorize`, `POST /authorize` and `POST /token`. Neither catch all is loosened.
+- **AC-24**: `/oauth/register`, `/oauth/authorize` and `/oauth/token` answer OAuth error codes, in the RFC 6749 JSON shape or as redirect parameters, never a `internal/domain` reason code. `internal/domain/reason.go` gains no member, and the MCP tools' reason codes are unchanged. This is a written exception to the closed reason code rule and it covers exactly those three routes, named here so the exception is a list rather than a principle. A later route claiming it needs its own criterion saying so, because "some routes answer OAuth codes" is how a closed set stops being closed.
+- **AC-25**: Route registration is deliberate on both hostnames. The deploy host pattern gains exactly the two documents in AC-1. The console host pattern gains exactly `GET /.well-known/oauth-authorization-server`, `POST /oauth/register`, `GET /oauth/authorize`, `POST /oauth/authorize` and `POST /oauth/token`. The three machine endpoints are namespaced under `/oauth/` because `POST /register` is already the invite only account signup form on that host; all three are advertised in the AC-3 metadata document, so no client hardcodes a path. Neither catch all is loosened.
 - **AC-25b**: Every one of those seven registrations names its method, so the standard mux answers `405` for a wrong method on a path that exists and the host's catch all answers `404` for a path that does not. Both are asserted, because "registered deliberately" is only checkable if the two refusals are distinguishable.
 - **AC-25a**: A test asserts the negative in both directions: none of the five console routes answers on the deploy host, and neither protected resource document answers on the console host.
 - **AC-26**: `/connect` gains a fifth tab, after the existing four, for the Claude app and other connectors. It shows exactly `Config.MCPURL + "/mcp"` and nothing else: no token, no placeholder, and no mint button while it is selected, because this flow issues its own credential. The endpoint follows a configuration swap the way the other four blocks do, asserted by the same style of test.
@@ -139,10 +139,10 @@ The existing `api_tokens_live_name` index still applies, which is why AC-20a nee
 |---|---|---|---|---|---|
 | `/.well-known/oauth-protected-resource` and `/.well-known/oauth-protected-resource/mcp` (deploy host) | GET | none | `resource`, `authorization_servers`, `scopes_supported` | none | none |
 | `/.well-known/oauth-authorization-server` (console host) | GET | none | RFC 8414 metadata | none | none |
-| `/register` (console host) | POST | `client_name`:string, `redirect_uris`:array (req) | `client_id`, `client_id_issued_at` | none | `400 invalid_redirect_uri`, `400 invalid_client_metadata`, `429` |
-| `/authorize` (console host) | GET | `client_id`, `redirect_uri`, `response_type`, `code_challenge`, `code_challenge_method`, `resource` (req), `state`, `scope` (opt) | the approval page | session cookie | error page on an unknown client or unmatched redirect, otherwise a redirect carrying `invalid_request`, `invalid_target` or `unsupported_response_type`; the session gate; a suspension refusal |
-| `/authorize` (console host) | POST | the same parameters, `approve`:string, CSRF token (req) | a redirect carrying `code` or `error=access_denied` | session cookie | `403` on a bad CSRF token |
-| `/token` (console host) | POST, form encoded | `grant_type`, `code`, `redirect_uri`, `client_id`, `code_verifier` (req) | `access_token`, `token_type`, `scope` | none | `400 invalid_grant`, `400 invalid_request`, `400 unsupported_grant_type`, `429` |
+| `/oauth/register` (console host) | POST | `client_name`:string, `redirect_uris`:array (req) | `client_id`, `client_id_issued_at` | none | `400 invalid_redirect_uri`, `400 invalid_client_metadata`, `429` |
+| `/oauth/authorize` (console host) | GET | `client_id`, `redirect_uri`, `response_type`, `code_challenge`, `code_challenge_method`, `resource` (req), `state`, `scope` (opt) | the approval page | session cookie | error page on an unknown client or unmatched redirect, otherwise a redirect carrying `invalid_request`, `invalid_target` or `unsupported_response_type`; the session gate; a suspension refusal |
+| `/oauth/authorize` (console host) | POST | the same parameters, `approve`:string, CSRF token (req) | a redirect carrying `code` or `error=access_denied` | session cookie | `403` on a bad CSRF token |
+| `/oauth/token` (console host) | POST, form encoded | `grant_type`, `code`, `redirect_uri`, `client_id`, `code_verifier` (req) | `access_token`, `token_type`, `scope` | none | `400 invalid_grant`, `400 invalid_request`, `400 unsupported_grant_type`, `429` |
 | `/mcp` (deploy host) | POST, GET | unchanged | unchanged | bearer | unchanged, plus the `WWW-Authenticate` header on `401` |
 
 **Value sourcing**:
@@ -153,20 +153,20 @@ The existing `api_tokens_live_name` index still applies, which is why AC-20a nee
 | protected resource document | `authorization_servers` | `Config.ConsoleURL`, a single entry, because Claude uses the first and does not fall back |
 | `401` on `/mcp` | `resource_metadata` in the header | `Config.MCPURL` plus the path aware well known path |
 | authorization server document | `issuer` and the three endpoint URLs | `Config.ConsoleURL` plus constant paths |
-| `/register` | `client_id` | a fresh platform id, the same generator every other id uses |
-| `/register` | `client_id_issued_at` | the service clock as Unix seconds, a JSON number per RFC 7591 (AC-4) |
-| `/register` | the accepted redirect URIs | the request body, after the AC-5 validation, stored verbatim as JSON so AC-10b can compare against the exact registered string |
-| `/authorize` | the host shown as the heading | parsed from the **matched registered** redirect URI, never from the request parameter |
-| `/authorize` | the client name shown as a quote | `oauth_clients.name`, escaped at render |
-| `/authorize` | whether the loopback warning shows | every registered redirect URI for that client being loopback (AC-13a) |
-| `/authorize` | the account being connected | the resolved session, never anything the caller sent |
-| `/authorize` | the raw authorization code | freshly generated, hashed for storage, present only in the redirect |
-| `/authorize` | `iss` on every redirect | `Config.ConsoleURL` |
-| `/token` | the raw access token | the new `identity.Service` grant method in AC-19a, sharing its generation helper with `MintToken`, held in that one response body |
-| `/token` | the token's name | `oauth_clients.name` bounded and cleaned, plus today's date from the service clock, plus an ordinal when taken (AC-20a) |
-| `/token` | the audit row's target and reason | the token id as the target, the client id in `Reason` (AC-23) |
-| `/token` and `/register` | the audit row's and the limiter's client address | the shared `clientAddress` derivation, as every console write uses |
-| `/register`, `/authorize`, `/token` | which limiter bucket is spent | the new connector `identity.Settings`, never `SignInSettings` (AC-6) |
+| `/oauth/register` | `client_id` | a fresh platform id, the same generator every other id uses |
+| `/oauth/register` | `client_id_issued_at` | the service clock as Unix seconds, a JSON number per RFC 7591 (AC-4) |
+| `/oauth/register` | the accepted redirect URIs | the request body, after the AC-5 validation, stored verbatim as JSON so AC-10b can compare against the exact registered string |
+| `/oauth/authorize` | the host shown as the heading | parsed from the **matched registered** redirect URI, never from the request parameter |
+| `/oauth/authorize` | the client name shown as a quote | `oauth_clients.name`, escaped at render |
+| `/oauth/authorize` | whether the loopback warning shows | every registered redirect URI for that client being loopback (AC-13a) |
+| `/oauth/authorize` | the account being connected | the resolved session, never anything the caller sent |
+| `/oauth/authorize` | the raw authorization code | freshly generated, hashed for storage, present only in the redirect |
+| `/oauth/authorize` | `iss` on every redirect | `Config.ConsoleURL` |
+| `/oauth/token` | the raw access token | the new `identity.Service` grant method in AC-19a, sharing its generation helper with `MintToken`, held in that one response body |
+| `/oauth/token` | the token's name | `oauth_clients.name` bounded and cleaned, plus today's date from the service clock, plus an ordinal when taken (AC-20a) |
+| `/oauth/token` | the audit row's target and reason | the token id as the target, the client id in `Reason` (AC-23) |
+| `/oauth/token` and `/oauth/register` | the audit row's and the limiter's client address | the shared `clientAddress` derivation, as every console write uses |
+| `/oauth/register`, `/oauth/authorize`, `/oauth/token` | which limiter bucket is spent | the new connector `identity.Settings`, never `SignInSettings` (AC-6) |
 | sweep | which client rows die | `approved_at IS NULL AND created_at < now - 7 days`, the window a Go constant (AC-8) |
 | `/connect` fifth tab | the address shown | `Config.MCPURL + "/mcp"` (AC-26) |
 
@@ -183,11 +183,11 @@ The existing `api_tokens_live_name` index still applies, which is why AC-20a nee
 
 **Security model**:
 
-Unauthenticated: the three discovery documents and `POST /register`. A registration grants nothing; it creates a row that can be approved. Registration and the token endpoint are rate limited on the address, on a bucket of their own rather than the sign in one (AC-6, AC-22).
+Unauthenticated: the three discovery documents and `POST /oauth/register`. A registration grants nothing; it creates a row that can be approved. Registration and the token endpoint are rate limited on the address, on a bucket of their own rather than the sign in one (AC-6, AC-22).
 
-Session backed: `/authorize` in both methods. The account comes from the resolved session and nowhere else, the CSRF check is the one `/tokens` uses, and a suspended account is refused before the page renders (AC-14).
+Session backed: `/oauth/authorize` in both methods. The account comes from the resolved session and nowhere else, the CSRF check is the one `/tokens` uses, and a suspended account is refused before the page renders (AC-14).
 
-Bearer backed: `/mcp` and `POST /v1/uploads`, unchanged. `POST /token` is deliberately unauthenticated in the client sense, which is correct for a public client and is what PKCE plus the single use code exists to make safe.
+Bearer backed: `/mcp` and `POST /v1/uploads`, unchanged. `POST /oauth/token` is deliberately unauthenticated in the client sense, which is correct for a public client and is what PKCE plus the single use code exists to make safe.
 
 The person is the authorization boundary. Anyone on the internet can register a client called anything; nothing happens until a signed in account approves it on a page that shows the one host the platform can actually verify.
 
@@ -207,7 +207,7 @@ None. This feature adds no `DEPLOYER_*` variable (AC-30).
 - Failure case: a wrong `code_verifier` answers `invalid_grant` and says nothing about which check failed, verifies **AC-18**.
 - Failure case: two grants for one client driven concurrently leave exactly one live token, verifies **AC-19b**.
 - Failure case: adding a connector three times over does not consume the sign in allowance for that address, verifies **AC-6**.
-- Auth: a suspended account reaching `/authorize` is refused before consent, verifies **AC-14**.
+- Auth: a suspended account reaching `/oauth/authorize` is refused before consent, verifies **AC-14**.
 - Auth: every console OAuth route answers 404 on the deploy host, and both protected resource documents answer 404 on the console host, verifies **AC-25a**.
 - Hostile input: a client registering with a name full of markup and control characters is rendered escaped on the approval page and produces a sane token name in the list, verifies **AC-13**, **AC-20a**.
 

@@ -1,0 +1,52 @@
+{{define "title"}}Connect an app{{end}}
+{{define "content"}}
+{{/* The ordering here is fixed by spec 0024, AC-13, and it is fixed because the
+     first line is the only fact on this page the platform can verify. The host
+     comes from the matched registered redirect URI, never from anything the
+     caller sent. Everything below it that the client supplied is labelled as
+     the client's own claim and escaped by the template. */}}
+<header class="page-head">
+  <h1>Connect <strong>{{.Data.Host}}</strong>?</h1>
+  <p class="sub">Deployer can verify this address and nothing else on this page.</p>
+</header>
+
+<section class="card" aria-labelledby="approve-head">
+  <h2 id="approve-head">What is asking</h2>
+
+  <p>It calls itself &ldquo;{{.Data.ClientName}}&rdquo;. That is a name the app chose for
+     itself, not something deployer checked.</p>
+
+  <p>It would be connected to <strong>{{.Data.Email}}</strong>.</p>
+
+  <p>If you approve, this app will be able to deploy, configure, roll back,
+     read the logs of, and delete apps for that account.</p>
+
+  {{if .Data.Loopback}}
+  {{/* Pinned wording, AC-13a. Every address this client registered is on this
+       machine, so the request came from a program running on your own computer
+       and the platform cannot tell which one. */}}
+  <p class="alert" role="alert">
+    This request came from a program running on your own machine. Deployer cannot
+    tell which program it is. Only approve this if you just started this yourself.
+  </p>
+  {{end}}
+
+  <form method="post" action="/oauth/authorize" class="stack">
+    <input type="hidden" name="csrf" value="{{.Shell.CSRF}}">
+    <input type="hidden" name="client_id" value="{{.Data.ClientID}}">
+    <input type="hidden" name="redirect_uri" value="{{.Data.RedirectURI}}">
+    <input type="hidden" name="response_type" value="{{.Data.ResponseType}}">
+    <input type="hidden" name="code_challenge" value="{{.Data.Challenge}}">
+    <input type="hidden" name="code_challenge_method" value="{{.Data.ChallengeMeth}}">
+    <input type="hidden" name="resource" value="{{.Data.Resource}}">
+    <input type="hidden" name="state" value="{{.Data.State}}">
+    <input type="hidden" name="scope" value="{{.Data.Scope}}">
+    <div class="actions">
+      <button class="button" type="submit" name="approve" value="yes">Approve</button>
+      <button class="button secondary" type="submit" name="approve" value="no">Deny</button>
+    </div>
+  </form>
+
+  <p class="hint">You can revoke this at any time from <a href="/tokens">API tokens</a>.</p>
+</section>
+{{end}}

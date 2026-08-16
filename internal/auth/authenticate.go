@@ -91,6 +91,12 @@ const (
 	// ActionAppView is one page read of an app the caller does not own, recorded
 	// only when refused. A read of your own app is not an access decision.
 	ActionAppView = "app_view"
+	// ActionConnectorGrant is one OAuth exchange: a connector client presented
+	// an authorization code and was issued a token. Only the success is
+	// recorded, because a refused exchange identifies nobody, and the client id
+	// travels in Reason since this struct holds one target pair and the target
+	// is the token that was issued (spec 0024, AC-23).
+	ActionConnectorGrant = "connector_grant"
 )
 
 // TargetAppConfig is the target type a configuration change is recorded against.
