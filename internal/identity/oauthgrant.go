@@ -161,10 +161,15 @@ func (s *Service) SweepClients(ctx context.Context) (int, error) {
 // Every way this can fail is ErrGrantInvalid, and the caller is never told which
 // one (AC-18). Two of them are worth reading here rather than in the list.
 //
-// A code presented a second time is not merely refused: it also revokes the
-// token the first presentation issued, which is what OAuth 2.1 asks for on a
-// replay, because a code arriving twice means one of the two callers is not the
-// client that asked for it (AC-16a).
+// A code presented a second time is always refused (AC-16a). Whether it also
+// revokes the token the first presentation issued is decided by PKCE rather than
+// by the second arrival: the replay revokes only when its verifier does not
+// produce the stored challenge. What OAuth 2.1's revoke defends against is a code
+// somebody other than the client has, and on a public client the verifier is
+// exactly the proof of which caller this is. A thief who captured the code from a
+// redirect cannot produce it; the client retrying its own request always can, and
+// must not lose the token it was just issued for a lost response or a double
+// submit (AC-16b).
 //
 // Everything checked here is checked against the row rather than the request,
 // and the checks run before the code is spent. Spending it is the store's one
@@ -181,7 +186,13 @@ func (s *Service) Grant(ctx context.Context, req GrantRequest) (Minted, error) {
 	}
 
 	if code.Consumed {
-		s.revokeReplayed(ctx, code)
+		// The verifier alone decides the revoke. On a public client it is the
+		// only proof of which caller this is, so a caller that can produce it is
+		// the client retrying its own request, and a caller that cannot is
+		// somebody who captured the code from a redirect (AC-16b).
+		if !VerifyPKCE(code.CodeChallenge, req.Verifier) {
+			s.revokeReplayed(ctx, code)
+		}
 		return Minted{}, ErrGrantInvalid
 	}
 	if code.ClientID != req.ClientID ||
@@ -235,7 +246,8 @@ func (s *Service) Grant(ctx context.Context, req GrantRequest) (Minted, error) {
 	return Minted{}, fmt.Errorf("identity: no free token name for %q after %d tries", base, grantNameAttempts)
 }
 
-// revokeReplayed kills the token a replayed code issued. It is best effort and
+// revokeReplayed kills the token a replayed code issued, and is called only for
+// a replay that could not prove the PKCE verifier (AC-16b). It is best effort and
 // deliberately does not change what the caller is told: the exchange is refused
 // either way, and a failure to revoke is a fault worth logging rather than a
 // different answer (AC-16a).

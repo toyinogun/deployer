@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -655,9 +656,30 @@ func TestAnExchangeIsRefusedIdenticallyHoweverItIsWrong(t *testing.T) {
 	}
 }
 
-// AC-16a. A code presented twice is refused, and it costs the token the first
-// presentation issued.
-func TestReplayingACodeRefusesItAndRevokesTheTokenItIssued(t *testing.T) {
+// accessToken reads the token out of a successful exchange.
+func accessToken(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decoding: %v", err)
+	}
+	raw, _ := body["access_token"].(string)
+	if raw == "" {
+		t.Fatalf("the exchange carried no access token: %s", rec.Body)
+	}
+	return raw
+}
+
+// tokenLives says whether a raw token still authenticates.
+func (h *harness) tokenLives(t *testing.T, raw string) bool {
+	t.Helper()
+	_, _, err := h.store.ResolveToken(t.Context(), auth.HashToken(raw))
+	return err == nil
+}
+
+// AC-16a, AC-16b. A replay that cannot prove the verifier is the case OAuth 2.1's
+// revoke exists for: somebody other than the client has the code.
+func TestAReplayThatCannotProveTheVerifierRevokesTheTokenItIssued(t *testing.T) {
 	t.Parallel()
 	h := newHarness(t, nil)
 	session := h.signIn(t, "owner@example.org")
@@ -668,21 +690,87 @@ func TestReplayingACodeRefusesItAndRevokesTheTokenItIssued(t *testing.T) {
 	if first.Code != http.StatusOK {
 		t.Fatalf("the first exchange: got %d: %s", first.Code, first.Body)
 	}
-	var body map[string]any
-	if err := json.Unmarshal(first.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decoding: %v", err)
-	}
-	raw, _ := body["access_token"].(string)
-	if _, _, err := h.store.ResolveToken(t.Context(), auth.HashToken(raw)); err != nil {
-		t.Fatalf("the first token does not work: %v", err)
+	raw := accessToken(t, first)
+	if !h.tokenLives(t, raw) {
+		t.Fatal("the first token does not work")
 	}
 
-	second := h.exchange(t, tokenForm(clientID, code))
+	stolen := tokenForm(clientID, code)
+	stolen.Set("code_verifier", "not-the-verifier-that-made-it")
+	second := h.exchange(t, stolen)
 	if second.Code != http.StatusBadRequest {
 		t.Fatalf("the replay: got %d, want 400: %s", second.Code, second.Body)
 	}
-	if _, _, err := h.store.ResolveToken(t.Context(), auth.HashToken(raw)); err == nil {
-		t.Error("the replay left the token the first exchange issued still working")
+	if h.tokenLives(t, raw) {
+		t.Error("a thief's replay left the token the first exchange issued still working")
+	}
+}
+
+// AC-16b. The client's own retry is refused and keeps its token. A lost response
+// or a double submit must not cost a connector the credential it was just issued.
+func TestTheClientsOwnRetryIsRefusedAndKeepsItsToken(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	session := h.signIn(t, "owner@example.org")
+	clientID := h.registerConnector(t, "Claude Desktop")
+	code := h.approve(t, session, clientID)
+
+	first := h.exchange(t, tokenForm(clientID, code))
+	if first.Code != http.StatusOK {
+		t.Fatalf("the first exchange: got %d: %s", first.Code, first.Body)
+	}
+	raw := accessToken(t, first)
+
+	second := h.exchange(t, tokenForm(clientID, code))
+	if second.Code != http.StatusBadRequest {
+		t.Fatalf("the retry: got %d, want 400: %s", second.Code, second.Body)
+	}
+	if !h.tokenLives(t, raw) {
+		t.Error("the client's own retry cost it the token it had just been issued")
+	}
+}
+
+// AC-16b, AC-18a. Two identical exchanges arriving together mint once, and the
+// one token that comes out of that is live afterwards whichever request lost.
+func TestARacedPairMintsOnceAndLeavesThatTokenLive(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	session := h.signIn(t, "owner@example.org")
+	clientID := h.registerConnector(t, "Claude Desktop")
+	code := h.approve(t, session, clientID)
+
+	var wg sync.WaitGroup
+	recs := make([]*httptest.ResponseRecorder, 2)
+	start := make(chan struct{})
+	for i := range recs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			recs[i] = h.exchange(t, tokenForm(clientID, code))
+		}()
+	}
+	close(start)
+	wg.Wait()
+
+	var minted string
+	for _, rec := range recs {
+		switch rec.Code {
+		case http.StatusOK:
+			if minted != "" {
+				t.Fatal("both raced exchanges minted a token")
+			}
+			minted = accessToken(t, rec)
+		case http.StatusBadRequest:
+		default:
+			t.Fatalf("a raced exchange got %d: %s", rec.Code, rec.Body)
+		}
+	}
+	if minted == "" {
+		t.Fatal("neither raced exchange minted a token")
+	}
+	if !h.tokenLives(t, minted) {
+		t.Error("the raced pair revoked the one token it minted")
 	}
 }
 
