@@ -106,7 +106,7 @@ INSERT INTO accounts (id, name, email, password_hash, display_name, is_admin, cr
 SELECT ?1, ?1, ?2, ?3, ?4,
        CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE email IS NOT NULL) THEN 0 ELSE 1 END,
        ?5, ?5
-RETURNING id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name
+RETURNING id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name, connected_at
 `
 
 type CreateIdentityAccountParams struct {
@@ -147,6 +147,7 @@ func (q *Queries) CreateIdentityAccount(ctx context.Context, arg CreateIdentityA
 		&i.EmailVerifiedAt,
 		&i.IsAdmin,
 		&i.DisplayName,
+		&i.ConnectedAt,
 	)
 	return i, err
 }
@@ -210,7 +211,7 @@ func (q *Queries) GetAPIToken(ctx context.Context, id string) (ApiToken, error) 
 }
 
 const getAccountByEmail = `-- name: GetAccountByEmail :one
-SELECT id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name FROM accounts WHERE email = ?1
+SELECT id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name, connected_at FROM accounts WHERE email = ?1
 `
 
 func (q *Queries) GetAccountByEmail(ctx context.Context, email *string) (Account, error) {
@@ -227,12 +228,13 @@ func (q *Queries) GetAccountByEmail(ctx context.Context, email *string) (Account
 		&i.EmailVerifiedAt,
 		&i.IsAdmin,
 		&i.DisplayName,
+		&i.ConnectedAt,
 	)
 	return i, err
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name FROM accounts ORDER BY created_at DESC
+SELECT id, name, disabled_at, created_at, updated_at, email, password_hash, email_verified_at, is_admin, display_name, connected_at FROM accounts ORDER BY created_at DESC
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -255,6 +257,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.EmailVerifiedAt,
 			&i.IsAdmin,
 			&i.DisplayName,
+			&i.ConnectedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -318,6 +321,29 @@ func (q *Queries) ListLiveAPITokens(ctx context.Context, arg ListLiveAPITokensPa
 	return items, nil
 }
 
+const markAccountConnected = `-- name: MarkAccountConnected :execrows
+UPDATE accounts SET connected_at = ?1, updated_at = ?1
+WHERE id = ?2 AND connected_at IS NULL
+`
+
+type MarkAccountConnectedParams struct {
+	Now *string
+	ID  string
+}
+
+// Stamping the account connected is one conditional statement rather than a read
+// followed by a write, so two GET /connect requests arriving at once leave
+// exactly one stamp and neither has to hold a transaction open to find out
+// (spec 0023, AC-4a). A second call matches no row and changes nothing, which is
+// the ordinary case on every visit after the first.
+func (q *Queries) MarkAccountConnected(ctx context.Context, arg MarkAccountConnectedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, markAccountConnected, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const markEmailVerified = `-- name: MarkEmailVerified :execrows
 UPDATE accounts SET email_verified_at = ?1, updated_at = ?1
 WHERE id = ?2 AND email_verified_at IS NULL
@@ -337,7 +363,7 @@ func (q *Queries) MarkEmailVerified(ctx context.Context, arg MarkEmailVerifiedPa
 }
 
 const resolveSession = `-- name: ResolveSession :one
-SELECT accounts.id, accounts.name, accounts.disabled_at, accounts.created_at, accounts.updated_at, accounts.email, accounts.password_hash, accounts.email_verified_at, accounts.is_admin, accounts.display_name, sessions.id, sessions.account_id, sessions.token_hash, sessions.expires_at, sessions.last_used_at, sessions.revoked_at, sessions.created_at, sessions.updated_at
+SELECT accounts.id, accounts.name, accounts.disabled_at, accounts.created_at, accounts.updated_at, accounts.email, accounts.password_hash, accounts.email_verified_at, accounts.is_admin, accounts.display_name, accounts.connected_at, sessions.id, sessions.account_id, sessions.token_hash, sessions.expires_at, sessions.last_used_at, sessions.revoked_at, sessions.created_at, sessions.updated_at
 FROM sessions
 JOIN accounts ON accounts.id = sessions.account_id
 WHERE sessions.token_hash = ?1
@@ -373,6 +399,7 @@ func (q *Queries) ResolveSession(ctx context.Context, arg ResolveSessionParams) 
 		&i.Account.EmailVerifiedAt,
 		&i.Account.IsAdmin,
 		&i.Account.DisplayName,
+		&i.Account.ConnectedAt,
 		&i.Session.ID,
 		&i.Session.AccountID,
 		&i.Session.TokenHash,

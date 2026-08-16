@@ -26,6 +26,15 @@ SELECT * FROM accounts ORDER BY created_at DESC;
 UPDATE accounts SET email_verified_at = @now, updated_at = @now
 WHERE id = @id AND email_verified_at IS NULL;
 
+-- Stamping the account connected is one conditional statement rather than a read
+-- followed by a write, so two GET /connect requests arriving at once leave
+-- exactly one stamp and neither has to hold a transaction open to find out
+-- (spec 0023, AC-4a). A second call matches no row and changes nothing, which is
+-- the ordinary case on every visit after the first.
+-- name: MarkAccountConnected :execrows
+UPDATE accounts SET connected_at = @now, updated_at = @now
+WHERE id = @id AND connected_at IS NULL;
+
 -- name: SetPasswordHash :execrows
 UPDATE accounts SET password_hash = @password_hash, updated_at = @now WHERE id = @id;
 

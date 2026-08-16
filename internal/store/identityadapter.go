@@ -65,6 +65,17 @@ func (a IdentityStore) MarkVerified(ctx context.Context, id string) error {
 	return nil
 }
 
+// MarkConnected stamps the account as having been handed its agent
+// configuration. Whether this call was the one that stamped it is a fact the
+// store answers and nothing above needs, so it is dropped here rather than
+// carried up into a service that would have no use for it.
+func (a IdentityStore) MarkConnected(ctx context.Context, id string) error {
+	if _, err := a.s.MarkAccountConnected(ctx, id); err != nil {
+		return mapNotFound(err)
+	}
+	return nil
+}
+
 // SetPassword writes a new hash and revokes every live session and link with it.
 func (a IdentityStore) SetPassword(ctx context.Context, id, passwordHash string) error {
 	if err := a.s.SetPassword(ctx, id, passwordHash); err != nil {
@@ -275,6 +286,7 @@ func toIdentityAccount(acc Account) identity.Account {
 		Verified:     acc.EmailVerifiedAt != nil,
 		Disabled:     acc.DisabledAt != nil,
 		IsAdmin:      acc.IsAdmin == 1,
+		Connected:    acc.ConnectedAt != nil,
 		CreatedAt:    acc.CreatedAt,
 	}
 }

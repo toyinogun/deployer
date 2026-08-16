@@ -101,6 +101,22 @@ func (s *Store) MarkEmailVerified(ctx context.Context, id string) error {
 	return nil
 }
 
+// MarkAccountConnected stamps the account as having been handed its agent
+// configuration, and reports whether this call was the one that stamped it.
+//
+// One conditional UPDATE, never a read then a write, so two concurrent first
+// visits leave exactly one stamp (spec 0023, AC-4a). Stamping an already stamped
+// account is the ordinary case on every visit after the first and is not an
+// error: it simply matches no row and answers false.
+func (s *Store) MarkAccountConnected(ctx context.Context, id string) (bool, error) {
+	now := s.now()
+	n, err := s.q.MarkAccountConnected(ctx, sqlcgen.MarkAccountConnectedParams{Now: ptr(now), ID: id})
+	if err != nil {
+		return false, fmt.Errorf("store: marking account %s connected: %w", id, err)
+	}
+	return n > 0, nil
+}
+
 // SetPassword writes a new password hash and, in the same transaction, revokes
 // every live session and every live link the account holds (AC-10, AC-29).
 func (s *Store) SetPassword(ctx context.Context, id, passwordHash string) error {
