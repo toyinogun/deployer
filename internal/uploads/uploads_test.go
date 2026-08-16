@@ -26,17 +26,28 @@ type fakeStore struct {
 	created   []uploads.New
 	setTokens []string // upload ids whose token was replaced, in order
 
+	// The sweep's half: what the store says is sweepable, and what the service
+	// asked it to delete.
+	sweepable []uploads.Sweepable
+	deleted   []string
+
 	createErr error
 	setErr    error
+	countErr  error
+	sweepErr  error
+	deleteErr error
 }
 
 func newFakeStore() *fakeStore {
 	return &fakeStore{rows: map[string]uploads.Upload{}, byToken: map[string]string{}}
 }
 
-func (f *fakeStore) CreateUpload(_ context.Context, u uploads.New) (uploads.Upload, error) {
+func (f *fakeStore) CreateUpload(_ context.Context, u uploads.New, limit int) (uploads.Upload, error) {
 	if f.createErr != nil {
 		return uploads.Upload{}, f.createErr
+	}
+	if limit > 0 && f.unclaimed(u.AccountID) >= limit {
+		return uploads.Upload{}, uploads.ErrTooManyUnclaimed
 	}
 	f.created = append(f.created, u)
 	row := uploads.Upload{
@@ -50,6 +61,44 @@ func (f *fakeStore) CreateUpload(_ context.Context, u uploads.New) (uploads.Uplo
 	f.rows[u.ID] = row
 	f.byToken[u.FetchTokenHash] = u.ID
 	return row, nil
+}
+
+// unclaimed counts the account's rows no deploy has redeemed. Expiry is not read
+// here, because the clock these tests run on never moves far enough for it to
+// matter and the real answer is the store's, which its own tests pin.
+func (f *fakeStore) unclaimed(accountID string) int {
+	n := 0
+	for _, row := range f.rows {
+		if row.AccountID == accountID && !row.Redeemed {
+			n++
+		}
+	}
+	return n
+}
+
+func (f *fakeStore) CountUnclaimed(_ context.Context, accountID string) (int, error) {
+	if f.countErr != nil {
+		return 0, f.countErr
+	}
+	return f.unclaimed(accountID), nil
+}
+
+func (f *fakeStore) ListSweepable(_ context.Context) ([]uploads.Sweepable, error) {
+	if f.sweepErr != nil {
+		return nil, f.sweepErr
+	}
+	out := make([]uploads.Sweepable, 0, len(f.sweepable))
+	out = append(out, f.sweepable...)
+	return out, nil
+}
+
+func (f *fakeStore) DeleteRow(_ context.Context, id string) error {
+	if f.deleteErr != nil {
+		return f.deleteErr
+	}
+	delete(f.rows, id)
+	f.deleted = append(f.deleted, id)
+	return nil
 }
 
 func (f *fakeStore) GetUpload(_ context.Context, id string) (uploads.Upload, error) {
@@ -123,7 +172,7 @@ func newHarness(t *testing.T, maxBytes int64) harness {
 	store := newFakeStore()
 	clock := &ids.FixedClock{T: time.Date(2026, 8, 12, 9, 0, 0, 0, time.UTC)}
 	return harness{
-		svc:   uploads.NewService(store, dir, maxBytes, clock),
+		svc:   uploads.NewService(store, dir, maxBytes, 0, clock),
 		store: store,
 		dir:   dir,
 		clock: clock,

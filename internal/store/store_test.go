@@ -70,7 +70,7 @@ func newUpload(t *testing.T, s *store.Store, accountID, tokenHash string) store.
 		SHA256:         "abc",
 		FetchTokenHash: tokenHash,
 		ExpiresAt:      ids.Stamp(testStart.Add(time.Hour)),
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("creating the upload: %v", err)
 	}

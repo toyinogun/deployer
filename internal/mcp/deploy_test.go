@@ -296,11 +296,12 @@ func server(apps Apps, deployments Deployments, up Upload) (*Server, *silentAudi
 	auditor := &silentAuditor{}
 	return &Server{
 		auditor:     auditor,
+		limiter:     testLimiter(),
 		apps:        apps,
 		deployments: deployments,
 		uploads:     stubUploads{up: up},
 		opts: Options{
-			PublicURL: "https://deployer.example.org",
+			MCPURL:    "https://deployer.example.org",
 			AppDomain: "deploy.example.org",
 			// Well clear of anything these tests create, so a test that is not
 			// about the cap never trips it (spec 0016).

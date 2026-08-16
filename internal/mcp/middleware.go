@@ -23,7 +23,17 @@ type accountKey struct{}
 func (s *Server) authenticate(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		account, err := s.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")))
+		addr := s.address(r)
+		// The token bucket, spent here rather than inside the authenticator,
+		// because it bounds the call rate rather than judging the credentials.
+		// The lockout on repeated bad tokens is the other way round and lives in
+		// the authenticator, which is why this handler holds no copy of it
+		// (spec 0022, AC-15, AC-16).
+		if !s.limiter.Allow(addr) {
+			denyTransport(ctx, w, addr, s.auditor, domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
+			return
+		}
+		account, err := s.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")), addr)
 		// A suspended account presented a working credential, so it is not a
 		// transport failure. It is carried through to the protocol layer, where
 		// refuseSuspended answers every tool call with account_suspended as a tool
@@ -32,10 +42,18 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, accountKey{}, account)))
 			return
 		}
+		// The penalty a run of bad tokens from this address earned. The rule is
+		// in the authenticator, so both routes on the deploy path answer it and
+		// neither one decides it (spec 0022, AC-16).
+		if errors.Is(err, auth.ErrTooManyAttempts) {
+			denyTransport(ctx, w, addr, s.auditor, domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
+			return
+		}
 		if err != nil {
 			// Audited with a null account, which is the row worth having:
 			// something presented a credential and it did not work (AC-19).
-			auth.Record(ctx, s.auditor, auth.Audit{Action: auth.ActionDeploy, Reason: "token invalid"})
+			auth.Record(ctx, s.auditor, auth.Audit{
+				ClientAddress: addr, Action: auth.ActionDeploy, Reason: "token invalid"})
 			if !errors.Is(err, auth.ErrTokenInvalid) {
 				slog.ErrorContext(ctx, "authenticating an MCP call failed", "error", err)
 			}
@@ -48,6 +66,33 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, accountKey{}, account)))
 	})
+}
+
+// denyTransport refuses a call before the MCP transport sees it, with a closed
+// reason code and an audit row.
+//
+// It answers HTTP rather than a tool result on purpose: nothing has been parsed
+// yet, so there is no tool call to answer and no session to answer it on. A 429
+// with the code is what a client can back off on (spec 0022, AC-19).
+func denyTransport(ctx context.Context, w http.ResponseWriter, addr string,
+	auditor auth.Auditor, reason domain.Reason, status int,
+) {
+	auth.Record(ctx, auditor, auth.Audit{
+		ClientAddress: addr, Action: auth.ActionDeploy, Reason: string(reason)})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	body := map[string]string{"error": string(reason), "message": reason.Message()}
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.WarnContext(ctx, "writing an MCP denial failed", "error", err)
+	}
+}
+
+// address is who a call on this surface is attributed to and whose bucket it
+// spends from. The same derivation the upload endpoint and the pages use, over
+// the same set of public hostnames, so one visitor is one address rather than
+// one per surface (spec 0022, AC-13, AC-14).
+func (s *Server) address(r *http.Request) string {
+	return auth.ClientAddress(r, s.opts.TrustedHosts...)
 }
 
 // refuseSuspended answers every tool call of a suspended account with

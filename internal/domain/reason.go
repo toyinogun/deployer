@@ -63,6 +63,31 @@ const (
 	// already holds one of these names keeps deploying (spec 0021, AC-6, AC-7).
 	ReasonAppNameReserved Reason = "app_name_reserved"
 
+	// The deploy path refusals, added by spec 0022 when that path went public.
+	// Every one of them is decided before anything is stored, so a refused call
+	// leaves the volume and the database untouched (AC-12, AC-17, AC-19).
+
+	// ReasonUploadTooLarge is a body over the upload ceiling. A declared length
+	// past it is refused before a byte is read, and a body that declared nothing
+	// or lied is stopped at the socket. The ceiling is strictly under the edge's
+	// own cap, so this is always the platform's answer rather than an error page
+	// from Cloudflare (AC-11, AC-12).
+	ReasonUploadTooLarge Reason = "upload_too_large"
+	// ReasonUploadNotGzip is a body that did not start as a gzip stream. Nothing
+	// is kept.
+	ReasonUploadNotGzip Reason = "upload_not_gzip"
+	// ReasonUploadLimitReached is why an upload is refused: the account already
+	// holds its ceiling of uploads that no deploy has claimed. Nothing is written
+	// to the volume, and deploying or expiring one of the held uploads frees a
+	// slot (AC-17).
+	ReasonUploadLimitReached Reason = "upload_limit_reached"
+	// ReasonTooManyAttempts is why a call on the deploy path is refused 429: the
+	// address is calling faster than the bucket refills, or it is inside the
+	// penalty window a run of bad tokens earned. It is deliberately separate from
+	// identity.CodeRateLimited, because the two closed sets share no values and a
+	// machine surface refusal needs its own name (AC-15, AC-16, AC-19).
+	ReasonTooManyAttempts Reason = "too_many_attempts"
+
 	// The configuration refusals, added by spec 0010. Every one of them is
 	// decided before any write happens, so a refused call changes nothing.
 
@@ -112,6 +137,11 @@ var messages = map[Reason]string{
 	ReasonAccountSuspended: "this account is suspended, so its apps are stopped and nothing it asks for will run until an administrator restores it",
 
 	ReasonAppNameReserved: "that name is reserved by the platform, so pick another one",
+
+	ReasonUploadTooLarge:     "the source archive is larger than this platform accepts, so leave out build output, dependencies and version control directories",
+	ReasonUploadNotGzip:      "the body must be a gzipped tar archive",
+	ReasonUploadLimitReached: "this account is holding as many unused uploads as it may, so deploy one of them or wait for them to expire",
+	ReasonTooManyAttempts:    "too many calls from this address, so wait a little and try again",
 
 	ReasonConfigKeyInvalid:  "a configuration key must be upper case letters, digits, and underscores, not start with a digit, and appear once per call",
 	ReasonConfigKeyReserved: "PORT and APP_URL are set by the platform and cannot be configured",

@@ -43,7 +43,6 @@ func TestFirstDeployDefaults(t *testing.T) {
 func TestFirstDeployOverrides(t *testing.T) {
 	c, err := Load(with(map[string]string{
 		"DEPLOYER_BOOTSTRAP_TOKEN":            "dpl_secret",
-		"DEPLOYER_PUBLIC_URL":                 "https://deployer.example.ts.net/",
 		"DEPLOYER_INTERNAL_URL":               "http://deployer.deployer-system.svc/",
 		"DEPLOYER_DEPLOY_TIMEOUT_SECONDS":     "900",
 		"DEPLOYER_BUILD_TIMEOUT_SECONDS":      "300",
@@ -60,9 +59,6 @@ func TestFirstDeployOverrides(t *testing.T) {
 		t.Errorf("BootstrapToken = %q", c.BootstrapToken)
 	}
 	// The trailing slash comes off, so joining a path never doubles it.
-	if c.PublicURL != "https://deployer.example.ts.net" {
-		t.Errorf("PublicURL = %q, want the trailing slash trimmed", c.PublicURL)
-	}
 	if c.DeployTimeout != 900*time.Second || c.BuildTimeout != 300*time.Second {
 		t.Errorf("timeouts = %v/%v", c.DeployTimeout, c.BuildTimeout)
 	}
@@ -103,9 +99,9 @@ func TestFirstDeployRejectsBadValues(t *testing.T) {
 			"must be shorter than",
 		},
 		{
-			"a public URL with no scheme",
-			map[string]string{"DEPLOYER_PUBLIC_URL": "deployer.example.ts.net"},
-			"DEPLOYER_PUBLIC_URL",
+			"an internal URL with no scheme",
+			map[string]string{"DEPLOYER_INTERNAL_URL": "deployer.deployer-system.svc"},
+			"DEPLOYER_INTERNAL_URL",
 		},
 		{
 			"a builder image pinned to a mutable tag",
@@ -191,7 +187,7 @@ func TestFirstDeployRejectsBadValues(t *testing.T) {
 // exactly what broke every real build once already.
 func TestFirstDeployRequiresItsRequiredVars(t *testing.T) {
 	want := []string{
-		"DEPLOYER_PUBLIC_URL", "DEPLOYER_INTERNAL_URL",
+		"DEPLOYER_INTERNAL_URL",
 		"DEPLOYER_BUILDER_IMAGE", "DEPLOYER_SELF_IMAGE",
 		"DEPLOYER_BUILD_UID", "DEPLOYER_BUILD_GID",
 		"DEPLOYER_BUILDKIT_IMAGE", "DEPLOYER_BUILDKIT_UID", "DEPLOYER_BUILDKIT_GID",

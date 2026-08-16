@@ -53,10 +53,11 @@ type Pods interface {
 // Options is what the pages need from configuration. Every value is one an
 // existing surface already validated at startup.
 type Options struct {
-	// PublicURL is the platform's own reachable base address. It is the origin a
-	// POST is compared against, and the base of the endpoints the onboarding
-	// panel shows.
-	PublicURL string
+	// MCPURL is the deploy path's public base address, derived from
+	// DEPLOYER_MCP_HOST. It is the base of the two endpoints the onboarding
+	// panel shows, and nothing else: the pages themselves are never served
+	// there (spec 0022, AC-9).
+	MCPURL string
 	// AppDomain is the wildcard domain apps are served under, joined with a
 	// slug to make the hostname a page shows.
 	AppDomain string
@@ -76,9 +77,16 @@ type Options struct {
 	// 404, which is what keeps the deploy path and the admin surface off the open
 	// internet (spec 0021, AC-2, AC-2a).
 	ConsoleHost string
-	// ConsoleURL is the console's own base address, the second origin a page POST
-	// is accepted from (spec 0021, AC-21).
+	// ConsoleURL is the console's own base address. It is the origin a page POST
+	// is compared against, and the address the session cookie's Secure flag is
+	// derived from: the cookie belongs to this surface, so it follows this
+	// surface's own address rather than the machine surface's (spec 0021,
+	// AC-21; spec 0022, AC-9).
 	ConsoleURL string
+	// TrustedHosts are the platform's public hostnames, the ones
+	// CF-Connecting-IP is read on. The same set every other surface holds, so
+	// one visitor is one address rather than one per surface (spec 0022, AC-14).
+	TrustedHosts []string
 }
 
 // Server is the page surface.
@@ -102,9 +110,10 @@ type Server struct {
 
 	// origins is every address a POST may claim to come from, each reduced to
 	// scheme and host and precomputed because every POST compares against them.
-	// Two of them now: the tailnet name and the console (spec 0021, AC-21).
+	// The console's own address, and nothing else: the pages answer on no other
+	// name (spec 0021, AC-21).
 	origins []string
-	// secure is the cookie's Secure flag, derived from PublicURL exactly as the
+	// secure is the cookie's Secure flag, derived from ConsoleURL exactly as the
 	// JSON surface derives it, so the two cannot hand out different cookies.
 	secure bool
 }
@@ -117,12 +126,9 @@ func New(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, dat
 ) *Server {
 	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, suspension: suspension,
 		backups: backups, backupRuns: backupRuns, opts: opts}
-	if u, err := url.Parse(opts.PublicURL); err == nil && u.Host != "" {
-		s.origins = append(s.origins, u.Scheme+"://"+u.Host)
-		s.secure = u.Scheme == "https"
-	}
 	if u, err := url.Parse(opts.ConsoleURL); err == nil && u.Host != "" {
 		s.origins = append(s.origins, u.Scheme+"://"+u.Host)
+		s.secure = u.Scheme == "https"
 	}
 	return s
 }

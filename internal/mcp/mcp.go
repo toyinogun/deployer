@@ -21,6 +21,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/logs"
 )
 
@@ -197,8 +199,26 @@ type Pods interface {
 
 // Options is what the tool surface needs from configuration.
 type Options struct {
-	PublicURL string
+	// MCPURL is the deploy path's public base address, derived from
+	// DEPLOYER_MCP_HOST. It is the endpoint deploy_app's description tells an
+	// agent to upload to, so a wrong value is an agent that cannot deploy
+	// (spec 0022, AC-10).
+	MCPURL    string
 	AppDomain string
+	// MaxUploadBytes is the ceiling the upload endpoint refuses a body over. It
+	// is stated in the description rather than written there as a literal, so
+	// the number an agent is told and the number the platform enforces are the
+	// same one (spec 0022, AC-10).
+	MaxUploadBytes int64
+	// TrustedHosts are the platform's public hostnames, the ones
+	// CF-Connecting-IP is read on. The same set every other surface holds
+	// (spec 0022, AC-13, AC-14).
+	TrustedHosts []string
+	// Limiter is the deploy path's own token bucket, shared with the upload
+	// endpoint so a caller spends from one bucket across both routes, and kept
+	// apart from the sign in one so a burst here locks nobody out of the console
+	// (spec 0022, AC-15).
+	Limiter *identity.Limiter
 	// MaxAppsPerAccount is how many live apps one account may hold. A deploy of
 	// a name the account does not already have is refused once it is there
 	// (spec 0016, AC-1).
@@ -219,6 +239,10 @@ type Server struct {
 	pods        Pods
 	cluster     Cluster
 	opts        Options
+	// limiter is the deploy path's token bucket, never nil. New falls back to a
+	// private one, so a caller that passed none is still bounded rather than
+	// unbounded.
+	limiter *identity.Limiter
 }
 
 // New returns the MCP surface. pods and cluster may both be nil, which is a
@@ -226,7 +250,12 @@ type Server struct {
 // pretending an app printed nothing, and delete_app fails the same way rather
 // than reporting a teardown that did not happen.
 func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, u Uploads, pods Pods, cluster Cluster, opts Options) *Server {
-	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u, pods: pods, cluster: cluster, opts: opts}
+	limiter := opts.Limiter
+	if limiter == nil {
+		limiter = identity.NewLimiter(ids.SystemClock{}, identity.DeployPathSettings())
+	}
+	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u,
+		pods: pods, cluster: cluster, opts: opts, limiter: limiter}
 }
 
 // deployInput is the tool's whole argument surface.
@@ -261,6 +290,10 @@ Upload the source first, from the app's root directory:
   curl -sS -X POST %s/v1/uploads \
     -H "Authorization: Bearer $DEPLOYER_TOKEN" \
     --data-binary @- < <(tar czf - .)
+
+The archive must be at most %d MB. A larger one is refused with
+upload_too_large before any of it is stored, so exclude build output, virtual
+environments and version control directories before packing.
 
 Pass the upload_id it returns here. This call returns straight away with a
 deployment_id and the state "queued"; it does not wait for the build. Call
@@ -302,6 +335,11 @@ account does not already have, once it is at that limit, is refused with
 app_limit_reached; deleting an app frees a slot straight away. Redeploying an
 app the account already has is never refused for this reason.
 
+An account may also hold only a few uploads that no deploy has claimed yet. Once
+it is at that limit a further upload is refused with upload_limit_reached, and
+deploying one of the uploads already held, or waiting for them to expire, frees
+a slot.
+
 A deployed app reaches the internet on almost every port, but not quite all of
 them. Outbound mail straight to a mail exchanger on port 25 is closed, as are
 the common mining pool ports. A blocked connection times out rather than failing
@@ -311,7 +349,8 @@ is open, rather than delivering mail itself.
 The app must listen on the port given in the PORT environment variable, and can
 build links to itself from APP_URL, which the platform sets to its public
 address. Its image must run as a non root user. Deploying the same name again
-replaces the running app and keeps the same hostname.`, s.opts.PublicURL)
+replaces the running app and keeps the same hostname.`,
+		s.opts.MCPURL, s.opts.MaxUploadBytes>>20)
 }
 
 // Handler is the MCP endpoint, authenticated the same way the upload endpoint

@@ -91,8 +91,8 @@ func TestAnAccountWithNoAppsSeesOnboarding(t *testing.T) {
 
 	body := h.get(t, "/apps", cookie).Body.String()
 	for _, want := range []string{
-		testPublicURL + "/mcp",
-		testPublicURL + "/v1/uploads",
+		testMCPURL + "/mcp",
+		testMCPURL + "/v1/uploads",
 		`href="/tokens"`,
 	} {
 		if !strings.Contains(body, want) {

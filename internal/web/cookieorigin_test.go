@@ -80,7 +80,7 @@ func TestBothOriginsAreAcceptedAndAThirdIsNot(t *testing.T) {
 		origin string
 		want   int
 	}{
-		{testPublicURL, http.StatusSeeOther},
+		{testConsoleURL, http.StatusSeeOther},
 		{"https://" + testConsoleHost, http.StatusSeeOther},
 		{"https://evil.example.test", http.StatusForbidden},
 		{"https://" + testConsoleHost + ".evil.test", http.StatusForbidden},

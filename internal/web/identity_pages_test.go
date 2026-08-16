@@ -226,7 +226,7 @@ func TestMailedLinksPointAtThePages(t *testing.T) {
 	register(t, h, "links@example.test")
 	verification := h.mail.latest(t)
 
-	if !strings.Contains(verification, testPublicURL+"/verify?token=") {
+	if !strings.Contains(verification, testConsoleURL+"/verify?token=") {
 		t.Errorf("the verification mail does not link at the page: %q", verification)
 	}
 	if strings.Contains(verification, "/v1/auth/") {
@@ -239,7 +239,7 @@ func TestMailedLinksPointAtThePages(t *testing.T) {
 		t.Fatalf("asking for a reset link: got %d, want 200", rec.Code)
 	}
 	reset := h.mail.latest(t)
-	if !strings.Contains(reset, testPublicURL+"/reset?token=") {
+	if !strings.Contains(reset, testConsoleURL+"/reset?token=") {
 		t.Errorf("the reset mail does not link at the page: %q", reset)
 	}
 }

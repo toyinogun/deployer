@@ -41,6 +41,13 @@ var (
 	// telling it apart is what lets a surface answer account_suspended instead of
 	// a blank credential error (spec 0018, AC-12).
 	ErrAccountSuspended = errors.New("auth: account suspended")
+
+	// ErrTooManyAttempts is a run of bad bearer tokens from one address, inside
+	// the penalty window that run earned. It is told apart from ErrTokenInvalid
+	// because the caller can act on it by waiting, and because a surface has to
+	// answer 429 rather than 401 for a client to back off correctly
+	// (spec 0022, AC-16).
+	ErrTooManyAttempts = errors.New("auth: too many attempts")
 )
 
 // Account is the caller identity, carrying only what this package reads.

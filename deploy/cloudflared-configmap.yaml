@@ -6,7 +6,7 @@
 # internal/config pins this file the way the static network policies are already
 # pinned; nothing at run time reads it.
 #
-# Exactly two hostnames, then a catch all that refuses. Anything else that
+# Exactly three hostnames, then a catch all that refuses. Anything else that
 # becomes public is a deliberate edit to this file.
 apiVersion: v1
 kind: ConfigMap
@@ -51,6 +51,18 @@ data:
       # network, fenced by policy on both ends, and it is a real reduction from
       # the app route's verified TLS. Named here rather than buried.
       - hostname: console.deploy.toyintest.org
+        service: http://deployer.deployer-system.svc.cluster.local:80
+      # The deploy path, on the same origin and above the wildcard for exactly
+      # the same reason: `mcp` is one label, so `*.deploy.toyintest.org` matches
+      # it and a rule listed after the wildcard would never be reached
+      # (spec 0022, AC-6).
+      #
+      # It lands on the same Service as the console, so this adds no new peer to
+      # any network policy: what tells the two hostnames apart is which routes
+      # each one registers in the mux, not where the tunnel sends them (AC-22).
+      # That direct origin is what lets the platform believe CF-Connecting-IP
+      # here too (AC-13).
+      - hostname: mcp.deploy.toyintest.org
         service: http://deployer.deployer-system.svc.cluster.local:80
       # Apps go on through ingress-nginx, exactly as tailnet traffic does today.
       #

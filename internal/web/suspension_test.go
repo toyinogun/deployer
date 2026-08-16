@@ -366,7 +366,7 @@ func (h *harness) deployedApp(t *testing.T, accountID, name string) store.App {
 		AccountID: accountID, Path: "/tmp/" + name + ".tar.gz", SizeBytes: 2048,
 		SHA256: "abc", FetchTokenHash: "fetch-" + name,
 		ExpiresAt: ids.Stamp(time.Now().UTC().Add(time.Hour)),
-	})
+	}, 0)
 	if err != nil {
 		t.Fatalf("creating the upload for %s: %v", name, err)
 	}

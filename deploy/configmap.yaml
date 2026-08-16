@@ -13,9 +13,17 @@ data:
   # the apps already use, and it must match the console route in
   # cloudflared-configmap.yaml. The console's own base address is derived from
   # this and is never configured separately, so there is one place the name
-  # lives. DEPLOYER_PUBLIC_URL below keeps its tailnet value: it is the address
-  # an agent is told about, not the address a person clicks.
+  # lives.
   DEPLOYER_CONSOLE_HOST: console.deploy.toyintest.org
+  # The public deploy hostname (spec 0022, AC-8). The upload endpoint and the
+  # MCP endpoint answer here and nowhere else public, and nothing else answers
+  # here at all. Same rules as the console host: exactly one label under
+  # DEPLOYER_APP_DOMAIN, matching the deploy route in cloudflared-configmap.yaml,
+  # with its base address derived rather than configured. It must differ from
+  # DEPLOYER_CONSOLE_HOST, and the boot fails if it does not. This replaced
+  # DEPLOYER_PUBLIC_URL, which spec 0022 removed: a boot with that variable still
+  # set fails rather than ignoring it.
+  DEPLOYER_MCP_HOST: mcp.deploy.toyintest.org
 
   # Both live on the Longhorn volume mounted at /data.
   DEPLOYER_DB_PATH: /data/deployer.db
@@ -41,14 +49,9 @@ data:
   DEPLOYER_BUILDKIT_NAMESPACE: deployer-builds-dockerfile
   DEPLOYER_LOG_LEVEL: info
 
-  # Added by spec 0004. The control plane's own reachable address goes into the
-  # deploy_app tool description, so an agent uploads to the right place. It must
-  # match ingress.yaml's host.
-  DEPLOYER_PUBLIC_URL: https://deployer.tail62ceef.ts.net
-
-  # The same control plane, as reached from inside the cluster. The build Job's
-  # init container fetches the uploaded source through this, and it resolves on
-  # cluster DNS, which knows nothing of the tailnet name above. It must match
+  # Added by spec 0004. The control plane as reached from inside the cluster.
+  # The build Job's init container fetches the uploaded source through this, and
+  # it resolves on cluster DNS, which knows neither public name. It must match
   # service.yaml's name and port.
   DEPLOYER_INTERNAL_URL: http://deployer.deployer-system.svc
 

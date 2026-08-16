@@ -6,6 +6,28 @@ RETURNING *;
 -- name: GetUpload :one
 SELECT * FROM uploads WHERE id = ?;
 
+-- How many uploads an account holds that no deploy has claimed and that have not
+-- expired yet. Counted inside the transaction that inserts the next one, so two
+-- racing uploads cannot both pass the cap (spec 0022, AC-17).
+-- name: CountUnclaimedUploads :one
+SELECT COUNT(*) FROM uploads
+WHERE account_id = @account_id
+  AND redeemed_at IS NULL
+  AND expires_at > @now;
+
+-- Expired uploads that no deployment names, oldest first, with the path so the
+-- caller can remove the file the row describes. deployments.upload_id carries
+-- ON DELETE RESTRICT, so a referenced row can never be deleted and has to be
+-- excluded by the query rather than discovered by an error (spec 0022, AC-18).
+-- name: ListSweepableUploads :many
+SELECT id, path FROM uploads
+WHERE expires_at < @now
+  AND id NOT IN (SELECT upload_id FROM deployments WHERE upload_id IS NOT NULL)
+ORDER BY expires_at;
+
+-- name: DeleteUpload :execrows
+DELETE FROM uploads WHERE id = @id;
+
 -- Single use, enforced by the update itself rather than a read then a write:
 -- zero rows back means the token was already spent or has expired.
 -- name: RedeemUpload :one

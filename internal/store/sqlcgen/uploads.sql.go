@@ -9,6 +9,28 @@ import (
 	"context"
 )
 
+const countUnclaimedUploads = `-- name: CountUnclaimedUploads :one
+SELECT COUNT(*) FROM uploads
+WHERE account_id = ?1
+  AND redeemed_at IS NULL
+  AND expires_at > ?2
+`
+
+type CountUnclaimedUploadsParams struct {
+	AccountID string
+	Now       string
+}
+
+// How many uploads an account holds that no deploy has claimed and that have not
+// expired yet. Counted inside the transaction that inserts the next one, so two
+// racing uploads cannot both pass the cap (spec 0022, AC-17).
+func (q *Queries) CountUnclaimedUploads(ctx context.Context, arg CountUnclaimedUploadsParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnclaimedUploads, arg.AccountID, arg.Now)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const createUpload = `-- name: CreateUpload :one
 INSERT INTO uploads (id, account_id, path, size_bytes, sha256, fetch_token_hash, expires_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -122,6 +144,18 @@ func (q *Queries) DeleteSweptDeployments(ctx context.Context, cutoff *string) (i
 	return result.RowsAffected()
 }
 
+const deleteUpload = `-- name: DeleteUpload :execrows
+DELETE FROM uploads WHERE id = ?1
+`
+
+func (q *Queries) DeleteUpload(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteUpload, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getUpload = `-- name: GetUpload :one
 SELECT id, account_id, path, size_bytes, sha256, fetch_token_hash, redeemed_at, expires_at, created_at, updated_at FROM uploads WHERE id = ?
 `
@@ -142,6 +176,45 @@ func (q *Queries) GetUpload(ctx context.Context, id string) (Upload, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const listSweepableUploads = `-- name: ListSweepableUploads :many
+SELECT id, path FROM uploads
+WHERE expires_at < ?1
+  AND id NOT IN (SELECT upload_id FROM deployments WHERE upload_id IS NOT NULL)
+ORDER BY expires_at
+`
+
+type ListSweepableUploadsRow struct {
+	ID   string
+	Path string
+}
+
+// Expired uploads that no deployment names, oldest first, with the path so the
+// caller can remove the file the row describes. deployments.upload_id carries
+// ON DELETE RESTRICT, so a referenced row can never be deleted and has to be
+// excluded by the query rather than discovered by an error (spec 0022, AC-18).
+func (q *Queries) ListSweepableUploads(ctx context.Context, now string) ([]ListSweepableUploadsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listSweepableUploads, now)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListSweepableUploadsRow{}
+	for rows.Next() {
+		var i ListSweepableUploadsRow
+		if err := rows.Scan(&i.ID, &i.Path); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const redeemUpload = `-- name: RedeemUpload :one

@@ -70,12 +70,13 @@ func logsServer(pods Pods, deployments *stubDeployments) (*Server, *silentAudito
 	auditor := &silentAuditor{}
 	return &Server{
 		auditor:     auditor,
+		limiter:     testLimiter(),
 		apps:        apps,
 		deployments: deployments,
 		uploads:     stubUploads{},
 		pods:        pods,
 		opts: Options{
-			PublicURL:      "https://deployer.example.org",
+			MCPURL:         "https://deployer.example.org",
 			AppDomain:      "deploy.example.org",
 			SecretLiterals: []string{"s3cr3t-registry-pass"},
 		},

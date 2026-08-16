@@ -36,24 +36,27 @@ type Identity struct {
 	// hasMailer is whether a sender is configured. The endpoints that exist only
 	// to send mail answer mail_unavailable when it is not.
 	hasMailer bool
-	// consoleHost is the public console hostname, the one host CF-Connecting-IP
-	// is read on. Every route on this surface answers 404 there, so this exists
-	// so the derivation stays identical to the page surface's rather than because
-	// this surface expects to see that host (spec 0021, AC-16).
-	consoleHost string
+	// trustedHosts are the platform's public hostnames, the ones
+	// CF-Connecting-IP is read on. Every route on this surface answers 404 on the
+	// console, so this exists so the derivation stays identical to every other
+	// surface's rather than because this one expects to see those hosts
+	// (spec 0021, AC-16; spec 0022, AC-13, AC-14).
+	trustedHosts []string
 }
 
-// NewIdentity returns the identity surface. publicURL decides the cookie's Secure
-// flag; hasMailer decides whether the mail dependent endpoints work at all.
+// NewIdentity returns the identity surface. consoleURL decides the cookie's
+// Secure flag, because the cookie belongs to the console surface and must follow
+// the console's own address (spec 0022, AC-9); hasMailer decides whether the mail
+// dependent endpoints work at all.
 func NewIdentity(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor,
-	suspension *suspend.Service, publicURL, consoleHost string, hasMailer bool,
+	suspension *suspend.Service, consoleURL string, trustedHosts []string, hasMailer bool,
 ) *Identity {
 	secure := false
-	if u, err := url.Parse(publicURL); err == nil && u.Scheme == "https" {
+	if u, err := url.Parse(consoleURL); err == nil && u.Scheme == "https" {
 		secure = true
 	}
 	return &Identity{svc: svc, auth: a, auditor: auditor, suspension: suspension,
-		secure: secure, hasMailer: hasMailer, consoleHost: consoleHost}
+		secure: secure, hasMailer: hasMailer, trustedHosts: trustedHosts}
 }
 
 // Register adds this package's identity routes to mux.
@@ -162,11 +165,11 @@ func (i *Identity) clearSessionCookie(w http.ResponseWriter) {
 }
 
 // clientAddress is who a rate limit bucket belongs to and whose address an audit
-// row records. It is auth.ClientAddress with this surface's console host filled
-// in: the derivation itself lives in one place, so the JSON surface and the page
-// surface cannot spend from two different buckets (spec 0021, AC-16).
+// row records. It is auth.ClientAddress with the platform's public hosts filled
+// in: the derivation itself lives in one place, so no two surfaces can spend from
+// two different buckets (spec 0021, AC-16; spec 0022, AC-14).
 func (i *Identity) clientAddress(r *http.Request) string {
-	return auth.ClientAddress(r, i.consoleHost)
+	return auth.ClientAddress(r, i.trustedHosts...)
 }
 
 // decode reads a bounded JSON body into v, answering 422 on anything unreadable.

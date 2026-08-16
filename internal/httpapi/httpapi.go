@@ -11,53 +11,136 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/identity"
 	"github.com/toyinogun/deployer/internal/uploads"
 )
 
+// Options is what the machine surface needs from configuration.
+type Options struct {
+	// MaxBytes is the ceiling a request body is refused over. It is strictly
+	// under the edge's own body cap, so the platform is always the thing that
+	// refuses (spec 0022, AC-11).
+	MaxBytes int64
+	// MCPHost is the public deploy hostname. The upload endpoint and the MCP
+	// endpoint are registered a second time under it and everything else on that
+	// host answers 404 (spec 0022, AC-2).
+	MCPHost string
+	// TrustedHosts are the platform's public hostnames, the ones
+	// CF-Connecting-IP is read on. The same set every other surface holds
+	// (spec 0022, AC-13, AC-14).
+	TrustedHosts []string
+}
+
 // API holds everything the HTTP handlers need.
 type API struct {
-	auth     *auth.Authenticator
-	auditor  auth.Auditor
-	uploads  *uploads.Service
-	maxBytes int64
+	auth    *auth.Authenticator
+	auditor auth.Auditor
+	uploads *uploads.Service
+	limiter *identity.Limiter
+	opts    Options
 }
 
-// New returns the HTTP surface.
-func New(a *auth.Authenticator, auditor auth.Auditor, u *uploads.Service, maxBytes int64) *API {
-	return &API{auth: a, auditor: auditor, uploads: u, maxBytes: maxBytes}
+// New returns the HTTP surface. limiter is the deploy path's own bucket, kept
+// apart from the sign in one so a burst here can never lock a person out of the
+// console (spec 0022, AC-15).
+func New(a *auth.Authenticator, auditor auth.Auditor, u *uploads.Service,
+	limiter *identity.Limiter, opts Options,
+) *API {
+	return &API{auth: a, auditor: auditor, uploads: u, limiter: limiter, opts: opts}
 }
 
-// Register adds this package's routes to mux.
-func (a *API) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /v1/uploads", a.createUpload)
+// Register adds this package's routes to mux, and the MCP endpoint beside them
+// because the two share a hostname and a bearer token.
+//
+// Registration under the deploy host is opt in, exactly as it is for the console
+// in internal/web: each route that answers there is registered a second time
+// under the deploy host pattern, and one catch all answers 404 for the rest. A
+// route added to this mux later is absent from the deploy host until somebody
+// registers it there, so the direction this fails in is the private one
+// (spec 0022, AC-2).
+//
+// GET /v1/uploads/{id} is deliberately not among them. It is the single use
+// fetch a build's init container reads over cluster DNS, so it stays on the
+// default pattern and is never reachable from the internet (AC-4).
+func (a *API) Register(mux *http.ServeMux, mcpHandler http.Handler) {
+	// public is every route the deploy host serves. Each is registered on both
+	// patterns by the loop below.
+	public := []struct {
+		pattern string
+		handler http.Handler
+	}{
+		{"POST /v1/uploads", http.HandlerFunc(a.createUpload)},
+		{"/mcp", mcpHandler},
+	}
+	for _, route := range public {
+		if route.handler == nil {
+			continue
+		}
+		mux.Handle(route.pattern, route.handler)
+		if a.opts.MCPHost != "" {
+			mux.Handle(withHost(route.pattern, a.opts.MCPHost), route.handler)
+		}
+	}
 	mux.HandleFunc("GET /v1/uploads/{id}", a.fetchUpload)
+
+	// The catch all, last, in the same shape as the console's. It carries no
+	// method, so it takes every verb, and it is a subtree pattern, so every path
+	// the loop above did not claim on this host lands here. A refusal writes no
+	// audit row: no caller has been identified at this point (AC-2).
+	if a.opts.MCPHost != "" {
+		mux.HandleFunc(a.opts.MCPHost+"/", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+	}
+}
+
+// withHost puts host in front of a mux pattern's path, keeping the method where
+// the pattern has one. `POST /v1/uploads` under `mcp.example.org` becomes
+// `POST mcp.example.org/v1/uploads`, which is the form the standard mux has taken
+// since Go 1.22. The page surface has its own copy for the console host; the two
+// are six lines of string handling with no rule in them.
+func withHost(pattern, host string) string {
+	method, path, found := strings.Cut(pattern, " ")
+	if !found {
+		return host + pattern
+	}
+	return method + " " + host + path
 }
 
 // createUpload accepts a gzipped tar body and records it.
 func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	account, err := a.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")))
+	// The token bucket is spent here rather than inside the authenticator,
+	// because it bounds the call rate rather than judging the credentials. The
+	// lockout on repeated bad tokens is the other way round and lives in
+	// Authenticate, so both routes inherit it (spec 0022, AC-15, AC-16).
+	if !a.limiter.Allow(a.address(r)) {
+		a.denyUpload(ctx, w, a.address(r), "", domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
+		return
+	}
+	account, err := a.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")), a.address(r))
 	// A suspended account presented a working credential, so it is refused as a
 	// decision rather than as a bad credential: 403 with the closed reason code,
 	// and audited against the account it actually belongs to (spec 0018, AC-11).
 	if errors.Is(err, auth.ErrAccountSuspended) {
-		auth.Record(ctx, a.auditor, auth.Audit{
-			ClientAddress: uploadAddress(r),
-			AccountID:     account.ID,
-			Action:        auth.ActionUpload,
-			Reason:        string(domain.ReasonAccountSuspended),
-		})
-		writeError(ctx, w, http.StatusForbidden, string(domain.ReasonAccountSuspended))
+		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonAccountSuspended, http.StatusForbidden)
+		return
+	}
+	// The penalty a run of bad tokens earned. The rule itself is in the
+	// authenticator, so this only names the outcome (spec 0022, AC-16).
+	if errors.Is(err, auth.ErrTooManyAttempts) {
+		a.denyUpload(ctx, w, a.address(r), "", domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
 		return
 	}
 	if err != nil {
 		// The denial is audited with a null account, which is exactly the row
 		// worth having: something presented a credential and it did not work.
-		auth.Record(ctx, a.auditor, auth.Audit{ClientAddress: uploadAddress(r), Action: auth.ActionUpload, Reason: "token invalid"})
+		auth.Record(ctx, a.auditor, auth.Audit{ClientAddress: a.address(r), Action: auth.ActionUpload, Reason: "token invalid"})
 		if !errors.Is(err, auth.ErrTokenInvalid) {
 			slog.ErrorContext(ctx, "authenticating an upload failed", "error", err)
 		}
@@ -67,32 +150,35 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 
 	// A declared length over the cap is refused before a single byte is read, so
 	// an honest oversized client never spends the volume or the transfer.
-	if r.ContentLength > a.maxBytes {
-		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "too large", http.StatusRequestEntityTooLarge,
-			"body exceeds the maximum upload size")
+	if r.ContentLength > a.opts.MaxBytes {
+		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadTooLarge, http.StatusRequestEntityTooLarge)
 		return
 	}
 
 	// MaxBytesReader is the second gate, for a body that declared nothing or
 	// lied. The service caps too; this stops the read at the socket.
-	up, err := a.uploads.Accept(ctx, account.ID, http.MaxBytesReader(w, r.Body, a.maxBytes+1))
+	up, err := a.uploads.Accept(ctx, account.ID, http.MaxBytesReader(w, r.Body, a.opts.MaxBytes+1))
 	switch {
 	case errors.Is(err, uploads.ErrTooLarge):
-		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "too large", http.StatusRequestEntityTooLarge,
-			"body exceeds the maximum upload size")
+		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadTooLarge, http.StatusRequestEntityTooLarge)
 		return
 	case errors.Is(err, uploads.ErrNotGzip):
-		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "not gzip", http.StatusBadRequest,
-			"body must be a gzipped tar archive")
+		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadNotGzip, http.StatusBadRequest)
+		return
+	case errors.Is(err, uploads.ErrTooManyUnclaimed):
+		// Nothing reached the volume: the count and the insert are one
+		// transaction in the store, and the file is removed when it fails
+		// (spec 0022, AC-17).
+		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadLimitReached, http.StatusTooManyRequests)
 		return
 	case err != nil:
 		slog.ErrorContext(ctx, "accepting an upload failed", "error", err, "account", account.ID)
-		a.denyUpload(ctx, w, uploadAddress(r), account.ID, "internal", http.StatusInternalServerError, "internal error")
+		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonInternal, http.StatusInternalServerError)
 		return
 	}
 
 	auth.Record(ctx, a.auditor, auth.Audit{
-		ClientAddress: uploadAddress(r),
+		ClientAddress: a.address(r),
 		AccountID:     account.ID, Action: auth.ActionUpload,
 		TargetType: "upload", TargetID: up.ID, Allowed: true,
 	})
@@ -104,13 +190,22 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// denyUpload records the refusal and answers it.
-func (a *API) denyUpload(ctx context.Context, w http.ResponseWriter, addr, accountID, reason string, status int, message string) {
+// denyUpload records the refusal and answers it. The reason a caller is told and
+// the reason stored on the audit row are the same closed code, never a wrapped
+// error string (spec 0022, AC-19).
+func (a *API) denyUpload(ctx context.Context, w http.ResponseWriter, addr, accountID string,
+	reason domain.Reason, status int,
+) {
 	auth.Record(ctx, a.auditor, auth.Audit{
 		ClientAddress: addr,
-		AccountID:     accountID, Action: auth.ActionUpload, Reason: reason,
+		AccountID:     accountID, Action: auth.ActionUpload, Reason: string(reason),
 	})
-	writeError(ctx, w, status, message)
+	// The code is what a caller branches on and the sentence is what it reads.
+	// Both come from the closed set, so neither can carry anything internal.
+	writeJSON(ctx, w, status, map[string]string{
+		"error":   string(reason),
+		"message": reason.Message(),
+	})
 }
 
 // fetchUpload hands the tarball to whoever presents its single use token. The
@@ -143,7 +238,7 @@ func (a *API) fetchUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.Record(ctx, a.auditor, auth.Audit{
-		ClientAddress: uploadAddress(r),
+		ClientAddress: a.address(r),
 		AccountID:     up.AccountID, Action: auth.ActionFetchSource,
 		TargetType: "upload", TargetID: up.ID, Allowed: true,
 	})
@@ -193,10 +288,11 @@ func writeError(ctx context.Context, w http.ResponseWriter, status int, message 
 // it serves the bytes without inviting a conditional request.
 var zeroTime = time.Time{}
 
-// uploadAddress is who an upload is attributed to. The console host is empty
-// here on purpose: every /v1 route answers 404 on the console, so CF-Connecting-IP
-// is never in play on this surface, and passing a host it can never see would
-// read as though it might (spec 0021, AC-2, AC-16).
-func uploadAddress(r *http.Request) string {
-	return auth.ClientAddress(r, "")
+// address is who a call on this surface is attributed to and whose bucket it
+// spends from. It passes the platform's public hostnames rather than an empty
+// set, because the upload endpoint now answers on the deploy host, where
+// CF-Connecting-IP is real. Every surface passes the same set, so one visitor is
+// one address everywhere rather than one per surface (spec 0022, AC-13, AC-14).
+func (a *API) address(r *http.Request) string {
+	return auth.ClientAddress(r, a.opts.TrustedHosts...)
 }

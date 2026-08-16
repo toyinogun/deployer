@@ -66,7 +66,7 @@ func TestCredentialShapesStayApart(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			account, err := auth.NewAuthenticator(tc.store, nil).Authenticate(ctx, tc.present)
+			account, err := auth.NewAuthenticator(tc.store, nil).Authenticate(ctx, tc.present, "")
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("authenticating a %s credential returned %v, want %v", tc.name, err, tc.want)
 			}

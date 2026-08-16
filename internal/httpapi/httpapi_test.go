@@ -16,6 +16,8 @@ import (
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/httpapi"
+	"github.com/toyinogun/deployer/internal/identity"
+	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store"
 	"github.com/toyinogun/deployer/internal/uploads"
 )
@@ -23,6 +25,14 @@ import (
 const (
 	goodToken   = "dpl_a_working_token"
 	maxTestSize = 4096
+	// Small on purpose, so the cap is reachable in a test without writing three
+	// tarballs first (spec 0022, AC-17).
+	maxTestUnclaimed = 2
+	// The two public hostnames. Requests these tests build carry httptest's own
+	// Host, so the existing suite runs on the default pattern, which is what
+	// keeps the deploy host registration opt in rather than a rename.
+	testConsoleHost = "console.apps.example.test"
+	testMCPHost     = "mcp.apps.example.test"
 )
 
 // harness is a running API over a fresh database and upload directory.
@@ -54,9 +64,18 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	uploadDir := filepath.Join(dir, "uploads")
-	svc := uploads.NewService(store.ForUploads(st), uploadDir, maxTestSize, nil)
+	svc := uploads.NewService(store.ForUploads(st), uploadDir, maxTestSize, maxTestUnclaimed, nil)
 	mux := http.NewServeMux()
-	httpapi.New(auth.NewAuthenticator(as, as), as, svc, maxTestSize).Register(mux)
+	limiter := identity.NewLimiter(ids.SystemClock{}, identity.DeployPathSettings())
+	httpapi.New(auth.NewAuthenticator(as, as).WithLockout(limiter), as, svc, limiter, httpapi.Options{
+		MaxBytes:     maxTestSize,
+		MCPHost:      testMCPHost,
+		TrustedHosts: []string{testConsoleHost, testMCPHost},
+	}).Register(mux, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		// A stand in for the real MCP handler. This package's tests are about
+		// where /mcp is registered, never about what it answers.
+		w.WriteHeader(http.StatusTeapot)
+	}))
 	return &harness{mux: mux, store: st, uploads: svc, dir: uploadDir}
 }
 
