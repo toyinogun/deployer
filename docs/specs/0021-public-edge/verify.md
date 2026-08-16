@@ -87,10 +87,12 @@ the mux sees a console request without any DNS involved.
 
 ### The reserved name
 
-- [ ] `deploy_app` with `name: "console"` over a real MCP session → refused with `app_name_reserved`, and no app row is written → AC-6
-- [ ] the same with `name: "Console"` and `name: "console!"` → refused, because the check runs on the derived base → AC-7
-- [ ] the same with `name: "console-shop"` → accepted → AC-7
-- [ ] an app that already holds a now reserved slug still deploys, rolls back and lists → AC-7
+- [x] `deploy_app` with `name: "console"` over a real MCP session → refused with `app_name_reserved`, and no app row is written → AC-6 · **done 2026-08-16**, over a real streamable HTTP session against the tailnet address on the deployed digest `sha256:714c06dd`. `app_name_reserved: that name is reserved by the platform, so pick another one`, and `list_apps` before and after carries the same nine slugs, so nothing was written
+- [x] the same with `name: "Console"` and `name: "console!"` → refused, because the check runs on the derived base → AC-7 · both answered `app_name_reserved` in the same session, so the refusal survives a capital and a character the slug derivation strips
+- [x] the same with `name: "console-shop"` → accepted → AC-7 · accepted in the same session as `console-shop-n2tq6b`, built through the dockerfile path, reached `healthy` at release 1 on digest `sha256:b10cc2fe`, and was deleted afterwards
+- [ ] an app that already holds a now reserved slug still deploys, rolls back and lists → AC-7 · **no such app exists to run it against.** The check has been live since this feature deployed and every one of the nine apps on the account derives a base outside the reserved set, so there is no grandfathered row to exercise. The unit test in `internal/domain/reserved_test.go` is what covers it, and this step only becomes runnable if a label is added to `reservedLabels` that an existing app already holds
+
+  **Read this before running the three steps above.** They are unreachable on an account at its app ceiling, and that is ordering rather than a defect. `resolveApp` in [internal/mcp/mcp.go](../../../internal/mcp/mcp.go) reads the account's app count and refuses with `app_limit_reached` **before** it calls `apps.Create`, and the reserved check lives inside `CreateApp` in [internal/store/apps.go](../../../internal/store/apps.go). Driven first on 2026-08-16 with the account holding 15 apps against a limit of 10, all four calls answered `app_limit_reached (15 of 10 used)` and the reserved check never ran. Six throwaway probe apps from earlier verification runs were deleted (`probeone`, `probetwo`, `noisy2`, `budget-hold`, `budget-probe-a`, `slowbuild`), taking the account to nine, and the steps then ran as written. Both refusals are honest, so nothing here is worth changing in the code, but a future run of these steps has to check the app count first or it reads a false pass as a pass
 
 ### Network policy, walked rather than parsed
 
@@ -113,13 +115,21 @@ still a valid policy. Only this walk can, which is the lesson spec 0019 recorded
 
 ### Failure
 
-**Pause the `deployer` ArgoCD application before any of this.** Tried on 2026-08-16 without doing so: the scale to zero was self healed one second later, the connectors never went down, the console never stopped answering, and no mail was owed. `kubectl -n argocd patch application deployer --type=merge -p '{"spec":{"syncPolicy":{"automated":null}}}'`, and put `{"automated":{"prune":true,"selfHeal":true}}` back afterwards.
+**Pause three ArgoCD applications before any of this, not one.** Tried on 2026-08-16 pausing only `deployer`: the scale to zero was self healed one second later, the connectors never went down, the console never stopped answering, and no mail was owed. Pausing `deployer` alone is not enough, because **`root` puts `deployer`'s own `automated` block straight back**, within about a minute, and then `deployer` heals the Deployment again. The owner of the `cloudflared` Deployment is the `deployer` application (checked by walking every application's `status.resources`), so `cloudflared-resources` in the gitops repo is not the one to pause, though pausing it too costs nothing. Pause `root` **first**, then the other two:
 
-- [ ] `kubectl -n deployer-edge scale deploy/cloudflared --replicas=0` → within a few minutes exactly one mail arrives naming which thing broke and nothing else → AC-23
-- [ ] leave it down → no further mail, because the flag dedupes the notification → AC-23a
-- [ ] scale back to 2 → exactly one recovery mail → AC-23
-- [ ] confirm both mails arrived while the tunnel was down, which proves the telling does not depend on the thing it reports on → AC-24
-- [ ] restart the control plane pod while the edge is down → at most one extra mail, which is the whole cost of the in memory flag → AC-23a
+```bash
+for a in root cloudflared-resources deployer; do
+  kubectl -n argocd patch application $a --type=merge -p '{"spec":{"syncPolicy":{"automated":null}}}'
+done
+```
+
+Record each one's whole `syncPolicy` first, because the three differ in their `syncOptions` (`root` carries `ApplyOutOfSyncOnly=true`, `cloudflared-resources` carries `CreateNamespace=true` and `ServerSideApply=true`, `deployer` carries `ServerSideApply=true`), and put each back exactly as it was afterwards.
+
+- [x] `kubectl -n deployer-edge scale deploy/cloudflared --replicas=0` → within a few minutes exactly one mail arrives naming which thing broke and nothing else → AC-23 · **done 2026-08-16.** Scaled to zero at 06:51:07Z, the watcher logged `the public edge has no ready connectors` at 06:51:19Z, twelve seconds later, and one mail arrived at 06:51:20Z, subject `Deployer: the public edge is down`. The public console and `hello-4dfssb` both answered `530` from Cloudflare while the tailnet name still answered `200`, which is the outage the mail describes
+- [x] leave it down → no further mail, because the flag dedupes the notification → AC-23a · left down from 06:51 to 07:02, about eleven minutes and five watcher ticks at the two minute interval. Exactly one ERROR line in the platform log and one mail for the whole window, up to the control plane restart below
+- [x] scale back to 2 → exactly one recovery mail → AC-23 · scaled back at 07:02:09Z, connectors ready 2/2 at 07:02:32Z, and one mail at 07:03:03Z, subject `Deployer: the public edge is back`, on the very next tick. The console and the app both answered `200` again
+- [x] confirm both mails arrived while the tunnel was down, which proves the telling does not depend on the thing it reports on → AC-24 · **the wording asks for something only half observable, and the observable half is what matters.** A recovery mail cannot arrive while the tunnel is down, since it is sent because the tunnel came back. What is provable is that every mail sent *during* the outage got out: two down mails, 06:51:20Z and 07:01:03Z, both delivered with the connectors at zero and the public edge answering `530`. Mail leaves through Resend over ordinary egress rather than through the tunnel, so the telling is independent of the thing it reports on
+- [x] restart the control plane pod while the edge is down → at most one extra mail, which is the whole cost of the in memory flag → AC-23a · restarted at 06:59:01Z with the edge still down, the new pod logged `tunnel health check started` at 06:59:03Z, and its first tick sent one further down mail at 07:01:03Z. Exactly one extra, and the ten minutes of outage either side of it produced none, so the flag is doing its job and a restart is the only thing that resets it
 
 ## After the flip: the irreversible step, done last and alone
 
