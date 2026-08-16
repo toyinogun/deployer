@@ -64,7 +64,13 @@ and pin their whole shape. They are the only thing standing behind those files.
   build namespaces and their pod security levels.
 - `tunnel_test.go` pins the Cloudflare tunnel's own files: the routing
   `ConfigMap`'s two hostnames, its two distinct origins, its refusing catch all,
-  and the tunnel namespace's policy in both directions. It also reads
+  and the tunnel namespace's policy in both directions. It also pins their
+  **order**, through `TestNoTunnelRuleIsShadowedByAnEarlierOne`, because
+  cloudflared takes the first hostname that matches and `*.deploy.toyintest.org`
+  matches `console.deploy.toyintest.org`. Look rules up by shape here, never by
+  index: the assertions used to read `Ingress[0]` and `Ingress[1]`, the two wrong
+  positions agreed with each other, and a shadowed console route shipped green.
+  It also reads
   `DEPLOYER_CONSOLE_HOST` out of `deploy/configmap.yaml` and pairs it against the
   console route, because those two values live in different files and a mismatch
   is a console that answers 404 through the tunnel while every other test passes.
