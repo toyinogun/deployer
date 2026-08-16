@@ -24,7 +24,15 @@ spec 0022, on the deploy host; it is 404 on the console hostname.
   reading anything back. `rollback_app` is the same shape. `deployment_status`
   and `get_logs` are pure reads. Everything in between belongs to the reconcile
   loop, and a tool that waits for a result here is a tool holding an agent's
-  connection open for the length of a build.
+  connection open for the length of a build. Spec 0026's `files` argument is the
+  one write this handler makes: it packs the source and hands it to the same
+  `uploads.Service.Accept` the upload route calls, before the app is resolved.
+  That is still not the loop's work, and it still does not wait for anything.
+- **The inline path is a second way to reach the upload, never a second path.**
+  `acceptFiles` refuses in the upload endpoint's own reason codes,
+  `upload_too_large` and `upload_limit_reached`, because a caller hitting the
+  ceiling should read the same words whichever way it sent the source. Then it
+  goes through `checkUpload` like any other id: one path, not two.
 - **Authentication happens before the transport sees the request**, in
   `authenticate`, so an unauthenticated caller never reaches a tool and never
   learns which tools exist.
@@ -61,7 +69,8 @@ spec 0022, on the deploy host; it is 404 on the console hostname.
   spends from one bucket rather than three (spec 0022, AC-13, AC-14).
 - **A tool's description is part of the contract.** `deploy_app`'s carries the
   upload endpoint and the ceiling, both derived from configuration rather than
-  written as literals, so the text cannot drift from the platform. See the root
+  written as literals, so the text cannot drift from the platform, and since spec
+  0026 it also states both ways of giving the source. See the root
   [AGENTS.md](../../AGENTS.md) rule.
 - **`New` falls back to a private limiter, and that fallback shares nothing.**
   Production passes one instance to both `mcp.New` and `httpapi.New`, so one
@@ -81,6 +90,9 @@ closed reason codes promise therefore needs a test through a real client and
 server session: `wire_test.go` holds that path as the `callOverTheWire` helper,
 and each feature's own test file calls it, so the cases live beside the feature
 rather than piling up in that one file.
+
+`inlinefiles_test.go` is spec 0026's and is entirely that second kind, because
+`files` is an argument the schema decides on before any handler runs.
 
 `lockout_test.go` and `description_test.go` are spec 0022's; `redaction_test.go`
 and `egresscontract_test.go` are the ones to read before changing what a tool

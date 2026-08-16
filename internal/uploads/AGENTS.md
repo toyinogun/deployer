@@ -2,7 +2,8 @@
 
 The source tarball's whole life: accepting one onto the volume, recording what
 landed, spending the single use token a build presents to fetch it back, and
-sweeping the expired ones. One file, `uploads.go`.
+sweeping the expired ones. Two files: `uploads.go`, and `pack.go` for source a
+caller carried inline instead of uploading.
 
 It imports neither the store, `net/http`, nor `client-go`. It declares the narrow
 `Store` interface it needs, which [internal/store](../store) satisfies through an
@@ -19,6 +20,15 @@ ceiling, the unclaimed cap and the sweep.
   directory joined with an id this platform generated, so no request can steer a
   write. Keep it that way: a caller supplied name reaching `filepath.Join` here
   is a path traversal.
+- **`Pack` bounds nothing, deliberately.** It composes a tarball in memory from a
+  map of path to content and hands the reader to `Accept`, which applies every
+  bound there is. A size check inside `Pack` would be a second place for the
+  ceiling to live and so a second place for it to drift; the transport bounds the
+  request body long before the ceiling does. What `Pack` does own is the path
+  rule: absolute, empty, NUL bearing and climbing names are `ErrBadPath` before a
+  byte is written. That refusal is also made at extraction, and making it twice is
+  the point, because the extractor's version ends a deployment the platform has
+  already spent a build pod on (spec 0026, AC-3).
 - **The body stops being read one byte past the cap.** An oversized or endless
   body therefore costs one byte more than the limit rather than a volume. That is
   the second of the two size gates: the first is the declared `Content-Length`,
@@ -54,7 +64,7 @@ ceiling, the unclaimed cap and the sweep.
 ## Tests
 
 `uploads_test.go`, against a real temp directory and a real SQLite file, no store
-mocking. The cases worth keeping intact are the two that assert what is *not*
+mocking. `pack_test.go` is pure and needs neither. The cases worth keeping intact are the two that assert what is *not*
 left behind: `TestAcceptRefusesABodyOverTheCapAndLeavesNothingBehind` and
 `TestAcceptDiscardsTheFileWhenTheStoreRefusesTheRow`. A refusal that still costs
 the platform a file is the failure mode this package exists to avoid, and it
