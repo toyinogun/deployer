@@ -92,33 +92,18 @@ func (i *Identity) login(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	email := identity.NormalizeEmail(body.Email)
-
-	// The per address lockout is checked before any work, so a locked out address
-	// costs neither a database read nor a password hash.
-	if _, locked := i.svc.Limits().LockedOut(email); locked {
-		auth.Record(ctx, i.auditor, auth.Audit{
-			ClientAddress: i.clientAddress(r),
-			Action:        auth.ActionLogin, Reason: string(identity.CodeRateLimited),
-		})
-		writeCode(ctx, w, http.StatusTooManyRequests, identity.CodeRateLimited,
-			"too many failed sign ins, wait a moment")
-		return
-	}
-
+	// The lockout, the backoff and the clear on success all live in svc.Login, so
+	// this surface and the browser refuse identically (spec 0021, AC-5). They
+	// used to live here, which made the browser the softer way in. Do not
+	// reintroduce them: a second Failed call here would count one wrong password
+	// twice and halve the free attempts on this surface alone.
 	in, err := i.svc.Login(ctx, body.Email, body.Password)
 	if err != nil {
 		code, _ := identity.CodeOf(err)
-		// An unverified account is a real account presenting the right password,
-		// so it is not a failed attempt and must not feed the backoff.
-		if code != identity.CodeEmailUnverified {
-			i.svc.Limits().Failed(email)
-		}
 		auth.Record(ctx, i.auditor, auth.Audit{ClientAddress: i.clientAddress(r), Action: auth.ActionLogin, Reason: string(code)})
 		i.fail(ctx, w, err)
 		return
 	}
-	i.svc.Limits().Succeeded(email)
 
 	i.setSessionCookie(w, in.Raw)
 	auth.Record(ctx, i.auditor, auth.Audit{

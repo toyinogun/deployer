@@ -24,26 +24,46 @@ type SignedIn struct {
 func (s *Service) Login(ctx context.Context, rawEmail, password string) (SignedIn, error) {
 	email := NormalizeEmail(rawEmail)
 
+	// The lockout lives here rather than in a handler because both surfaces call
+	// this one method, and a lockout only one of them applies is not a lockout
+	// (spec 0021, AC-5). It was in the JSON handler alone until 2026-08-16, which
+	// left the browser, the surface the public edge exposes, bounded only by the
+	// per address bucket while the JSON surface it was measured against is
+	// reachable on the tailnet only.
+	//
+	// Checked before any work, so a locked out address costs neither a database
+	// read nor a password hash.
+	if _, locked := s.limits.LockedOut(email); locked {
+		return SignedIn{}, Fail(CodeRateLimited, "too many failed sign ins, wait a moment")
+	}
+
 	account, err := s.store.AccountByEmail(ctx, email)
 	switch {
 	case errors.Is(err, ErrNotFound):
 		// No account, but still spend the hash: an unknown address must not be
 		// the fast path (AC-8).
 		s.hasher.Verify(password, "")
+		s.limits.Failed(email)
 		return SignedIn{}, credentialsInvalid()
 	case err != nil:
+		// An internal fault is not the caller's failed attempt, so it must not
+		// feed the backoff.
 		return SignedIn{}, err
 	}
 
 	// The bootstrap account holds no password hash, so Verify spends the work and
 	// answers false. It is refused exactly as a wrong password is (AC-11).
 	if !s.hasher.Verify(password, account.PasswordHash) || account.Disabled {
+		s.limits.Failed(email)
 		return SignedIn{}, credentialsInvalid()
 	}
 	if account.Email == "" {
+		s.limits.Failed(email)
 		return SignedIn{}, credentialsInvalid()
 	}
 	if !account.Verified {
+		// A real account presenting the right password, so it is not a failed
+		// attempt and must not feed the backoff.
 		return SignedIn{}, Fail(CodeEmailUnverified,
 			"confirm your email address before signing in")
 	}
@@ -55,6 +75,9 @@ func (s *Service) Login(ctx context.Context, rawEmail, password string) (SignedI
 	if _, err := s.store.CreateSession(ctx, account.ID, HashSecret(raw), s.clock.Now().Add(SessionLifetime)); err != nil {
 		return SignedIn{}, err
 	}
+	// A completed sign in clears the address's failures, so an ordinary typo
+	// before a correct password leaves no penalty behind.
+	s.limits.Succeeded(email)
 	return SignedIn{Raw: raw, Account: account}, nil
 }
 

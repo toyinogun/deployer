@@ -72,9 +72,13 @@ func (s *Server) loginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 // loginSubmit signs in. Every rule here belongs to the identity service: the
-// generic message on bad credentials, the lockout, and the shared bucket all
-// come from the same call the JSON surface makes, so the browser cannot be a
-// softer way in (AC-5).
+// generic message on bad credentials and the lockout both come from the same
+// svc.Login the JSON surface calls, so the browser cannot be a softer way in
+// (AC-5). That was a description of intent rather than of the code until
+// 2026-08-16: the lockout lived in the JSON handler alone, and svc.Login touched
+// the limiter nowhere, so this surface counted no failures and checked no
+// penalty. It moved into svc.Login rather than being copied here, because two
+// copies is how the surfaces drift apart again.
 func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	if !s.checkPreCSRF(w, r, "login", formPage{
 		Email: r.PostFormValue("email"), Next: r.PostFormValue("next"),
