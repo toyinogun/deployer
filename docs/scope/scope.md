@@ -520,8 +520,8 @@ spec [0025](../specs/0025-emailed-invites-bound-to-an-address/index.md)
 code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/web/invites.go`, `internal/httpapi/inviteroutes.go`
 - [x] Verify it: `/check verify emailed invites bound to an address` — every step in `verify.md` run against the branch image on the cluster, 2026-08-16: the last two closed once the opaque origin fix was live, a bound JSON mint answering 201 with the address lowercased and `sent: true`, and the mailed link registering that address and turning the invite `spent`
 - [x] Test it: `/test emailed invites bound to an address` — the branch audited against the AC list, and the three properties nothing pinned yet locked in as `internal/web/boundaudit_test.go`: no audit row in either sink carries the bound address, no resend control exists, and a live bound code renders identically to an unknown one — AC-13, AC-17, AC-18
-- [ ] Review it (fresh model): `/check review emailed invites bound to an address`
-- [ ] Document it: `/document emailed invites bound to an address`
+- [x] Review it (fresh model): `/check review emailed invites bound to an address` — reviewed on Sonnet 2026-08-16, verdict Approve, no blockers and no majors; the two minors are both missing tests rather than defects, in `docs/reviews/2026-08-16-feat-emailed-invites-bound-to-an-address.md`
+- [x] Document it: `/document emailed invites bound to an address` — PR description written from the branch commits and diff, 2026-08-16, covering the binding in the lookup predicate, the taken address guard inside the mint transaction, both surfaces, and the opaque origin fix that rode along
 
 
 
