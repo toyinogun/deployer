@@ -139,8 +139,8 @@ func TestTheControlPlaneIngressIsTheTailnetTheTunnelTheBuildsAndItself(t *testin
 	if len(tunnel.From) != 1 || tunnel.From[0].NamespaceSelector == nil || tunnel.From[0].PodSelector != nil {
 		t.Fatalf("tunnel peer = %+v, want one namespace selector alone", tunnel.From)
 	}
-	if got := tunnel.From[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; got != "cloudflared" {
-		t.Errorf("tunnel namespace = %q, want cloudflared", got)
+	if got := tunnel.From[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; got != "deployer-edge" {
+		t.Errorf("tunnel namespace = %q, want deployer-edge", got)
 	}
 	assertPorts(t, "the tunnel", tunnel.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {8080}})
 

@@ -11,7 +11,7 @@ quickly.
 
 - [ ] `go test -race ./...` → passes                                             → AC-1, AC-2, AC-2a, AC-3, AC-4, AC-5, AC-6, AC-7, AC-15, AC-15b, AC-16, AC-17, AC-18, AC-18a, AC-19, AC-21, AC-21a, AC-23, AC-23a
 - [ ] `go test ./internal/config/ -run Tunnel` → the tunnel routes exactly two hostnames, two distinct origins, a refusing catch all, and its namespace is fenced both ways → AC-9, AC-11, AC-12, AC-22a
-- [ ] `go test ./internal/config/ -run ControlPlane` → the fence carries four peers including `cloudflared` on 8080, names no `ingress-nginx` peer, and still has no `Egress` in `policyTypes` → AC-22
+- [ ] `go test ./internal/config/ -run ControlPlane` → the fence carries four peers including `deployer-edge` on 8080, names no `ingress-nginx` peer, and still has no `Egress` in `policyTypes` → AC-22
 - [ ] `kustomize build deploy/ > /dev/null` → builds, so every new manifest is listed in the kustomization and ArgoCD will see it
 
 ## Before the flip: from a tailnet device, tunnel live, DNS unchanged
@@ -22,11 +22,11 @@ pass: it proves the split without publishing anything.
 
 ### The tunnel is up
 
-- [ ] `kubectl -n cloudflared get deploy cloudflared` → 2/2 ready, so a node drain never leaves zero connectors → AC-10
-- [ ] `kubectl -n cloudflared get pods -o wide` → the two are on different nodes
-- [ ] `kubectl -n cloudflared get secret cloudflared-credentials` → exists, and `git grep -i 'credentials.json:' deploy/` shows only the sealed value, never plaintext → AC-10
-- [ ] `kubectl -n cloudflared logs deploy/cloudflared | grep -i 'registered tunnel connection'` → connectors registered
-- [ ] `kubectl -n deployer-system run probe --rm -it --image=curlimages/curl --restart=Never -- curl -s http://cloudflared.cloudflared.svc.cluster.local:2000/ready` → 200, which is the same endpoint the health check reads → AC-23
+- [ ] `kubectl -n deployer-edge get deploy cloudflared` → 2/2 ready, so a node drain never leaves zero connectors → AC-10
+- [ ] `kubectl -n deployer-edge get pods -o wide` → the two are on different nodes
+- [ ] `kubectl -n deployer-edge get secret cloudflared-credentials` → exists, and `git grep -i 'credentials.json:' deploy/` shows only the sealed value, never plaintext → AC-10
+- [ ] `kubectl -n deployer-edge logs deploy/cloudflared | grep -i 'registered tunnel connection'` → connectors registered
+- [ ] `kubectl -n deployer-system run probe --rm -it --image=curlimages/curl --restart=Never -- curl -s http://cloudflared.deployer-edge.svc.cluster.local:2000/ready` → 200, which is the same endpoint the health check reads → AC-23
 
 ### The route split, by Host header override
 
@@ -80,11 +80,11 @@ the mux sees a console request without any DNS involved.
 The parse tests cannot tell you a peer is **missing**, because a shorter policy is
 still a valid policy. Only this walk can, which is the lesson spec 0019 recorded.
 
-- [ ] from a pod in `cloudflared`, reach `deployer.deployer-system.svc:80` → succeeds → AC-22
+- [ ] from a pod in `deployer-edge`, reach `deployer.deployer-system.svc:80` → succeeds → AC-22
 - [ ] from a pod in `default` or any unrelated namespace, reach the control plane on 8080 → refused, which is what makes `CF-Connecting-IP` trustworthy on the console hostname → AC-15a
 - [ ] from a pod in `ingress-nginx`, reach the control plane on 8080 → refused: the console is not behind that controller and must not be reachable from it → AC-15a, AC-22
-- [ ] from a pod in `cloudflared`, reach anything other than DNS, `ingress-nginx:443`, `deployer-system:8080` and the public internet on 443/7844 → refused → AC-22a
-- [ ] from a pod in `deployer-system`, reach `cloudflared.cloudflared.svc:2000` → succeeds; from anywhere else → refused → AC-22a
+- [ ] from a pod in `deployer-edge`, reach anything other than DNS, `ingress-nginx:443`, `deployer-system:8080` and the public internet on 443/7844 → refused → AC-22a
+- [ ] from a pod in `deployer-system`, reach `cloudflared.deployer-edge.svc:2000` → succeeds; from anywhere else → refused → AC-22a
 - [ ] the tailnet peer, the two build namespaces, and the control plane pod on 5000 all still work, so adding a peer took none away → AC-22
 
 ### The certificate (still owed, in k3sprox-gitops)
@@ -96,7 +96,7 @@ still a valid policy. Only this walk can, which is the lesson spec 0019 recorded
 
 ### Failure
 
-- [ ] `kubectl -n cloudflared scale deploy/cloudflared --replicas=0` → within a few minutes exactly one mail arrives naming which thing broke and nothing else → AC-23
+- [ ] `kubectl -n deployer-edge scale deploy/cloudflared --replicas=0` → within a few minutes exactly one mail arrives naming which thing broke and nothing else → AC-23
 - [ ] leave it down → no further mail, because the flag dedupes the notification → AC-23a
 - [ ] scale back to 2 → exactly one recovery mail → AC-23
 - [ ] confirm both mails arrived while the tunnel was down, which proves the telling does not depend on the thing it reports on → AC-24

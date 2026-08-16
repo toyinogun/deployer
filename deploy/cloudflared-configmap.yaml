@@ -12,7 +12,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: cloudflared
-  namespace: cloudflared
+  namespace: deployer-edge
   labels:
     app.kubernetes.io/name: cloudflared
     app.kubernetes.io/managed-by: argocd

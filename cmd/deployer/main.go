@@ -267,7 +267,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 // in deploy/, and a second place to write them down is a second place for them to
 // disagree. Reading it needs no Kubernetes API access, so this whole check grants
 // the platform no new cluster rights (spec 0021, AC-23).
-const tunnelReadyURL = "http://cloudflared.cloudflared.svc.cluster.local:2000/ready"
+const tunnelReadyURL = "http://cloudflared.deployer-edge.svc.cluster.local:2000/ready"
 
 // startTunnelWatch tells the platform's owner when the public edge has no
 // connectors, and once more when it comes back. One mail each way, never one per

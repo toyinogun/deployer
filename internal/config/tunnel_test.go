@@ -59,8 +59,8 @@ func tunnelConfig(t *testing.T) struct {
 	if err := yaml.Unmarshal(raw, &cm); err != nil {
 		t.Fatalf("parsing %s: %v", tunnelConfigFile, err)
 	}
-	if cm.Namespace != "cloudflared" {
-		t.Errorf("%s is in namespace %q, want cloudflared: the control plane's fence names that namespace as its peer",
+	if cm.Namespace != "deployer-edge" {
+		t.Errorf("%s is in namespace %q, want deployer-edge: the control plane's fence names that namespace as its peer",
 			tunnelConfigFile, cm.Namespace)
 	}
 	body, ok := cm.Data["config.yaml"]
@@ -213,8 +213,8 @@ func tunnelPolicies(t *testing.T) map[string]networkingv1.NetworkPolicy {
 		if err := yaml.Unmarshal([]byte(doc), &p); err != nil {
 			t.Fatalf("parsing a document of %s: %v", tunnelPolicyFile, err)
 		}
-		if p.Namespace != "cloudflared" {
-			t.Errorf("%s is in namespace %q, want cloudflared", p.Name, p.Namespace)
+		if p.Namespace != "deployer-edge" {
+			t.Errorf("%s is in namespace %q, want deployer-edge", p.Name, p.Namespace)
 		}
 		byName[p.Name] = p
 	}

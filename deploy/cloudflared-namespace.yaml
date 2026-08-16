@@ -8,13 +8,21 @@
 # request came through the tunnel", which is the whole basis for trusting
 # CF-Connecting-IP on the console hostname (AC-15a).
 #
+# Named deployer-edge rather than cloudflared: the cluster already runs a
+# separate, remotely managed tunnel in a namespace called cloudflared, owned by
+# the k3sprox-gitops repository and carrying the routes for every other app on
+# the cluster. Same namespace and same Deployment name would put two ArgoCD
+# applications in a fight over one object, and the loser is the connector those
+# apps depend on. This tunnel is a second one, locally managed, routing only the
+# two hostnames in cloudflared-configmap.yaml.
+#
 # `restricted`, which cloudflared meets without exception: it needs no
 # capabilities, no host network, and no privilege escalation. It dials out, so
 # nothing ever connects in to it except the platform's own health check.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: cloudflared
+  name: deployer-edge
   labels:
     app.kubernetes.io/name: cloudflared
     app.kubernetes.io/managed-by: argocd
