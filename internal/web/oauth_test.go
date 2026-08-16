@@ -881,3 +881,56 @@ func TestOnlyAGrantedTokenCarriesAClient(t *testing.T) {
 		t.Errorf("%d granted and %d hand minted live tokens, want one of each", withClient, withoutClient)
 	}
 }
+
+// AC-26, AC-27. The fifth tab shows the address and nothing else, and it is the
+// one panel with no mint control: this client is issued its own credential
+// through the approval page, so a token minted here would be a second one
+// nobody needs.
+func TestTheConnectorTabShowsTheAddressAndOffersNoToken(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	session := h.signIn(t, "owner@example.org")
+	body := h.get(t, "/connect", session).Body.String()
+
+	panel := panelFor(t, body, "claude-app")
+	if !strings.Contains(panel, testMCPURL+"/mcp") {
+		t.Error("the connector tab does not show the deploy address")
+	}
+	// Nothing else: no credential, and not even the placeholder the other four
+	// carry before a mint.
+	if strings.Contains(panel, tokenPlaceholder) {
+		t.Error("the connector tab carries the token placeholder")
+	}
+	if strings.Contains(panel, "Bearer") || strings.Contains(panel, identity.APITokenPrefix) {
+		t.Error("the connector tab carries a credential")
+	}
+	if strings.Contains(panel, "Mint a token") {
+		t.Error("the connector tab offers a mint control")
+	}
+
+	// The other four still do, so this removed nothing from them.
+	if !strings.Contains(panelFor(t, body, "claude-code"), "Mint a token") {
+		t.Error("the Claude Code tab lost its mint control")
+	}
+
+	// AC-27. The noscript region stacks every panel, this one included, so the
+	// tab is reachable with the script off.
+	if !strings.Contains(body, "<noscript>") || !strings.Contains(body, ".connect-panel[hidden]") {
+		t.Error("the noscript region is gone, so the fifth tab is unreachable without the script")
+	}
+}
+
+// panelFor cuts one tab's panel out of the rendered page, so an assertion about
+// one block cannot be satisfied by another block's text.
+func panelFor(t *testing.T, body, key string) string {
+	t.Helper()
+	_, rest, ok := strings.Cut(body, `id="panel-`+key+`"`)
+	if !ok {
+		t.Fatalf("no panel for %q on the page", key)
+	}
+	panel, _, ok := strings.Cut(rest, "</section>")
+	if !ok {
+		t.Fatalf("the panel for %q never ends", key)
+	}
+	return panel
+}
