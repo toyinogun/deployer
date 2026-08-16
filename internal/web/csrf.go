@@ -58,12 +58,14 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request, account auth.
 // to bind a synchroniser token to. That is stated knowingly in the spec's
 // security model rather than papered over with a pre session cookie.
 //
-// The platform answers on two names now, the tailnet one and the console one, so
-// the accepted set is two rather than one and a post carrying a third origin is
-// still refused (spec 0021, AC-21). Widening the set does not weaken the pre
-// authentication CSRF pair: that cookie carries the `__Host-` prefix, so it is
-// host scoped and each hostname mints its own nonce. A token minted on one host
-// cannot satisfy a post to the other (AC-21a).
+// The platform answers on more than one name, so a post is accepted from the
+// console's configured origin or from the name it was itself addressed to, and a
+// post carrying any other origin is still refused (spec 0021, AC-21; see
+// acceptedOrigin for why this is a comparison rather than a list). Accepting
+// same origin does not weaken the pre authentication CSRF pair: that cookie
+// carries the `__Host-` prefix, so it is host scoped and each hostname mints its
+// own nonce. A token minted on one host cannot satisfy a post to another
+// (AC-21a).
 func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account auth.Account) bool {
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 		s.refuseCSRF(w, r, account, "origin_cross_site")
@@ -71,7 +73,7 @@ func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account aut
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
-		if err != nil || !s.acceptedOrigin(u.Scheme+"://"+u.Host) {
+		if err != nil || !s.acceptedOrigin(u, r) {
 			s.refuseCSRF(w, r, account, "origin_mismatch")
 			return false
 		}
@@ -79,11 +81,46 @@ func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account aut
 	return true
 }
 
-// acceptedOrigin reports whether a POST may claim to come from this address. An
-// empty set accepts nothing, which is what an unparseable PublicURL leaves
-// behind and is the right direction to fail in.
-func (s *Server) acceptedOrigin(origin string) bool {
-	return slices.Contains(s.origins, origin)
+// acceptedOrigin reports whether a POST may claim to come from this address.
+//
+// Two ways to be accepted. The configured set is the console's own address,
+// which is the one name whose origin the platform knows before a request
+// arrives. Everything else is accepted by being **same origin**: the post claims
+// to come from the very name it was addressed to, which is a comparison rather
+// than a list and so needs no configuration.
+//
+// That second clause is what the pages are actually reached by. They register on
+// the bare pattern, so every name that is not the console or the deploy host
+// serves them, the tailnet name and the LAN included, and spec 0021 (AC-26) makes
+// the tailnet name the only way to reach the admin surface, since every admin
+// page is 404 on the console. Spec 0022 removed DEPLOYER_PUBLIC_URL, which had
+// been putting the tailnet origin in the set, and the accepted set silently
+// became one entry: a sign in on the tailnet name answered 403 and the whole
+// admin surface was unreachable. A list cannot hold names nobody configured, so
+// this compares instead of listing.
+//
+// The scheme is compared as well as the host, so a post from http:// on the same
+// name is still refused. It follows the console's own scheme, because a platform
+// serving the console over TLS serves every one of its names that way.
+//
+// This does not weaken the pre authentication CSRF pair: the nonce cookie
+// carries the `__Host-` prefix, so each hostname mints its own and a token
+// minted on one host cannot satisfy a post to another (spec 0021, AC-21a).
+func (s *Server) acceptedOrigin(u *url.URL, r *http.Request) bool {
+	if slices.Contains(s.origins, u.Scheme+"://"+u.Host) {
+		return true
+	}
+	return u.Host != "" && u.Host == r.Host && u.Scheme == s.originScheme()
+}
+
+// originScheme is the scheme every name this platform answers on is served over,
+// taken from the console's own address rather than from the request, because a
+// request that arrived through a proxy carries no TLS state of its own.
+func (s *Server) originScheme() string {
+	if s.secure {
+		return "https"
+	}
+	return "http"
 }
 
 // refuseCSRF records the refusal and renders the 403 page. The reason names

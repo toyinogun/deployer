@@ -68,32 +68,65 @@ func TestTheSessionCookieDropsThePrefixOverPlainHTTP(t *testing.T) {
 	}
 }
 
-// TestBothOriginsAreAcceptedAndAThirdIsNot is AC-21. The platform answers on two
-// names now, so the accepted set is two rather than one, and it is still a set
-// rather than anything goes.
-func TestBothOriginsAreAcceptedAndAThirdIsNot(t *testing.T) {
+// testTailnetHost stands in for the `ts.net` name. Nothing configures it, which
+// is the whole point: the pages answer on it because they register on the bare
+// pattern, so no list can hold it and only a same origin comparison accepts it.
+const testTailnetHost = "deployer.tail1234.ts.net"
+
+// TestAPostIsAcceptedFromTheConsoleAndFromItsOwnNameAndNoOther is AC-21.
+//
+// Each case sends the Host a browser would send alongside the Origin, which is
+// the pair the check actually reads. The two that must be accepted are the
+// console's configured origin and a post that is same origin on a name nothing
+// configured; everything else is refused, including the same host over http and
+// a name that merely has an accepted one as a prefix.
+//
+// This test replaces one that listed testConsoleURL and "https://" +
+// testConsoleHost as its two accepted cases. Those are the same string, so it
+// asserted a set of two while exercising one, and it went on passing when spec
+// 0022 removed DEPLOYER_PUBLIC_URL and took the tailnet origin out of the set
+// with it. A sign in on the tailnet name answered 403 and the admin surface was
+// unreachable, because every admin page is 404 on the console (spec 0021,
+// AC-26). Keep the Host and the Origin distinct in these cases: making them
+// agree everywhere is what turns this back into a test of nothing.
+func TestAPostIsAcceptedFromTheConsoleAndFromItsOwnNameAndNoOther(t *testing.T) {
 	// covers: AC-21
 	t.Parallel()
 	h := newHarness(t, nil)
 
+	// A refused post leaves its session alive, so every refusal case shares one
+	// account. Only the accepted ones need their own, which keeps this test
+	// under the per address sign in bucket rather than tripping it at case six.
+	refused := h.signIn(t, "refused@example.test")
+
 	for i, tc := range []struct {
+		name   string
+		host   string
 		origin string
 		want   int
 	}{
-		{testConsoleURL, http.StatusSeeOther},
-		{"https://" + testConsoleHost, http.StatusSeeOther},
-		{"https://evil.example.test", http.StatusForbidden},
-		{"https://" + testConsoleHost + ".evil.test", http.StatusForbidden},
-		{"http://" + testConsoleHost, http.StatusForbidden},
+		{"the console's own configured origin", testConsoleHost, testConsoleURL, http.StatusSeeOther},
+		{"the tailnet name, same origin and configured nowhere", testTailnetHost, "https://" + testTailnetHost, http.StatusSeeOther},
+		{"the console origin on a request addressed to the tailnet", testTailnetHost, testConsoleURL, http.StatusSeeOther},
+		{"a stranger", testConsoleHost, "https://evil.example.test", http.StatusForbidden},
+		{"the tailnet name posting to the console", testConsoleHost, "https://" + testTailnetHost, http.StatusForbidden},
+		{"a name carrying an accepted one as a prefix", testConsoleHost, "https://" + testConsoleHost + ".evil.test", http.StatusForbidden},
+		{"the right host over http", testConsoleHost, "http://" + testConsoleHost, http.StatusForbidden},
+		{"the tailnet name over http", testTailnetHost, "http://" + testTailnetHost, http.StatusForbidden},
 	} {
-		// One account per case, because an accepted logout ends the session and
-		// a shared one would make the order of the cases matter.
-		signedIn := h.signIn(t, fmt.Sprintf("person%d@example.test", i))
-		rec := h.postRaw(t, "/logout", url.Values{csrfField: {h.csrfFor(t, signedIn)}},
-			map[string]string{"Origin": tc.origin}, signedIn)
-		if rec.Code != tc.want {
-			t.Errorf("a post from %s: got %d, want %d", tc.origin, rec.Code, tc.want)
-		}
+		t.Run(tc.name, func(t *testing.T) {
+			// An accepted logout ends the session, so those cases each need
+			// their own account or the order of the cases would matter.
+			signedIn := refused
+			if tc.want == http.StatusSeeOther {
+				signedIn = h.signIn(t, fmt.Sprintf("person%d@example.test", i))
+			}
+			rec := h.postRaw(t, "/logout", url.Values{csrfField: {h.csrfFor(t, signedIn)}},
+				map[string]string{"Host": tc.host, "Origin": tc.origin}, signedIn)
+			if rec.Code != tc.want {
+				t.Errorf("a post to %s from %s: got %d, want %d", tc.host, tc.origin, rec.Code, tc.want)
+			}
+		})
 	}
 }
 

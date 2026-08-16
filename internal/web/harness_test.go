@@ -402,6 +402,12 @@ func (h *harness) postRaw(t *testing.T, path string, form url.Values,
 			req.Header.Del(k)
 			continue
 		}
+		// Host is not an ordinary header on a server request: the mux and the
+		// origin check both read r.Host, and Header.Set would leave that alone.
+		if http.CanonicalHeaderKey(k) == "Host" {
+			req.Host = v
+			continue
+		}
 		req.Header.Set(k, v)
 	}
 	for _, c := range cookies {
