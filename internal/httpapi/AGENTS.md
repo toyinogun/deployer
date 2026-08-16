@@ -27,6 +27,7 @@ The MCP tool surface is `internal/mcp`, and the browser page surface is
 - `authroutes.go`: register, verify, resend, login, logout, forgot, reset, me.
 - `tokenroutes.go`: the caller's own tokens, plus the admin account actions.
 - `inviteroutes.go`: the admin invite list, mint and revoke.
+- `oauth.go`: the two RFC 9728 protected resource documents, spec 0024.
 
 ## Conventions
 
@@ -46,6 +47,15 @@ The MCP tool surface is `internal/mcp`, and the browser page surface is
   fetch is what a build's init container reads over cluster DNS on
   `DEPLOYER_INTERNAL_URL`, and it has no reason to be on the open internet.
   `deployhost_test.go` pins both halves.
+- **The two discovery documents are the only thing spec 0024 adds to the deploy
+  hostname, and they carry no credential by design.** A caller that cannot
+  authenticate is exactly the caller they are for (AC-1). There are two rather
+  than one because each names its own exact resource and the client compares that
+  against what the person typed: `/.well-known/oauth-protected-resource`
+  describes the host, and the same path plus `/mcp` describes the endpoint, which
+  is the one the `WWW-Authenticate` header on a 401 points at.
+  `authorization_servers` holds exactly one entry, the console, because a client
+  uses the first and does not fall back.
 - **The upload path and the identity path now derive the visitor's address the
   same way.** `uploadAddress` used to pass an empty console host to
   `auth.ClientAddress` deliberately, because no `/v1` route was reachable on the

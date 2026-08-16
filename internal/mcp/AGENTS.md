@@ -28,6 +28,15 @@ spec 0022, on the deploy host; it is 404 on the console hostname.
 - **Authentication happens before the transport sees the request**, in
   `authenticate`, so an unauthenticated caller never reaches a tool and never
   learns which tools exist.
+- **The `WWW-Authenticate` header goes on the 401 and on no other refusal**
+  (spec 0024, AC-2, AC-2a). It is how a connector client that holds no token
+  finds out where to sign in, so it points at the protected resource document for
+  this exact path rather than the root one, because that document's `resource`
+  has to match what the person typed into their client. The 429 from the limiter
+  and a suspended account do not carry it: neither is about the credential, and
+  Claude ignores the header on anything but a 401 anyway. Adding it to another
+  status reads as helpfulness and tells a throttled caller to go and re
+  authenticate instead of waiting.
 - **The rate limit is spent in the handler and the lockout is not.** The bucket
   bounds the call rate, so it is spent here. The penalty for a run of bad tokens
   judges the credential, so it lives inside `auth.Authenticator` and both routes

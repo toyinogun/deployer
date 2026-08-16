@@ -90,6 +90,11 @@ cookie and a header is the job, but only to read a request, never to serve one.
   `ActionConfigGet`, `ActionAppView`). The ones that record both outcomes did so
   because something changed or a value came back out: `ActionDeploy`,
   `ActionRollback`, `ActionAppDelete`, `ActionConfigReveal`, `ActionLogin`.
+  `ActionConnectorGrant` (spec 0024) is the newest member and records **only the
+  success**, because a refused OAuth exchange identifies nobody. It is also the
+  one action whose subject travels in `Reason`: the struct holds one target pair
+  and the target is the token that was issued, so the client id goes in the
+  reason field (AC-23).
 - **`HashToken` is a plain SHA-256 and that is deliberate.** These are 256 bit
   random values the platform mints, not passwords a person chose, so there is no
   guessable space a work factor would defend. Passwords are argon2id and live in
