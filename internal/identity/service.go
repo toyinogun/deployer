@@ -120,12 +120,14 @@ type Store interface {
 
 	RegisterOAuthClient(ctx context.Context, name string, redirectURIs []string) (OAuthClient, error)
 	OAuthClient(ctx context.Context, id string) (OAuthClient, error)
-	// ApproveOAuthClient stamps the client approved. It is conditional in the
-	// statement itself, so approving an already approved client changes nothing
-	// and is not an error.
-	ApproveOAuthClient(ctx context.Context, id string) error
+	// ApproveOAuthClientAndCreateCode stamps the client approved and writes the
+	// code that approval issued, in one transaction. The stamp is conditional in
+	// the statement itself, so approving an already approved client leaves the
+	// original stamp and is not an error. The two writes are one method rather
+	// than two because the stamp is what exempts a client from the sweep, so a
+	// stamp landing without its code would strand the row (spec 0024, AC-8).
+	ApproveOAuthClientAndCreateCode(ctx context.Context, c NewOAuthCode) error
 	SweepOAuthClients(ctx context.Context, cutoff time.Time) (int, error)
-	CreateOAuthCode(ctx context.Context, c NewOAuthCode) error
 	// OAuthCode reads a code back whether or not it has been spent. A spent one
 	// is a real answer rather than a miss, because presenting it a second time
 	// is what costs the token it issued (spec 0024, AC-16a).

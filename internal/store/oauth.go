@@ -117,7 +117,43 @@ func (s *Store) SweepUnapprovedOAuthClients(ctx context.Context, cutoff time.Tim
 	return int(n), nil
 }
 
-// CreateOAuthCode writes the code an approval issued.
+// ApproveOAuthClientAndCreateCode stamps the client approved and writes the code
+// that approval issued, together (spec 0024, AC-8, AC-16).
+//
+// They are one move rather than two writes that happen to follow each other. The
+// stamp is the whole reason the sweep leaves a client alone, so a stamp that
+// landed without its code would exempt a row from the sweep forever while
+// nothing was ever able to use it. The order inside the transaction is still
+// stamp then code, so a client that reaches the redirect is always one the sweep
+// will leave alone.
+func (s *Store) ApproveOAuthClientAndCreateCode(ctx context.Context, c NewOAuthCode) error {
+	return s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		now := s.now()
+		if _, err := q.ApproveOAuthClient(ctx, sqlcgen.ApproveOAuthClientParams{
+			Now: ptr(now),
+			ID:  c.ClientID,
+		}); err != nil {
+			return fmt.Errorf("store: approving oauth client %s: %w", c.ClientID, err)
+		}
+		if _, err := q.CreateOAuthCode(ctx, sqlcgen.CreateOAuthCodeParams{
+			CodeHash:      c.CodeHash,
+			ClientID:      c.ClientID,
+			AccountID:     c.AccountID,
+			RedirectUri:   c.RedirectURI,
+			CodeChallenge: c.CodeChallenge,
+			Resource:      c.Resource,
+			ExpiresAt:     ids.Stamp(c.ExpiresAt),
+			Now:           now,
+		}); err != nil {
+			return fmt.Errorf("store: writing oauth code: %w", err)
+		}
+		return nil
+	})
+}
+
+// CreateOAuthCode writes the code an approval issued. The approval path does not
+// call this: it takes ApproveOAuthClientAndCreateCode above, so the stamp and the
+// code land together.
 func (s *Store) CreateOAuthCode(ctx context.Context, c NewOAuthCode) error {
 	_, err := s.q.CreateOAuthCode(ctx, sqlcgen.CreateOAuthCodeParams{
 		CodeHash:      c.CodeHash,

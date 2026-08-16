@@ -125,17 +125,19 @@ func (s *Service) Client(ctx context.Context, id string) (OAuthClient, error) {
 // browser carries back. The raw code is returned once and exists nowhere else:
 // what is stored is its hash (AC-16).
 //
-// The stamp lands before the code is written, so a client that reaches the
-// redirect is always one the sweep will leave alone.
+// The stamp and the code are one write, so a client that reaches the redirect is
+// always one the sweep will leave alone and a client the sweep will leave alone
+// always has the code it was stamped for. They used to be two calls: an approval
+// that failed between them stamped a client the sweep would then never take
+// (AC-8) and left it holding nothing, so the row survived forever with no use.
+// Minting the secret happens before either write for the same reason, so the one
+// failure that is not the database's leaves no row behind at all.
 func (s *Service) ApproveClient(ctx context.Context, clientID, accountID, redirectURI, challenge, resource string) (string, error) {
-	if err := s.store.ApproveOAuthClient(ctx, clientID); err != nil {
-		return "", err
-	}
 	raw, err := NewSecret()
 	if err != nil {
 		return "", err
 	}
-	err = s.store.CreateOAuthCode(ctx, NewOAuthCode{
+	err = s.store.ApproveOAuthClientAndCreateCode(ctx, NewOAuthCode{
 		CodeHash:      HashSecret(raw),
 		ClientID:      clientID,
 		AccountID:     accountID,

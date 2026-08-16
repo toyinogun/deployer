@@ -65,6 +65,41 @@ func TestARegisteredClientKeepsItsRedirectURIsVerbatim(t *testing.T) {
 	}
 }
 
+// AC-8, AC-16. The stamp and the code are one write. A stamp that landed without
+// its code would exempt the client from the sweep forever while leaving it
+// nothing to use, so a failure on the code has to take the stamp with it.
+func TestAFailedCodeWriteLeavesTheClientUnstamped(t *testing.T) {
+	t.Parallel()
+	s, clock := newStore(t)
+	_, client := oauthFixture(t, s)
+
+	// An account id no row carries: the code's foreign key refuses it, which
+	// fails the second write of the pair after the stamp has already run.
+	err := s.ApproveOAuthClientAndCreateCode(t.Context(), store.NewOAuthCode{
+		CodeHash:      "code-that-never-lands",
+		ClientID:      client.ID,
+		AccountID:     "no-such-account",
+		RedirectURI:   "http://localhost/callback",
+		CodeChallenge: "challenge",
+		Resource:      "https://deploy.example.org/mcp",
+		ExpiresAt:     clock.Now().Add(60 * time.Second),
+	})
+	if err == nil {
+		t.Fatal("writing a code against an unknown account succeeded")
+	}
+
+	read, err := s.OAuthClient(t.Context(), client.ID)
+	if err != nil {
+		t.Fatalf("reading the client back: %v", err)
+	}
+	if read.ApprovedAt != "" {
+		t.Error("the client is stamped approved, so the sweep will never take it, but the approval wrote no code")
+	}
+	if _, err := s.OAuthCode(t.Context(), "code-that-never-lands"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("reading the code back: got %v, want ErrNotFound", err)
+	}
+}
+
 func TestApprovingAClientStampsItOnceAndIsSafeToRepeat(t *testing.T) {
 	t.Parallel()
 	s, clock := newStore(t)

@@ -336,21 +336,11 @@ func (a IdentityStore) OAuthClient(ctx context.Context, id string) (identity.OAu
 	return toIdentityClient(client), nil
 }
 
-// ApproveOAuthClient stamps the client approved, conditionally, so a second
+// ApproveOAuthClientAndCreateCode stamps the client approved and writes the code
+// that approval issued, in one transaction. The stamp is conditional, so a second
 // approval changes nothing and is not an error.
-func (a IdentityStore) ApproveOAuthClient(ctx context.Context, id string) error {
-	return a.s.ApproveOAuthClient(ctx, id)
-}
-
-// SweepOAuthClients deletes the clients nobody ever approved that are older than
-// cutoff, and reports how many went.
-func (a IdentityStore) SweepOAuthClients(ctx context.Context, cutoff time.Time) (int, error) {
-	return a.s.SweepUnapprovedOAuthClients(ctx, cutoff)
-}
-
-// CreateOAuthCode writes the code an approval issued.
-func (a IdentityStore) CreateOAuthCode(ctx context.Context, c identity.NewOAuthCode) error {
-	return a.s.CreateOAuthCode(ctx, NewOAuthCode{
+func (a IdentityStore) ApproveOAuthClientAndCreateCode(ctx context.Context, c identity.NewOAuthCode) error {
+	return a.s.ApproveOAuthClientAndCreateCode(ctx, NewOAuthCode{
 		CodeHash:      c.CodeHash,
 		ClientID:      c.ClientID,
 		AccountID:     c.AccountID,
@@ -359,6 +349,12 @@ func (a IdentityStore) CreateOAuthCode(ctx context.Context, c identity.NewOAuthC
 		Resource:      c.Resource,
 		ExpiresAt:     c.ExpiresAt,
 	})
+}
+
+// SweepOAuthClients deletes the clients nobody ever approved that are older than
+// cutoff, and reports how many went.
+func (a IdentityStore) SweepOAuthClients(ctx context.Context, cutoff time.Time) (int, error) {
+	return a.s.SweepUnapprovedOAuthClients(ctx, cutoff)
 }
 
 // OAuthCode reads a code back, spent or not.
