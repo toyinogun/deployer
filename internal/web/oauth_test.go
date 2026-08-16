@@ -774,6 +774,127 @@ func TestARacedPairMintsOnceAndLeavesThatTokenLive(t *testing.T) {
 	}
 }
 
+// AC-16b. The verifier alone decides the revoke, so a replay that proves it keeps
+// the token however wrong the rest of the request is. This is what pins the order
+// of the checks in Grant: the consumed branch answers before the client id, the
+// redirect URI and the resource are ever compared, and moving it after any of them
+// would let a caller who can prove the verifier still cost the client its
+// credential by naming somebody else.
+func TestAReplayThatProvesTheVerifierKeepsTheTokenHoweverWrongTheRestIs(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		spoil func(form url.Values, otherClientID string)
+	}{
+		{
+			name: "another client's id",
+			spoil: func(form url.Values, otherClientID string) {
+				form.Set("client_id", otherClientID)
+			},
+		},
+		{
+			name: "an unregistered client id",
+			spoil: func(form url.Values, _ string) {
+				form.Set("client_id", "no-such-client")
+			},
+		},
+		{
+			name: "a redirect URI the code was not issued against",
+			spoil: func(form url.Values, _ string) {
+				form.Set("redirect_uri", "https://elsewhere.example/callback")
+			},
+		},
+		{
+			name: "somebody else's resource",
+			spoil: func(form url.Values, _ string) {
+				form.Set("resource", "https://someone-else.example/mcp")
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			h := newHarness(t, nil)
+			session := h.signIn(t, "owner@example.org")
+			clientID := h.registerConnector(t, "Claude Desktop")
+			other := h.registerConnector(t, "Someone Else")
+			code := h.approve(t, session, clientID)
+
+			first := h.exchange(t, tokenForm(clientID, code))
+			if first.Code != http.StatusOK {
+				t.Fatalf("the first exchange: got %d: %s", first.Code, first.Body)
+			}
+			raw := accessToken(t, first)
+
+			replay := tokenForm(clientID, code)
+			tc.spoil(replay, other)
+			second := h.exchange(t, replay)
+			if second.Code != http.StatusBadRequest {
+				t.Fatalf("the replay: got %d, want 400: %s", second.Code, second.Body)
+			}
+			if !h.tokenLives(t, raw) {
+				t.Error("a replay that proved the verifier still cost the client its token")
+			}
+		})
+	}
+}
+
+// AC-16b. A replay carrying no verifier at all revokes, exactly as a wrong one
+// does. An empty verifier is what a thief who captured the code from a redirect
+// has, so it must never read as proof: this fails the moment VerifyPKCE stops
+// refusing the empty string.
+func TestAReplayCarryingNoVerifierRevokesTheTokenItIssued(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	session := h.signIn(t, "owner@example.org")
+	clientID := h.registerConnector(t, "Claude Desktop")
+	code := h.approve(t, session, clientID)
+
+	first := h.exchange(t, tokenForm(clientID, code))
+	if first.Code != http.StatusOK {
+		t.Fatalf("the first exchange: got %d: %s", first.Code, first.Body)
+	}
+	raw := accessToken(t, first)
+
+	bare := tokenForm(clientID, code)
+	bare.Del("code_verifier")
+	second := h.exchange(t, bare)
+	if second.Code != http.StatusBadRequest {
+		t.Fatalf("the replay: got %d, want 400: %s", second.Code, second.Body)
+	}
+	if h.tokenLives(t, raw) {
+		t.Error("a replay carrying no verifier left the token still working")
+	}
+}
+
+// AC-16b. The client's own retry keeps its token however many times it arrives.
+// The bug this fix replaced revoked on the second exchange, so a connector that
+// retried twice lost the credential; nothing about the refusal may become
+// destructive with repetition.
+func TestRepeatedRetriesFromTheClientNeverCostItTheToken(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	session := h.signIn(t, "owner@example.org")
+	clientID := h.registerConnector(t, "Claude Desktop")
+	code := h.approve(t, session, clientID)
+
+	first := h.exchange(t, tokenForm(clientID, code))
+	if first.Code != http.StatusOK {
+		t.Fatalf("the first exchange: got %d: %s", first.Code, first.Body)
+	}
+	raw := accessToken(t, first)
+
+	for attempt := range 3 {
+		retry := h.exchange(t, tokenForm(clientID, code))
+		if retry.Code != http.StatusBadRequest {
+			t.Fatalf("retry %d: got %d, want 400: %s", attempt+1, retry.Code, retry.Body)
+		}
+		if !h.tokenLives(t, raw) {
+			t.Fatalf("retry %d cost the client the token it had been issued", attempt+1)
+		}
+	}
+}
+
 // AC-16a. A code past its 60 seconds is worth nothing.
 func TestACodePastItsMinuteIsRefused(t *testing.T) {
 	t.Parallel()
