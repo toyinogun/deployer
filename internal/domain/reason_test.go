@@ -31,16 +31,30 @@ var theSet = []domain.Reason{
 	domain.ReasonConfigTooLarge,
 	domain.ReasonDeploymentInFlight,
 	domain.ReasonAppLimitReached,
+	domain.ReasonAccountSuspended,
+	domain.ReasonAppNameReserved,
+	domain.ReasonUploadTooLarge,
+	domain.ReasonUploadNotGzip,
+	domain.ReasonUploadLimitReached,
+	domain.ReasonTooManyAttempts,
 }
 
-// The set is closed at twenty one codes: nine failures, plus deployment_unknown,
-// superseded (spec 0005, AC-11), app_unknown (spec 0006, AC-8), the six
-// configuration refusals (spec 0010), release_unknown (spec 0011, AC-21),
-// deployment_in_flight (spec 0012, AC-15), and app_limit_reached
-// (spec 0016, AC-8).
-const codesInTheSet = 21
+// The set is closed at twenty seven codes: nine failures, plus
+// deployment_unknown, superseded (spec 0005, AC-11), app_unknown
+// (spec 0006, AC-8), the six configuration refusals (spec 0010), release_unknown
+// (spec 0011, AC-21), deployment_in_flight (spec 0012, AC-15), app_limit_reached
+// (spec 0016, AC-8), account_suspended (spec 0018), app_name_reserved,
+// upload_too_large, upload_not_gzip, and the two spec 0022 added for the deploy
+// path, upload_limit_reached and too_many_attempts (spec 0022, AC-19).
+//
+// This count is a reminder, not a guard: theSet is written by hand and nothing
+// in the package reports how many codes it really holds, so a code added to
+// reason.go and forgotten here is not caught by anything. It was forgotten six
+// times between spec 0016 and spec 0022, which is how those six codes went
+// untested for the properties below.
+const codesInTheSet = 27
 
-func TestTheSetIsExactlyTwentyOneCodes(t *testing.T) {
+func TestTheSetIsExactlyTwentySevenCodes(t *testing.T) {
 	// covers: AC-11
 	t.Parallel()
 	if len(theSet) != codesInTheSet {
@@ -63,7 +77,7 @@ func TestAReasonOutsideTheSetIsRefused(t *testing.T) {
 	t.Parallel()
 	for _, r := range []domain.Reason{"", "unknown", "BUILD_FAILED", "build failed", "internal "} {
 		if r.Valid() {
-			t.Errorf("%q reads as valid but is not one of the twenty one codes", r)
+			t.Errorf("%q reads as valid but is not one of the closed set", r)
 		}
 	}
 }
@@ -180,6 +194,15 @@ func TestAReasonIsTheStringStoredOnTheDeploymentRow(t *testing.T) {
 
 		domain.ReasonDeploymentInFlight: "deployment_in_flight",
 		domain.ReasonAppLimitReached:    "app_limit_reached",
+
+		domain.ReasonAccountSuspended: "account_suspended",
+		domain.ReasonAppNameReserved:  "app_name_reserved",
+
+		// The upload path's own refusals. The last two are spec 0022, AC-19.
+		domain.ReasonUploadTooLarge:     "upload_too_large",
+		domain.ReasonUploadNotGzip:      "upload_not_gzip",
+		domain.ReasonUploadLimitReached: "upload_limit_reached",
+		domain.ReasonTooManyAttempts:    "too_many_attempts",
 	}
 	if len(want) != len(theSet) {
 		t.Fatalf("the pinned map holds %d codes and the set holds %d", len(want), len(theSet))
