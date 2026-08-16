@@ -108,6 +108,37 @@ func TestALoopbackRedirectURIMatchesOnAnyPortAndNothingElse(t *testing.T) {
 	}
 }
 
+// What the match returns is what the platform redirects to and what it stores on
+// the code, so for a loopback client it has to be the address the request came
+// with, port and all. Returning the registered form instead sends the code to
+// port 80, where the client is not listening, and then refuses the exchange
+// because the client presents its own port against a stored value without one
+// (AC-10a, AC-18).
+func TestALoopbackMatchReturnsTheRequestedAddressWithItsPort(t *testing.T) {
+	t.Parallel()
+	registered := []string{"http://localhost/callback", "http://127.0.0.1/callback"}
+	cases := []struct {
+		name      string
+		requested string
+	}{
+		{"an ephemeral port", "http://localhost:54321/callback"},
+		{"the v4 literal with a port", "http://127.0.0.1:1455/callback"},
+		{"the registered form itself", "http://localhost/callback"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			matched, ok := identity.MatchRedirectURI(registered, tc.requested)
+			if !ok {
+				t.Fatalf("MatchRedirectURI(%q) did not match", tc.requested)
+			}
+			if matched != tc.requested {
+				t.Errorf("matched %q, want the requested address %q", matched, tc.requested)
+			}
+		})
+	}
+}
+
 // The port relaxation must not leak onto an https registration, or a registered
 // https URI would match the same host on any port at all.
 func TestTheLoopbackPortRelaxationDoesNotApplyToHTTPS(t *testing.T) {

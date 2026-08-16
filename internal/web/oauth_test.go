@@ -483,6 +483,40 @@ func TestTheLoopbackWarningShowsOnlyForAWhollyLoopbackClient(t *testing.T) {
 	}
 }
 
+// AC-10a, AC-18. The whole point of the loopback port relaxation is that the
+// client is listening on the port it asked with, so the redirect has to carry
+// that port and the exchange has to accept it back. Driving it through the
+// handlers is what makes this real: the unit test on MatchRedirectURI discarded
+// the matched string, so the registered port less form travelled all the way to
+// the redirect and onto the code, and the flow every native client uses could
+// not complete.
+func TestALoopbackClientIsRedirectedToThePortItAskedWith(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, nil)
+	session := h.signIn(t, "owner@example.org")
+	clientID := h.registerConnector(t, "A local editor")
+
+	const ephemeral = "http://localhost:54321/callback"
+	form := authorizeQuery(clientID)
+	form.Set("redirect_uri", ephemeral)
+	form.Set(csrfField, h.csrfFor(t, session))
+	form.Set("approve", "yes")
+	rec := h.postRaw(t, identity.AuthorizePath, form, nil, session)
+	if rec.Code != http.StatusSeeOther {
+		t.Fatalf("approving: got %d, want 303: %s", rec.Code, rec.Body)
+	}
+	location := rec.Header().Get("Location")
+	if !strings.HasPrefix(location, ephemeral+"?") {
+		t.Fatalf("the code went to %q, want the requested address %q", location, ephemeral)
+	}
+
+	exchange := tokenForm(clientID, codeFrom(t, location))
+	exchange.Set("redirect_uri", ephemeral)
+	if got := h.exchange(t, exchange); got.Code != http.StatusOK {
+		t.Fatalf("exchanging with the address the client used: got %d, want 200: %s", got.Code, got.Body)
+	}
+}
+
 // AC-13, AC-20a. A hostile name is escaped on the page and sane in the list.
 func TestAHostileClientNameIsEscapedAndBounded(t *testing.T) {
 	t.Parallel()

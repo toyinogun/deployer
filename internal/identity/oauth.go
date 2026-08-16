@@ -108,8 +108,9 @@ func isLoopbackHost(host string) bool {
 }
 
 // MatchRedirectURI reports whether a requested redirect URI is one this client
-// registered. This comparison is the whole open redirect defence, so what it
-// does is pinned rather than left to a reader's judgement (AC-10b).
+// registered, and returns the address the platform will actually use. This
+// comparison is the whole open redirect defence, so what it does is pinned
+// rather than left to a reader's judgement (AC-10b).
 //
 // The two sides arrive differently: requested is the already percent decoded
 // query parameter as net/url yields it, and registered is the string the
@@ -120,13 +121,17 @@ func isLoopbackHost(host string) bool {
 // The single exception is the loopback port. RFC 8252 has a native client take
 // whatever ephemeral port it can get, so a registered loopback URI matches with
 // the port ignored while its scheme, host and path must still be equal (AC-10a).
+//
+// The returned address is the **requested** one, not the registered string it
+// matched. That is the whole point of the loopback relaxation: the client is
+// listening on the port it asked with, so the redirect and the value stored on
+// the code both have to carry that port, or the code is sent to port 80 and the
+// exchange then refuses the client's own address (AC-10a, AC-18). Only the port
+// can differ by then, because everything else was compared for equality above.
 func MatchRedirectURI(registered []string, requested string) (string, bool) {
 	for _, candidate := range registered {
-		if candidate == requested {
-			return candidate, true
-		}
-		if loopbackMatch(candidate, requested) {
-			return candidate, true
+		if candidate == requested || loopbackMatch(candidate, requested) {
+			return requested, true
 		}
 	}
 	return "", false
