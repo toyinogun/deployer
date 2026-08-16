@@ -29,6 +29,10 @@ type NewInvite struct {
 	// Note is the admin's own words about who this went to. Empty means none,
 	// which is what the platform's own bootstrap invite carries.
 	Note string
+	// Email is the normalized address this invite is bound to. Empty means
+	// unbound, which is today's behaviour and what the bootstrap invite carries
+	// permanently (spec 0025).
+	Email string
 	// CreatedBy is the admin who minted it. Empty means the platform minted it
 	// at boot, stored as null.
 	CreatedBy string
@@ -36,19 +40,47 @@ type NewInvite struct {
 }
 
 // CreateInvite mints one invite.
+//
+// A bound mint is a transaction, because the guard that decides whether the
+// write is allowed runs inside the transaction that performs it: the accounts
+// table is read for that address at the top of the same BEGIN IMMEDIATE that
+// inserts the row, so a registration landing between the two cannot leave an
+// invite bound to an address that now has an account. An unbound mint skips the
+// read entirely and is exactly the write it always was (spec 0025, AC-3).
 func (s *Store) CreateInvite(ctx context.Context, n NewInvite) (Invite, error) {
-	inv, err := s.q.CreateInvite(ctx, sqlcgen.CreateInviteParams{
+	params := sqlcgen.CreateInviteParams{
 		ID:        ids.New(ids.Invite, s.clock.Now()),
 		CodeHash:  n.CodeHash,
 		Note:      optional(n.Note),
+		Email:     optional(n.Email),
 		CreatedBy: optional(n.CreatedBy),
 		ExpiresAt: n.ExpiresAt,
 		Now:       s.now(),
+	}
+	var inv Invite
+	err := s.inTx(ctx, func(q *sqlcgen.Queries) error {
+		if n.Email != "" {
+			taken, err := q.AccountExistsByEmail(ctx, &n.Email)
+			if err != nil {
+				// The address is not in the message. It is personal data and this
+				// string reaches a log.
+				return fmt.Errorf("store: checking whether an invited address is registered: %w", err)
+			}
+			if taken {
+				return ErrAddressRegistered
+			}
+		}
+		created, err := q.CreateInvite(ctx, params)
+		if err != nil {
+			// The hash is not in the message: an error string is one more place a
+			// value derived from the raw code could end up in a log.
+			return fmt.Errorf("store: minting an invite: %w", err)
+		}
+		inv = created
+		return nil
 	})
 	if err != nil {
-		// The hash is not in the message: an error string is one more place a
-		// value derived from the raw code could end up in a log.
-		return Invite{}, fmt.Errorf("store: minting an invite: %w", err)
+		return Invite{}, err
 	}
 	return inv, nil
 }
@@ -64,12 +96,17 @@ func (s *Store) ListInvites(ctx context.Context) ([]InviteListRow, error) {
 	return rows, nil
 }
 
-// LiveInvite reads the invite a code names, and only while it is live. Unknown,
-// spent, revoked, and expired are the same ErrInviteInvalid, so the lookup tells
-// a caller nothing about which kind of bad code they hold.
-func (s *Store) LiveInvite(ctx context.Context, codeHash string) (Invite, error) {
+// LiveInvite reads the invite a code names, and only while it is live and the
+// candidate address satisfies it. Unknown, spent, revoked, expired, and bound to
+// somebody else are the same ErrInviteInvalid, so the lookup tells a caller
+// nothing about which kind of bad code they hold (spec 0025, AC-8).
+//
+// candidateEmail is the normalized address the registration is for. An unbound
+// invite carries null and matches whatever is passed, which is what keeps every
+// invite minted before spec 0025 working.
+func (s *Store) LiveInvite(ctx context.Context, codeHash, candidateEmail string) (Invite, error) {
 	inv, err := s.q.LiveInviteByCodeHash(ctx, sqlcgen.LiveInviteByCodeHashParams{
-		CodeHash: codeHash, Now: s.now(),
+		CodeHash: codeHash, Candidate: &candidateEmail, Now: s.now(),
 	})
 	if errors.Is(err, sql.ErrNoRows) {
 		return Invite{}, ErrInviteInvalid

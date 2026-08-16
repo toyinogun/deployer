@@ -32,6 +32,10 @@ var (
 	ErrSessionInvalid = errors.New("identity: session invalid")
 	// ErrTokenNameTaken means the account already holds a live token by that name.
 	ErrTokenNameTaken = errors.New("identity: token name taken")
+	// ErrAddressRegistered means an invite named an address that already has an
+	// account. It comes from a read inside the minting transaction, and only the
+	// admin only mint path can produce it (spec 0025, AC-3).
+	ErrAddressRegistered = errors.New("identity: address already registered")
 )
 
 // Account is a person as this package reads one.
@@ -90,10 +94,22 @@ type Store interface {
 	CreateLink(ctx context.Context, accountID, purpose, tokenHash string, expiresAt time.Time) error
 	ConsumeLink(ctx context.Context, tokenHash, purpose string) (accountID string, err error)
 
+	// CreateInvite mints one invite. A bound one names an address, and an
+	// address that already has an account is ErrAddressRegistered rather than a
+	// row: the read that decides that runs inside the same transaction as the
+	// insert, so a registration landing between the two cannot slip past it
+	// (spec 0025, AC-3).
 	CreateInvite(ctx context.Context, n NewInvite) (id string, err error)
 	ListInvites(ctx context.Context) ([]InviteRow, error)
 	RevokeInvite(ctx context.Context, id string) error
-	LiveInvite(ctx context.Context, codeHash string) (id string, err error)
+	// LiveInvite resolves a code hash to the invite it names, and only while
+	// that invite is live and candidateEmail satisfies it. A bound invite
+	// matches only its own address and an unbound one matches every address, in
+	// the lookup's own predicate: a live invite presented with the wrong address
+	// is therefore the same ErrInviteInvalid as an unknown, spent, revoked or
+	// expired code, at the same cost (spec 0025, AC-8). The bound address is
+	// never returned, because nothing above needs to read it.
+	LiveInvite(ctx context.Context, codeHash, candidateEmail string) (id string, err error)
 	// SpendInviteAndCreateAccount owns both writes: it stamps the invite spent
 	// and inserts the account it created, in one transaction, and rolls both back
 	// on either failure. The two errors it can return have to survive this
@@ -203,13 +219,22 @@ func (s *Service) Limits() *Limiter { return s.limits }
 // caller who holds nothing never costs the platform a key derivation (AC-1,
 // AC-11).
 //
+// The submitted address is normalized and handed to that lookup as the candidate
+// an invite has to authorise. A bound invite presented with any other address is
+// refused invite_invalid by the lookup's own predicate, byte for byte as an
+// unknown, spent, revoked or expired code is, and normalizing costs no key
+// derivation so the gate stays as cheap as it was (spec 0025, AC-8 to AC-10).
+// Full format validation still happens below, in CheckEmail: this normalization
+// is only what makes an invite minted to Alice@Example.com answer a registration
+// as alice@example.com.
+//
 // Registering an address that already has an account is answered identically to
 // a fresh registration, and takes comparable work: the password is hashed either
 // way, the insert is attempted either way, and one message is sent either way.
 // What differs is only which message the real owner of the address receives, and
 // that the invite is not spent, because no account was created (AC-2, AC-10).
 func (s *Service) Register(ctx context.Context, invite, rawEmail, password, name string) error {
-	inviteID, err := s.store.LiveInvite(ctx, HashSecret(invite))
+	inviteID, err := s.store.LiveInvite(ctx, HashSecret(invite), NormalizeEmail(rawEmail))
 	if errors.Is(err, ErrInviteInvalid) {
 		return Fail(CodeInviteInvalid, inviteRefusal)
 	}
@@ -337,4 +362,25 @@ func (s *Service) send(ctx context.Context, to, subject, body string) {
 		// the raw link token (AC-27).
 		slog.ErrorContext(ctx, "sending a message failed", "error", err, "subject", subject)
 	}
+}
+
+// sendNow posts a message and reports whether it went. It is the one send path
+// that does, and it exists for exactly one caller, the bound invite mint: an
+// admin is on the page and can act on the answer by handing the link over
+// another way, which is not true of a verification or reset mail nobody is
+// waiting on (spec 0025).
+//
+// The failure it returns is the provider's, so a caller must never put it in
+// front of a person: what reaches the page is that the send failed, never why.
+func (s *Service) sendNow(ctx context.Context, to, subject, body string) error {
+	if s.mailer == nil {
+		return Fail(CodeMailUnavailable, "this platform has no mail sender configured")
+	}
+	if err := s.mailer.Send(ctx, to, subject, body); err != nil {
+		// Neither the address nor the body is in the log line. The body carries a
+		// live invite code (spec 0025, AC-6, AC-12).
+		slog.ErrorContext(ctx, "sending a message failed", "error", err, "subject", subject)
+		return err
+	}
+	return nil
 }

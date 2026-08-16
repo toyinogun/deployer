@@ -88,7 +88,7 @@ func TestATakenAddressLeavesTheInviteLive(t *testing.T) {
 	}
 
 	// The invite is untouched, which is the whole point: it still resolves live.
-	if _, err := s.LiveInvite(t.Context(), "hash"); err != nil {
+	if _, err := s.LiveInvite(t.Context(), "hash", "free@example.com"); err != nil {
 		t.Fatalf("the invite did not survive a taken address: %v", err)
 	}
 	if _, err := s.SpendInviteAndCreateAccount(t.Context(), inv.ID,
@@ -118,7 +118,7 @@ func TestEveryDeadInviteReadsTheSame(t *testing.T) {
 	clock.T = clock.T.Add(2 * time.Hour)
 
 	for _, hash := range []string{"unknown", "spent", "revoked", "expired"} {
-		if _, err := s.LiveInvite(t.Context(), hash); !errors.Is(err, store.ErrInviteInvalid) {
+		if _, err := s.LiveInvite(t.Context(), hash, "someone@example.com"); !errors.Is(err, store.ErrInviteInvalid) {
 			t.Errorf("a %s code answered %v, want ErrInviteInvalid", hash, err)
 		}
 	}
@@ -172,7 +172,7 @@ func TestTheListNamesTheIssuerAndTheSpender(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("minting: %v", err)
 	}
-	inv, err := s.LiveInvite(t.Context(), "hash")
+	inv, err := s.LiveInvite(t.Context(), "hash", "sam@example.com")
 	if err != nil {
 		t.Fatalf("reading it back: %v", err)
 	}

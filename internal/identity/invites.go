@@ -51,6 +51,10 @@ type NewInvite struct {
 	// Note may be empty, which is what the platform's own bootstrap invite
 	// carries.
 	Note string
+	// Email is the normalized address this invite is bound to. Empty means
+	// unbound, usable by whichever address registers with it, which is what the
+	// bootstrap invite carries permanently (spec 0025).
+	Email string
 	// CreatedBy is the admin who minted it. Empty means the platform did, at
 	// boot.
 	CreatedBy string
@@ -64,6 +68,8 @@ type InviteRow struct {
 	ID string
 	// Note is the admin's own words, empty when none was given.
 	Note string
+	// Email is the address this invite is bound to, empty when it is unbound.
+	Email string
 	// IssuerName is the display name of the admin who minted it, empty when the
 	// platform did.
 	IssuerName string
@@ -80,8 +86,13 @@ type InviteRow struct {
 // in, which is the whole reason the view exists rather than the row being handed
 // up as it stands.
 type InviteView struct {
-	ID        string
-	Note      string
+	ID   string
+	Note string
+	// Email is the address this invite is bound to, empty when it is unbound. It
+	// is shown in its own column rather than folded into the note, because the
+	// note is the admin's own words and this is a value the platform enforces
+	// (spec 0025, AC-14).
+	Email     string
 	IssuedBy  string
 	SpentBy   string
 	ExpiresAt string
@@ -97,6 +108,14 @@ type IssuedInvite struct {
 	Note      string
 	ExpiresAt string
 	Link      string
+	// Email is the address this invite was bound to, empty when it is unbound.
+	Email string
+	// Sent is whether the message actually went. False on an unbound mint, which
+	// sends nothing, and false when the provider refused it, which leaves the
+	// invite minted and live with its link on the page so the admin can hand it
+	// over another way (spec 0025, AC-6). There is deliberately no error text
+	// here: nothing carries the provider's words toward a page.
+	Sent bool
 }
 
 // InviteStateOf derives which of the four states a row is in.
@@ -143,14 +162,71 @@ func CheckNote(raw string) (string, error) {
 
 // IssueInvite mints one invite for an admin and returns the link to hand over.
 //
-// The raw code exists between here and that one response. It is not stored, not
-// logged, not audited and not mailed: only its hash reaches the database (AC-14).
-func (s *Service) IssueInvite(ctx context.Context, adminID, rawNote string) (IssuedInvite, error) {
+// The raw code exists in exactly three places the platform controls: this
+// response, the bootstrap log line, and, when an address is given, the one
+// message sent to it. It is still never in the database, never in another log
+// line and never in an audit row (AC-14, amended by spec 0025, AC-12).
+//
+// rawEmail is optional. Empty mints exactly as this always did: unbound, nothing
+// sent, the link shown once on the page that minted it. A value binds the invite
+// to that address and mails the link to it, inline, so the admin sees the outcome
+// (spec 0025, AC-1, AC-4, AC-5).
+//
+// The refusals are ordered cheapest and most caller specific first: note,
+// address format, then the nil mailer, then the address already having an
+// account. The nil mailer precedes the account read deliberately, so a platform
+// with no sender configured never reads the accounts table to answer a question
+// it cannot act on. Every one of them writes nothing and sends nothing
+// (spec 0025, AC-2, AC-3, AC-7).
+func (s *Service) IssueInvite(ctx context.Context, adminID, rawNote, rawEmail string) (IssuedInvite, error) {
 	note, err := CheckNote(rawNote)
 	if err != nil {
 		return IssuedInvite{}, err
 	}
-	return s.mintInvite(ctx, adminID, note)
+	var email string
+	if strings.TrimSpace(rawEmail) != "" {
+		if email, err = CheckEmail(rawEmail); err != nil {
+			return IssuedInvite{}, err
+		}
+		if s.mailer == nil {
+			return IssuedInvite{}, Fail(CodeMailUnavailable,
+				"this platform has no mail sender configured, so it cannot send an invite")
+		}
+	}
+
+	issued, err := s.mintInvite(ctx, adminID, note, email)
+	if errors.Is(err, ErrAddressRegistered) {
+		return IssuedInvite{}, Fail(CodeAddressRegistered,
+			"that address already has an account, so there is nobody to invite")
+	}
+	if err != nil {
+		return IssuedInvite{}, err
+	}
+	if email == "" {
+		return issued, nil
+	}
+	// The invite is committed before the send is attempted, so no mail failure
+	// can lose one. A failure here is not the caller's refusal: it is reported on
+	// the response as an outcome, with the link still in hand (AC-6).
+	issued.Sent = s.sendNow(ctx, email, inviteSubject,
+		inviteBody(s.inviterName(ctx, adminID), issued.Link, int(InviteLifetime/(24*time.Hour)))) == nil
+	return issued, nil
+}
+
+// inviterName is who the invite message says invited you: the minting admin's
+// display name, which is the same label the invite list shows as the issuer.
+//
+// It is read here rather than passed in, because the session an admin surface
+// resolves carries the account's internal name rather than the person's, and the
+// internal one is the account id. A name this cannot resolve falls back to the
+// platform itself rather than failing the send: a message that arrives saying
+// less is better than one that does not arrive.
+func (s *Service) inviterName(ctx context.Context, adminID string) string {
+	admin, err := s.store.AccountByID(ctx, adminID)
+	if err != nil || admin.DisplayName == "" {
+		return thePlatform
+	}
+	return admin.DisplayName
 }
 
 // ListInvites reads every invite an admin may see, newest first, each carrying
@@ -170,6 +246,7 @@ func (s *Service) ListInvites(ctx context.Context) ([]InviteView, error) {
 		out = append(out, InviteView{
 			ID:        r.ID,
 			Note:      r.Note,
+			Email:     r.Email,
 			IssuedBy:  issuer,
 			SpentBy:   r.SpenderEmail,
 			ExpiresAt: r.ExpiresAt,
@@ -207,7 +284,7 @@ func (s *Service) BootstrapInvite(ctx context.Context) (string, bool, error) {
 	if err != nil || outstanding {
 		return "", false, err
 	}
-	issued, err := s.mintInvite(ctx, "", "")
+	issued, err := s.mintInvite(ctx, "", "", "")
 	if err != nil {
 		return "", false, err
 	}
@@ -215,8 +292,9 @@ func (s *Service) BootstrapInvite(ctx context.Context) (string, bool, error) {
 }
 
 // mintInvite is the one path that draws a code, both for an admin and for the
-// boot time bootstrap. They differ only in who is recorded as the issuer.
-func (s *Service) mintInvite(ctx context.Context, adminID, note string) (IssuedInvite, error) {
+// boot time bootstrap. They differ only in who is recorded as the issuer, and in
+// that the bootstrap invite is unbound forever.
+func (s *Service) mintInvite(ctx context.Context, adminID, note, email string) (IssuedInvite, error) {
 	raw, err := NewSecret()
 	if err != nil {
 		return IssuedInvite{}, err
@@ -225,6 +303,7 @@ func (s *Service) mintInvite(ctx context.Context, adminID, note string) (IssuedI
 	id, err := s.store.CreateInvite(ctx, NewInvite{
 		CodeHash:  HashSecret(raw),
 		Note:      note,
+		Email:     email,
 		CreatedBy: adminID,
 		ExpiresAt: expires,
 	})
@@ -236,6 +315,7 @@ func (s *Service) mintInvite(ctx context.Context, adminID, note string) (IssuedI
 		Note:      note,
 		ExpiresAt: expires.UTC().Format(time.RFC3339),
 		Link:      inviteURL(s.baseURL, raw),
+		Email:     email,
 	}, nil
 }
 

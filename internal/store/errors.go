@@ -102,4 +102,13 @@ var (
 	// code cannot learn which kind they hold. It also comes back from the spend
 	// guard inside the account transaction, which is where a race is decided.
 	ErrInviteInvalid = errors.New("store: invite invalid")
+
+	// ErrAddressRegistered means a mint named an address that already has an
+	// account, so there is nobody left to invite. It comes from a read inside the
+	// minting transaction rather than from a losing insert, because an invite
+	// carries no uniqueness against the accounts table for the insert to lose
+	// against. This is an admin only answer and must never reach the register
+	// path, where saying the same thing would be an enumeration oracle
+	// (spec 0025, AC-3).
+	ErrAddressRegistered = errors.New("store: address already registered")
 )

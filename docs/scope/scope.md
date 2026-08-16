@@ -66,6 +66,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | done |
 | 24 | Publishing the deploy path | Slice 13 | done |
 | 25 | Connecting a client that will not hold a token | Slice 13 | done |
+| 26 | Emailed invites bound to an address | Slice 14 | in-progress |
 
 ## Foundations
 
@@ -503,10 +504,30 @@ spec [0024](../specs/0024-oauth-for-connector-clients/index.md) · code in `inte
 - [x] Review it (fresh model): `/check review connecting a client that will not hold a token` — reviewed 2026-08-16 by Sonnet 5 over the 35 files that differ from `main`, author was Opus. Approve, no blockers and no majors. One minor and two nits, all recorded in `docs/reviews/2026-08-16-feat-oauth-for-connector-clients.md`: `ApproveClient` stamps the approval and writes the code in two store calls rather than one transaction, so an internal fault between them leaves a client the sweep will never take, which the ordering comment shows is a deliberate trade; the connector bucket's 429 names `slow_down`, which is RFC 8628 vocabulary rather than RFC 6749; and a redirect URI count over the bound answers `ErrRedirectURIInvalid` where AC-4a and AC-5 do not settle which of the two codes a count violation carries. The reviewer traced AC-16b's check ordering in `Service.Grant` line by line against the spec and found it exact
 - [x] Document it: `/document connecting a client that will not hold a token` — PR description written 2026-08-16 from the 11 commits and the diff against `main`, covering what the feature does, the spec it implements, the accepted residual risks (no token expiry, the PKCE dependent replay revoke, dynamic registration being the deprecated mechanism) and the two review nits left open on purpose
 
-## Deferred
-Out of scope for the current build pass, kept so the plan stays honest.
+## Slice 14: Onboarding without you in the loop
+
+### 26. Emailed invites bound to an address · in-progress
+Feature 16 mints an invite and shows you the link once, so getting it to the person is still your job: you copy it out of the admin page and paste it into a message yourself. The person you invited learns nothing until you do that. This sends the invite to them directly, and ties it to the address you sent it to, so the invite authorises one named person rather than whoever ends up holding the link.
+**Done when:** an admin types an address on the invite page, the person receives the invite on the existing mail path and can register from the link with no further help, registration is refused with a closed reason code when the address does not match the invite, a failed send still leaves the invite minted with its link on screen, and the invites that already exist keep working.
+spec [0025](../specs/0025-emailed-invites-bound-to-an-address/index.md)
+- [x] Design it (spec): `/architect emailed invites bound to an address`
+- [x] Build it: `/develop emailed invites bound to an address`
+  - [x] The `00008` migration and the store: the nullable `email` column, the address folded into the `LiveInviteByCodeHash` predicate, and the taken address guard inside the `CreateInvite` transaction — AC-16
+  - [x] The thin thread: a bound mint that sends inline, and one invite proven from mint to account and proven refused for the wrong address by the same query — AC-1, AC-4, AC-8 to AC-10
+  - [x] The refusals: `address_registered`, the nil mailer, the malformed address, their precedence, and the send failure that keeps the invite — AC-2, AC-3, AC-6, AC-7
+  - [x] Both surfaces: the address field, the send outcome and the address column on the page, and the same parameter and outcome on the JSON mint — AC-5, AC-14, AC-15
+  - [x] What must not regress: the shared rate limit bucket, audit rows free of the address, the code in exactly three places, the register page unchanged, and no resend path — AC-11 to AC-13, AC-17, AC-18
+code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/web/invites.go`, `internal/httpapi/inviteroutes.go`
+- [ ] Verify it: `/check verify emailed invites bound to an address`
+- [ ] Test it: `/test emailed invites bound to an address`
+- [ ] Review it (fresh model): `/check review emailed invites bound to an address`
+- [ ] Document it: `/document emailed invites bound to an address`
+
+
 
 - **Publishing the deploy path**: the MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one · promoted into feature 24, decided in spec 0022
+- **A liveness oracle on the register path**: from spec 0025, which found it rather than adding it. A malformed address submitted with a live unbound invite answers `email_invalid`, while the same submission with a dead code answers `invite_invalid`, so a holder can learn whether their code is still good without a valid address. It predates feature 26 and is unchanged by it. Closing it means moving `CheckEmail` behind the invite lookup, which changes what spec 0015 AC-1 promises about the gate running first · needs a decision
+- **Retention for invite rows**: from spec 0025, which puts an invited person's address on the invite row. Nothing deletes invite rows, so a spent or expired invite keeps that address indefinitely, and the same is true of the note beside it. A retention decision rather than part of the feature, and the same shape as the suspended account storage item below · needs a decision
 - **A total bound on the upload volume**: from spec 0022, which caps one account at three unclaimed uploads of 90 MB each and sweeps the expired ones. Nothing bounds accounts multiplied by that cap against the size of the PVC, so enough valid tokens still fill it. The same shape as the app cap question feature 17 answered per account rather than per cluster, and invisible while there is one account · needs a decision
 - **Whether the edge's origin timeout is reset by a streaming response**: from spec 0022. Cloudflare documents a 125 second origin timeout on the free plan and does not say whether bytes flowing reset it, so the MCP transport's standalone stream sits on an assumption rather than a checked fact. Worth reopening if a tool call ever fails with no trace on the platform side · needs a decision
 - **Noticing a stale client configuration format**: from spec 0023, which renders a finished configuration block for Claude Code, Codex and Gemini CLI. Each format is set by someone else's release schedule and fails silently when it changes, since a wrong command still renders and the endpoint pinning test only catches a drifting address. Worth deciding later whether a periodic manual review, a documented version each format was correct for, or a link to each client's own documentation beside its tab is the cheapest way to find out · needs a decision

@@ -349,7 +349,7 @@ func statusFor(c identity.Code) int {
 		return http.StatusForbidden
 	case identity.CodeLinkInvalid:
 		return http.StatusBadRequest
-	case identity.CodeTokenNameTaken:
+	case identity.CodeTokenNameTaken, identity.CodeAddressRegistered:
 		return http.StatusConflict
 	case identity.CodeNotFound:
 		return http.StatusNotFound

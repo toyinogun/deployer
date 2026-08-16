@@ -26,7 +26,7 @@ func TestTheRegisterPageNeverValidatesTheCode(t *testing.T) {
 		t.Fatalf("spending an invite: got %d", rec.Code)
 	}
 	revoked := h.invite(t)
-	row, err := h.store.LiveInvite(t.Context(), identity.HashSecret(revoked))
+	row, err := h.store.LiveInvite(t.Context(), identity.HashSecret(revoked), "")
 	if err != nil {
 		t.Fatalf("reading the invite to revoke: %v", err)
 	}

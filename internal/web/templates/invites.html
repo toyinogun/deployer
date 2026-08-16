@@ -12,6 +12,16 @@
 <div class="card minted" role="alert">
   <h2>Copy this invite link now</h2>
   <p>This is the only time {{if .Data.MintedNote}}the link for <strong>{{.Data.MintedNote}}</strong>{{else}}this link{{end}} will be shown. Once you leave this page it cannot be shown again.</p>
+  {{if .Data.MintedEmail}}
+  {{/* The send runs inline, so this line states what actually happened rather
+       than what was attempted. A failure keeps the invite minted, bound and
+       live, and the link above is still the way to hand it over (AC-5, AC-6). */}}
+  {{if .Data.SendFailed}}
+  <p class="alert">Sending the message to <strong>{{.Data.MintedEmail}}</strong> failed. The invite is live and bound to that address, so send this link to them yourself.</p>
+  {{else}}
+  <p>Sent to <strong>{{.Data.MintedEmail}}</strong>. Only that address can use this invite.</p>
+  {{end}}
+  {{end}}
   <div class="copy-row">
     <code class="token" id="minted-invite">{{.Data.Minted}}</code>
     <button class="button" type="button" data-copy="minted-invite">Copy</button>
@@ -31,6 +41,11 @@
       <input id="note" name="note" type="text" maxlength="200" placeholder="for Sam, from the meetup">
       <p class="hint">Who you are sending it to, so you know which to revoke later. At most 200 characters.</p>
     </div>
+    <div class="field">
+      <label for="email">Email address <span class="quiet">(optional)</span></label>
+      <input id="email" name="email" type="email" autocomplete="off" placeholder="sam@example.com">
+      <p class="hint">Fill this in and the invite is mailed to that address and works for it alone. Leave it blank to get a link you hand over yourself.</p>
+    </div>
     <button class="button" type="submit">Issue invite</button>
   </form>
 </section>
@@ -42,6 +57,7 @@
     <thead>
       <tr>
         <th scope="col">Note</th>
+        <th scope="col">Sent to</th>
         <th scope="col">Issued by</th>
         <th scope="col">Expires</th>
         <th scope="col">State</th>
@@ -52,6 +68,7 @@
       {{range .Data.Invites}}
       <tr>
         <th scope="row" data-label="Note">{{if .Note}}{{.Note}}{{else}}<span class="quiet">no note</span>{{end}}</th>
+        <td data-label="Sent to">{{if .Email}}{{.Email}}{{else}}<span class="quiet">not sent</span>{{end}}</td>
         <td data-label="Issued by">{{.IssuedBy}}</td>
         <td data-label="Expires">{{when .ExpiresAt}}</td>
         <td data-label="State">
