@@ -4,8 +4,8 @@ _Steps derived from spec 0025 acceptance criteria and its Value sourcing table. 
 ## UI / manual
 
 - [x] Sign in as an admin, visit `/admin/invites`, submit the mint form with a note and an empty address → the link is shown once, no message is sent, the list row reads `not sent` → AC-1
-- [ ] Mint with the address `Sam@Example.Test` → the page shows the link plus one line naming `sam@example.test`, and exactly one message arrives at that address → AC-4, AC-5, AC-9
-- [ ] Read that message → it carries the register link, the minting admin's display name, and the seven day expiry → AC-4
+- [x] Mint with the address `Sam@Example.Test` → the page shows the link plus one line naming `sam@example.test`, and exactly one message arrives at that address → AC-4, AC-5, AC-9
+- [x] Read that message → it carries the register link, the minting admin's display name, and the seven day expiry → AC-4
 - [ ] Open the mailed link in a clean browser and register as `sam@example.test` → the account is created and the invite becomes `spent` → AC-1, AC-4
 - [x] Open the same link and register as `mallory@example.test` → refused with the invite only sentence, byte for byte the same page and status an unknown code gets, no account created → AC-8
 - [x] Reload `/admin/invites` after that refusal → the invite is still `live` → AC-8
