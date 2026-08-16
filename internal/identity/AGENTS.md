@@ -25,6 +25,11 @@ narrow interfaces declared here.
 - `limiter.go`: both limits, the per caller token bucket and the per account
   lockout.
 - `tokens.go`: API tokens, plus the admin reads and `SetDisabled`.
+- `oauth.go`: the OAuth value types, the endpoint paths, the redirect URI rules
+  (`CheckRedirectURI`, the exact match and the loopback port relaxation), PKCE
+  (`S256Challenge`, `VerifyPKCE`) and `CleanClientName`.
+- `oauthgrant.go`: the connector client lifecycle, `RegisterClient`,
+  `ApproveClient`, `Grant` and `SweepClients`.
 - `invites.go`: the invite lifecycle and the derived `InviteState`.
 - `messages.go`: the plain text bodies of every message the platform sends.
 
@@ -63,6 +68,29 @@ narrow interfaces declared here.
   and the cost is recorded in the open, a restart forgives every run of bad
   credentials in flight (AC-23). It is accepted, not overlooked, so do not
   rediscover it as a finding.
+- **The OAuth flow is the one written exception to the closed `Code` set.** The
+  three routes spec 0024 adds answer RFC 6749 error codes (`invalid_request`,
+  `invalid_grant`, `invalid_target` and friends) rather than `Code` values,
+  because a connector client parses the OAuth vocabulary and understands nothing
+  else. The exception is scoped to those routes and recorded in AC-24, so it is
+  not licence to invent a second code set anywhere else. The errors live in
+  `oauthgrant.go` as sentinels (`ErrClientMetadataInvalid`,
+  `ErrRedirectURIInvalid`, `ErrGrantInvalid`), and the first two must never
+  overlap because they answer different OAuth codes.
+- **Every way an exchange can fail is one error on purpose.** `ErrGrantInvalid`
+  covers an unknown code, a spent one, an expired one, the wrong client, the
+  wrong redirect URI, the wrong resource and a failed verifier alike, so the
+  response never says which check refused it (AC-18). The same reasoning as the
+  uniform register and resend answers: a more helpful message is a way to ask
+  what the platform knows.
+- **A replay's verifier decides whether it revokes, and the order of the checks
+  in `Grant` is what makes that true.** A consumed code is always refused, but it
+  revokes the token it issued only when the replay cannot produce the stored PKCE
+  challenge (AC-16b). The consumed branch therefore answers *before* the client
+  id, redirect URI and resource are compared, so a replay naming the wrong client
+  but proving the verifier still keeps the token. Moving that branch after any of
+  those checks quietly restores the bug it replaced, where an ordinary retry cost
+  a connector the credential it had just been issued.
 - **There are two limiters, and their numbers are a parameter rather than
   constants.** `NewLimiter` takes a `Settings`, `SignInSettings()` holds exactly
   the values that were package constants before spec 0022, and
@@ -70,6 +98,11 @@ narrow interfaces declared here.
   faster because an agent polls `deployment_status` through a build that runs for
   minutes. Keeping them separate is the point: a burst on the deploy path must
   never spend a person's sign in budget or lock them out of the console (AC-15).
+  Spec 0024 made that set three: `ConnectorSettings()` in `oauth.go` is the OAuth
+  endpoints' own bucket, and it is kept off the sign in one for the same reason
+  sharpened. Adding a single connector spends it three times in a row from one
+  address, so a shared bucket would let a person adding a connector lock
+  themselves out of the console they are signing in to (spec 0024, AC-6, AC-22).
 - Answers are uniform on purpose, and the uniformity is the feature. Register,
   resend and forgot all answer the same sentence whether or not the address
   exists. All five ways an invite can be bad are one sentence. A row that belongs

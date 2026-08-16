@@ -63,7 +63,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | done |
 | 21 | Platform backup & restore | Slice 12 | done |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | done |
-| 23 | Joining: the ready to paste agent configuration | Slice 13 | in-progress |
+| 23 | Joining: the ready to paste agent configuration | Slice 13 | done |
 | 24 | Publishing the deploy path | Slice 13 | done |
 | 25 | Connecting a client that will not hold a token | Slice 13 | done |
 
@@ -452,7 +452,7 @@ spec [0021](../specs/0021-public-edge/index.md) · code in `internal/config`, `i
 - [x] Review it (fresh model): `/check review public edge` — reviewed on Sonnet 5 (the code was written on Opus), scoped to commit `e023770`, the test commit. Approve with nits: one minor, two nits, no blockers. Findings in [docs/reviews/2026-08-16-main-public-edge.md](../reviews/2026-08-16-main-public-edge.md). The minor is fixed: the AC-24 case was a near copy of `TestAnUnreachableEndpointIsAnOutage`, so it is folded into it and the tag now reads `AC-23, AC-24`. Mutation checked again after the fold, an early return on an unreachable endpoint and a wrong recipient both fail it
 - [x] Document it: `/document public edge` — a changelog entry under `Unreleased`, 11 lines in `Added`, 7 in `Changed`, 10 in `Security`, covering the split, the tunnel, the reserved names, the address column and its sweep, and both bugs the feature surfaced in code that predates it
 
-### 23. Joining: the ready to paste agent configuration · in-progress
+### 23. Joining: the ready to paste agent configuration · done
 Joining is still a developer's job even though using the platform is not. Removing Tailscale takes it from four steps to three, and the step that actually goes wrong is the last one: a token is a password that grants deploys on your cluster, and pasting a secret into a configuration file by hand is exactly what a non technical person mishandles. This hands them one block to copy rather than a token and a format to work out.
 **Done when:** a newly verified person lands on one page holding a ready to paste MCP client block with a token already in it, the token is minted at that moment and shown once, it appears in their token list afterwards like any other, and the page never shows a token again on a later visit.
 Spec 0023 settles the row three ways it did not anticipate. Verification creates no session, so the landing cannot happen at verification time without turning a link in a mailbox into a session grant: it is the first sign in after verifying that redirects, gated by one nullable column, and a `next` deep link still outranks it. The one block is four, because named client tabs beat a generic block for the person but commit the platform to three configuration formats it does not own and which go stale silently. And the row's own token is an ordinary token throughout, which is what keeps the whole feature a new surface rather than a new credential path.
