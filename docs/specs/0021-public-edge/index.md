@@ -1,7 +1,7 @@
 # 0021. Public edge: a Cloudflare tunnel, a console hostname, and the visitor's real address
 
 **Date**: 2026-08-15
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 
