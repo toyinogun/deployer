@@ -1,7 +1,7 @@
 # 0022. Publishing the deploy path
 
 **Date**: 2026-08-16
-**Status**: Proposed
+**Status**: In Progress
 
 ## Summary
 
@@ -137,20 +137,20 @@ None new. An upload is unclaimed until a deploy redeems it, and this spec adds o
 
 Ordered as a Tracer Bullet: get one real deploy running through the public hostname before any of the bounds are thickened, because the routing is the part that has already bitten once and the bounds are worthless if the route is wrong. The cutover is last and alone.
 
-1. Add `DEPLOYER_MCP_HOST` with its startup validation and derived URL, remove `DEPLOYER_PUBLIC_URL`, and point `deploy_app`'s description at the derived endpoint, satisfies **AC-8**, **AC-9**, **AC-10**.
-2. Register `POST /v1/uploads` and `/mcp` a second time under the deploy host pattern, add the catch all 404 for that hostname, and leave the tailnet registrations in place for now. The console host's existing test must pass unchanged, satisfies **AC-2**, **AC-3**, **AC-4**.
-3. Add the cloudflared rule for the deploy host above the app wildcard, with a test that reads the rules by hostname rather than by position, satisfies **AC-6**, **AC-7**.
-4. Confirm the `deployer-system` and tunnel policies need no new peer, with a test asserting it, satisfies **AC-22**.
-5. Add the DNS record and drive one real deploy through the public hostname from a machine with no Tailscale, satisfies **AC-1**.
-6. Drop the default `MaxUploadBytes` to 90 MB and prove the platform refuses before the edge does, satisfies **AC-11**, **AC-12**.
-7. Widen `auth.ClientAddress` to a trusted host set, stop `uploadAddress` passing an empty host, and assert the header is ignored on every other host, satisfies **AC-13**, **AC-14**.
-8. Move `identity.Limiter`'s five constants into a settings value taken by `NewLimiter`, with the sign in limiter keeping today's numbers unchanged, then add the deploy path instance and spend from it on both routes, satisfies **AC-15**.
-9. Add the two reason codes, and the bad token lockout inside `auth.Authenticator`, with the wire level test on both routes, satisfies **AC-16**, **AC-19**.
-10. Add `DEPLOYER_MAX_UNCLAIMED_UPLOADS`, the transactional count and insert in `internal/store`, and the refusal, satisfies **AC-17**.
-11. Add the expired unclaimed upload sweep beside the existing daily audit sweep, satisfies **AC-18**.
-12. Correct the limiter's comment about the perimeter and record the restart bound, satisfies **AC-23**.
-13. Drive every MCP tool through the public hostname and record the observed timings against the 125 second bound, satisfies **AC-20**.
-14. Last and alone, in its own commit: remove the tailnet registrations for both routes and confirm they answer 404 on the tailnet name, satisfies **AC-5**, **AC-21**.
+1. [x] Add `DEPLOYER_MCP_HOST` with its startup validation and derived URL, remove `DEPLOYER_PUBLIC_URL`, and point `deploy_app`'s description at the derived endpoint, satisfies **AC-8**, **AC-9**, **AC-10**.
+2. [x] Register `POST /v1/uploads` and `/mcp` a second time under the deploy host pattern, add the catch all 404 for that hostname, and leave the tailnet registrations in place for now. The console host's existing test must pass unchanged, satisfies **AC-2**, **AC-3**, **AC-4**.
+3. [x] Add the cloudflared rule for the deploy host above the app wildcard, with a test that reads the rules by hostname rather than by position, satisfies **AC-6**, **AC-7**.
+4. [x] Confirm the `deployer-system` and tunnel policies need no new peer, with a test asserting it, satisfies **AC-22**.
+5. [ ] Add the DNS record and drive one real deploy through the public hostname from a machine with no Tailscale, satisfies **AC-1**.
+6. [x] Drop the default `MaxUploadBytes` to 90 MB and prove the platform refuses before the edge does, satisfies **AC-11**, **AC-12**.
+7. [x] Widen `auth.ClientAddress` to a trusted host set, stop `uploadAddress` passing an empty host, and assert the header is ignored on every other host, satisfies **AC-13**, **AC-14**.
+8. [x] Move `identity.Limiter`'s five constants into a settings value taken by `NewLimiter`, with the sign in limiter keeping today's numbers unchanged, then add the deploy path instance and spend from it on both routes, satisfies **AC-15**.
+9. [x] Add the two reason codes, and the bad token lockout inside `auth.Authenticator`, with the wire level test on both routes, satisfies **AC-16**, **AC-19**.
+10. [x] Add `DEPLOYER_MAX_UNCLAIMED_UPLOADS`, the transactional count and insert in `internal/store`, and the refusal, satisfies **AC-17**.
+11. [x] Add the expired unclaimed upload sweep beside the existing daily audit sweep, satisfies **AC-18**.
+12. [x] Correct the limiter's comment about the perimeter and record the restart bound, satisfies **AC-23**.
+13. [ ] Drive every MCP tool through the public hostname and record the observed timings against the 125 second bound, satisfies **AC-20**.
+14. [ ] Last and alone, in its own commit: remove the tailnet registrations for both routes and confirm they answer 404 on the tailnet name, satisfies **AC-5**, **AC-21**.
 
 ## Migration plan
 
