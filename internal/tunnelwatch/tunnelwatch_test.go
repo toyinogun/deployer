@@ -109,18 +109,36 @@ func TestTheMailNamesWhichThingBrokeAndNothingElse(t *testing.T) {
 	}
 }
 
-// TestAnUnreachableEndpointIsAnOutage is AC-23. A connection that does not
-// complete is a tunnel that is not there, which is the case the check exists for.
+// TestAnUnreachableEndpointIsAnOutage is AC-23 and AC-24 in one case, because
+// they are one case: a connection that does not complete is a tunnel that is not
+// there, which is what the check exists for, and the telling of it is a thing you
+// are told about rather than a thing the outage silences.
+//
+// The suite can only prove the half of AC-24 that lives in this process, and that
+// half is real: the watcher reaches the mailer on a path that has nothing to do
+// with the endpoint it just failed to read. The other half, that Resend is reached
+// over ordinary egress rather than through the tunnel, is a network fact and
+// belongs to the live walk in verify.md, which observed both outage mails arriving
+// with the connectors at zero.
+//
+// The way this breaks is not exotic. A watcher that returned early on an
+// unreachable endpoint, or that sent its mail through anything the tunnel carries,
+// would look correct in every other test here, because every other test answers
+// the ready endpoint with a real HTTP status.
 func TestAnUnreachableEndpointIsAnOutage(t *testing.T) {
-	// covers: AC-23
+	// covers: AC-23, AC-24
 	t.Parallel()
 	box := &recorder{}
-	// A port nothing listens on, which is what a tunnel namespace with no pods
-	// looks like from here.
+	// Not a server that answers badly: a port with nothing on it at all, which is
+	// what the tunnel namespace looks like from here with zero connectors.
 	w := New(box, Options{ReadyURL: "http://127.0.0.1:1/ready", To: "owner@example.test"})
 	w.check(t.Context())
 	if len(box.sent) != 1 {
-		t.Errorf("an unreachable endpoint sent %d messages, want 1", len(box.sent))
+		t.Fatalf("a totally unreachable edge sent %d messages, want 1: an outage nobody is told about is "+
+			"the failure this check exists to prevent", len(box.sent))
+	}
+	if box.sent[0].to != "owner@example.test" {
+		t.Errorf("the mail went to %q, want the configured address", box.sent[0].to)
 	}
 }
 
@@ -184,38 +202,6 @@ func TestARestartCostsExactlyOneExtraMail(t *testing.T) {
 	if len(after.sent) != 1 {
 		t.Errorf("the restarted process sent %d messages over five checks, want exactly 1: the whole cost "+
 			"of the in memory flag is one extra mail, not one per check", len(after.sent))
-	}
-}
-
-// TestTheTellingDoesNotDependOnTheThingItReportsOn is AC-24. A tunnel outage is a
-// thing you are told about rather than a thing that silences the telling.
-//
-// The suite can only prove the half that lives in this process, and that half is
-// real: the watcher reaches the mailer on a path that has nothing to do with the
-// endpoint it just failed to read. The other half, that Resend is reached over
-// ordinary egress rather than through the tunnel, is a network fact and belongs
-// to the live walk in verify.md, which observed both outage mails arriving with
-// the connectors at zero.
-//
-// The way this breaks is not exotic. A watcher that returned early on an
-// unreachable endpoint, or that sent its mail through anything the tunnel
-// carries, would look correct in every other test here, because every other test
-// answers the ready endpoint with a real HTTP status.
-func TestTheTellingDoesNotDependOnTheThingItReportsOn(t *testing.T) {
-	// covers: AC-24
-	t.Parallel()
-	box := &recorder{}
-	// Not a server that answers badly: a port with nothing on it at all, which
-	// is what the tunnel namespace looks like from here with zero connectors.
-	w := New(box, Options{ReadyURL: "http://127.0.0.1:1/ready", To: "owner@example.test"})
-	w.check(t.Context())
-
-	if len(box.sent) != 1 {
-		t.Fatalf("a totally unreachable edge sent %d messages, want 1: an outage nobody is told about is "+
-			"the failure this check exists to prevent", len(box.sent))
-	}
-	if box.sent[0].to != "owner@example.test" {
-		t.Errorf("the mail went to %q, want the configured address", box.sent[0].to)
 	}
 }
 
