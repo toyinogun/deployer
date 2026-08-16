@@ -14,6 +14,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/toyinogun/deployer/internal/identity"
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/logs"
+	"github.com/toyinogun/deployer/internal/uploads"
 )
 
 // ErrNoApp means the account has no app under that name yet, which is the first
@@ -180,9 +182,13 @@ type Deployments interface {
 	ListReleases(ctx context.Context, appID string, limit int64) ([]ReleaseSummary, error)
 }
 
-// Uploads reads the tarball a deploy names.
+// Uploads reads the tarball a deploy names, and accepts one composed from the
+// files a deploy carried inline.
 type Uploads interface {
 	Get(ctx context.Context, id string) (Upload, error)
+	// Accept records a tarball under the account, applying the same size and
+	// unclaimed caps the upload endpoint does.
+	Accept(ctx context.Context, accountID string, body io.Reader) (Upload, error)
 }
 
 // Pods is the narrow slice of the cluster a log read needs. It is stated here,
@@ -266,7 +272,12 @@ func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, 
 // deployInput is the tool's whole argument surface.
 type deployInput struct {
 	Name     string `json:"name" jsonschema:"the app's name, which fixes its hostname for good; reuse it to redeploy the same app"`
-	UploadID string `json:"upload_id" jsonschema:"the id returned by POST /v1/uploads"`
+	UploadID string `json:"upload_id,omitempty" jsonschema:"the id returned by POST /v1/uploads; give this or files, never both"`
+	// Files is the same source as an upload, carried inline, for a caller with no
+	// shell to run the upload with. It is text only and it is packed here rather
+	// than by the caller, so a client that cannot make an HTTP request or build a
+	// tarball can still deploy (spec 0026).
+	Files map[string]string `json:"files,omitempty" jsonschema:"the app's source as a map of path relative to the app root to file content; give this or upload_id, never both"`
 	// Config is optional, and follows exactly set_config's rules. It is here so a
 	// brand new app's first run is not a guaranteed crash on a missing variable
 	// (spec 0010, AC-9).
@@ -290,7 +301,14 @@ type deployOutput struct {
 func (s *Server) toolDescription() string {
 	return fmt.Sprintf(`Deploy an application to the cluster and return its public URL.
 
-Upload the source first, from the app's root directory:
+Give the source one of two ways, never both.
+
+With no shell, pass it inline as files: a map of path relative to the app's
+root to that file's content. Text only, and the same size ceiling below
+applies to the whole set once packed.
+
+With a shell, upload the source first, from the app's root directory, and pass
+the upload_id it returns:
 
   curl -sS -X POST %s/v1/uploads \
     -H "Authorization: Bearer $DEPLOYER_TOKEN" \
@@ -300,7 +318,7 @@ The archive must be at most %d MB. A larger one is refused with
 upload_too_large before any of it is stored, so exclude build output, virtual
 environments and version control directories before packing.
 
-Pass the upload_id it returns here. This call returns straight away with a
+This call returns straight away with a
 deployment_id and the state "queued"; it does not wait for the build. Call
 deployment_status with that deployment_id to learn how the deploy ended.
 
@@ -455,14 +473,24 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 // deployment is the loop's from the moment the row is written, and the caller
 // reads its outcome back through deployment_status (spec 0005, AC-1).
 func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInput) (*mcp.CallToolResult, deployOutput, error) {
-	if in.Name == "" || in.UploadID == "" {
+	if in.Name == "" || (in.UploadID == "") == (len(in.Files) == 0) {
 		return nil, deployOutput{}, s.deny(ctx, account.ID, "", domain.ReasonUploadInvalid,
-			errors.New("name and upload_id are both required"))
+			errors.New("name and exactly one of upload_id or files are required"))
+	}
+
+	uploadID := in.UploadID
+	if len(in.Files) > 0 {
+		var err error
+		if uploadID, err = s.acceptFiles(ctx, account, in.Files); err != nil {
+			return nil, deployOutput{}, err
+		}
 	}
 
 	// The upload is checked before the app is touched, so a call that fails on a
-	// bad upload_id audits with a null target and creates no app row (AC-19).
-	if err := s.checkUpload(ctx, account, in.UploadID); err != nil {
+	// bad upload_id audits with a null target and creates no app row (AC-19). One
+	// this call just accepted passes it, which is deliberate: the check is about
+	// the caller's claim on an id, and there is one path rather than two.
+	if err := s.checkUpload(ctx, account, uploadID); err != nil {
 		return nil, deployOutput{}, err
 	}
 
@@ -480,7 +508,7 @@ func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInpu
 		}
 	}
 
-	deploymentID, err := s.deployments.Create(ctx, app.ID, account.ID, in.UploadID)
+	deploymentID, err := s.deployments.Create(ctx, app.ID, account.ID, uploadID)
 	if err != nil {
 		return nil, deployOutput{}, s.deny(ctx, account.ID, app.ID, domain.ReasonInternal, err)
 	}
@@ -504,6 +532,30 @@ func (s *Server) deploy(ctx context.Context, account auth.Account, in deployInpu
 // stored, so it is known before anything is built.
 func (s *Server) appURL(slug string) string {
 	return "https://" + slug + "." + s.opts.AppDomain
+}
+
+// acceptFiles packs the source a caller carried inline and records it as an
+// ordinary upload, returning its id. Every bound the upload endpoint applies is
+// applied here, by the same service: this is a second way to reach that path,
+// never a second path.
+//
+// The refusals are the endpoint's own reason codes, so a caller that hits the
+// ceiling reads the same words whichever way it sent the source.
+func (s *Server) acceptFiles(ctx context.Context, account auth.Account, files map[string]string) (string, error) {
+	body, err := uploads.Pack(files)
+	if err != nil {
+		return "", s.deny(ctx, account.ID, "", domain.ReasonUploadInvalid, err)
+	}
+	up, err := s.uploads.Accept(ctx, account.ID, body)
+	switch {
+	case errors.Is(err, uploads.ErrTooLarge):
+		return "", s.deny(ctx, account.ID, "", domain.ReasonUploadTooLarge, err)
+	case errors.Is(err, uploads.ErrTooManyUnclaimed):
+		return "", s.deny(ctx, account.ID, "", domain.ReasonUploadLimitReached, err)
+	case err != nil:
+		return "", s.deny(ctx, account.ID, "", domain.ReasonInternal, err)
+	}
+	return up.ID, nil
 }
 
 // checkUpload refuses an upload that is unknown, spent, expired, or another

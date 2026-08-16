@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"errors"
+	"io"
 	"sort"
 	"strings"
 	"testing"
@@ -281,6 +282,17 @@ func (s stubUploads) Get(_ context.Context, id string) (Upload, error) {
 		return Upload{}, ErrNoUpload
 	}
 	return s.up, nil
+}
+
+// Accept hands back the same upload Get answers, so a test that deploys inline
+// files reaches exactly the state a test that deploys an upload_id does.
+func (s stubUploads) Accept(_ context.Context, accountID string, body io.Reader) (Upload, error) {
+	if _, err := io.Copy(io.Discard, body); err != nil {
+		return Upload{}, err
+	}
+	up := s.up
+	up.AccountID = accountID
+	return up, nil
 }
 
 // silentAuditor accepts audit rows without keeping them.

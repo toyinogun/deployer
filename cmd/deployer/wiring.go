@@ -52,10 +52,25 @@ func (u forTool) Get(ctx context.Context, id string) (mcp.Upload, error) {
 	if err != nil {
 		return mcp.Upload{}, err
 	}
+	return forToolUpload(up), nil
+}
+
+// Accept records source a deploy carried inline, through the same service the
+// upload endpoint uses, so both reach the volume under the same caps.
+func (u forTool) Accept(ctx context.Context, accountID string, body io.Reader) (mcp.Upload, error) {
+	up, err := u.svc.Accept(ctx, accountID, body)
+	if err != nil {
+		return mcp.Upload{}, err
+	}
+	return forToolUpload(up), nil
+}
+
+// forToolUpload is the tool facing view of one upload.
+func forToolUpload(up uploads.Upload) mcp.Upload {
 	return mcp.Upload{
 		ID:        up.ID,
 		AccountID: up.AccountID,
 		ExpiresAt: up.ExpiresAt,
 		Redeemed:  up.Redeemed,
-	}, nil
+	}
 }
