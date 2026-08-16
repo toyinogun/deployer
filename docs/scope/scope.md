@@ -65,7 +65,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | done |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | in-progress |
 | 24 | Publishing the deploy path | Slice 13 | done |
-| 25 | Connecting a client that will not hold a token | Slice 13 | in-progress |
+| 25 | Connecting a client that will not hold a token | Slice 13 | done |
 
 ## Foundations
 
@@ -485,7 +485,7 @@ spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `inter
 - [x] Review it (fresh model): `/check review publishing the deploy path`
 - [x] Document it: `/document publishing the deploy path`
 
-### 25. Connecting a client that will not hold a token · in-progress
+### 25. Connecting a client that will not hold a token · done
 Feature 23 hands a person a finished block per client, and every one of those blocks works the same way: a static `Authorization: Bearer` header, which is the only thing `internal/mcp/middleware.go` knows how to read. That covers the command line clients and nothing else. The connector surfaces, the Claude desktop app and claude.ai among them, never offer a header field: they take a URL, ask the server how to sign in, and walk the person through it. So deployer cannot be added there at all today, which is a different failure from a fiddly one, because there is no field to get wrong. The decision is whether the platform becomes its own authorization server on top of the console session it already has, and what a grant made that way is afterwards: an ordinary `api_tokens` row, so there stays one place credentials are listed and revoked, or a second credential path with its own lifetime and its own revocation. Two things about this codebase shape it before any of that. The deploy path's mux is host qualified, so every route the flow needs is registered on `DEPLOYER_MCP_HOST` deliberately or it is private. And the person signs in on `DEPLOYER_CONSOLE_HOST` while the client talks to `DEPLOYER_MCP_HOST`, so the browser half and the machine half of one flow sit on two public origins by design.
 **Done when:** a person can add deployer in the Claude desktop app by pasting the deploy hostname and signing in on the console, that grant appears in their token list and revokes there like any other credential, a revoked grant stops working on the deploy path, and the four paste and go blocks on `/connect` keep working unchanged for the command line clients.
 Spec 0024 settles the row four ways it did not anticipate. The platform becomes its own authorization server rather than delegating, because every alternative creates a second way for a request to become an account, which is the exact shape of the lockout bug feature 22 surfaced. The credential a connector ends up holding is an ordinary `api_tokens` row with no expiry and no refresh grant, so `/tokens` stays the one place credentials are revoked. Dynamic client registration is chosen over the mechanism the MCP draft now prefers, deliberately, because the newer one makes the control plane pod fetch a URL a stranger chose. And the console host, a browser only surface since spec 0021, starts serving machine endpoints, because the session cookie is `__Host-` scoped and the approval page can live nowhere else.

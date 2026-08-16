@@ -1,7 +1,7 @@
 # 0024. OAuth for clients that will not hold a token
 
 **Date**: 2026-08-16
-**Status**: In Progress
+**Status**: Accepted
 
 The decision record (context, options considered, rationale) is in [rationale.md](rationale.md).
 
