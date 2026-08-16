@@ -108,6 +108,72 @@ func TestTheTunnelRoutesExactlyTwoHostnames(t *testing.T) {
 	}
 }
 
+// tunnelRules returns the app wildcard rule and the console rule, found by shape
+// rather than by position. Position is exactly what this file got wrong once, and
+// reading the rules by index is what let every assertion here agree with a broken
+// order: see TestNoTunnelRuleIsShadowedByAnEarlierOne.
+func tunnelRules(t *testing.T) (apps, console tunnelIngress) {
+	t.Helper()
+	for _, rule := range tunnelConfig(t).Ingress {
+		switch {
+		case strings.HasPrefix(rule.Hostname, "*."):
+			apps = rule
+		case rule.Hostname != "":
+			console = rule
+		}
+	}
+	if apps.Hostname == "" {
+		t.Fatal("no rule names an app wildcard hostname")
+	}
+	if console.Hostname == "" {
+		t.Fatal("no rule names the console hostname")
+	}
+	return apps, console
+}
+
+// tunnelHostnameShadows reports whether an earlier cloudflared rule's hostname
+// pattern already matches a later rule's hostname, which makes the later rule
+// unreachable. A leading `*.` matches exactly one label, and an empty pattern is
+// the catch all, which matches everything.
+func tunnelHostnameShadows(pattern, host string) bool {
+	if pattern == "" || pattern == host {
+		return true
+	}
+	suffix, ok := strings.CutPrefix(pattern, "*.")
+	if !ok {
+		return false
+	}
+	label, rest, found := strings.Cut(host, ".")
+	return found && label != "" && rest == suffix
+}
+
+// AC-9: cloudflared reads ingress rules top to bottom and takes the first
+// hostname that matches, so a broader pattern listed first silently swallows
+// every rule under it.
+//
+// This is not hypothetical. `*.deploy.toyintest.org` matches
+// `console.deploy.toyintest.org`, because `console` is exactly one label, and the
+// wildcard shipped above the console rule on 2026-08-16. Every console request
+// went to ingress-nginx, which has no server block for that name and answered its
+// own 404, so the console was unreachable through the tunnel while the app
+// wildcard worked perfectly. Nothing here caught it: the assertions read
+// Ingress[0] and Ingress[1] by position, and the two positions were wrong
+// together, which reads as consistent.
+func TestNoTunnelRuleIsShadowedByAnEarlierOne(t *testing.T) {
+	rules := tunnelConfig(t).Ingress
+	for i, rule := range rules {
+		if rule.Hostname == "" {
+			continue // the catch all is meant to be last and to match everything
+		}
+		for j, earlier := range rules[:i] {
+			if tunnelHostnameShadows(earlier.Hostname, rule.Hostname) {
+				t.Errorf("rule[%d] (%s) is never reached: rule[%d] (%q) already matches it, so that "+
+					"hostname is served by the wrong origin", i, rule.Hostname, j, earlier.Hostname)
+			}
+		}
+	}
+}
+
 // AC-9 and AC-9a: two rules, two different origins, and the app route verified
 // against a name the wildcard certificate covers.
 //
@@ -117,12 +183,8 @@ func TestTheTunnelRoutesExactlyTwoHostnames(t *testing.T) {
 // originServerName only proves to cloudflared that its TLS peer holds a
 // certificate for that name.
 func TestTheTunnelSendsTheAppsAndTheConsoleToDifferentOrigins(t *testing.T) {
-	cfg := tunnelConfig(t)
-	apps, console := cfg.Ingress[0], cfg.Ingress[1]
+	apps, console := tunnelRules(t)
 
-	if !strings.HasPrefix(apps.Hostname, "*.") {
-		t.Errorf("the first rule's hostname is %q, want the app wildcard", apps.Hostname)
-	}
 	if !strings.HasPrefix(apps.Service, "https://") {
 		t.Errorf("the app route serves %q, want https: tailnet traffic already reaches nginx over TLS "+
 			"and the public path must not be weaker", apps.Service)
@@ -177,7 +239,8 @@ func TestTheTunnelNeverSkipsOriginVerification(t *testing.T) {
 // mismatch is a console that answers 404 through the tunnel while every test
 // here passes.
 func TestTheTunnelConsoleRouteMatchesTheConfiguredHost(t *testing.T) {
-	console := tunnelConfig(t).Ingress[1].Hostname
+	apps, consoleRule := tunnelRules(t)
+	console := consoleRule.Hostname
 	raw, err := os.ReadFile("../../deploy/configmap.yaml")
 	if err != nil {
 		t.Fatalf("reading the platform ConfigMap: %v", err)
@@ -192,7 +255,7 @@ func TestTheTunnelConsoleRouteMatchesTheConfiguredHost(t *testing.T) {
 	}
 	// The same pairing for the app domain, which the app route's hostname and
 	// originServerName are both built from.
-	if got, want := cm.Data["DEPLOYER_APP_DOMAIN"], tunnelConfig(t).Ingress[0].OriginRequest.OriginServerName; got != want {
+	if got, want := cm.Data["DEPLOYER_APP_DOMAIN"], apps.OriginRequest.OriginServerName; got != want {
 		t.Errorf("DEPLOYER_APP_DOMAIN is %q but the tunnel verifies its origin against %q", got, want)
 	}
 }
