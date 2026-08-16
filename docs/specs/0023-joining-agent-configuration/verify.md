@@ -9,28 +9,34 @@ cannot reach: a real client parsing a real block, a real hostname, and a real ed
 
 ## UI / manual
 
-- [ ] Sign in as a verified account whose `connected_at` is null, carrying no `next` → lands on `/connect` → AC-3
-- [ ] Sign in again after that page has been served → lands on `/apps`, never `/connect` again → AC-4
-- [ ] Follow a session gate deep link (visit `/tokens` signed out, then sign in) → lands on `/tokens`, and the next plain sign in lands on `/connect` → AC-3
+- [x] Sign in as a verified account whose `connected_at` is null, carrying no `next` → lands on `/connect` → AC-3
+- [x] Sign in again after that page has been served → lands on `/apps`, never `/connect` again → AC-4
+- [x] Follow a session gate deep link (visit `/tokens` signed out, then sign in) → lands on `/tokens`, and the next plain sign in lands on `/connect` → AC-3
 - [ ] Sign in as the bootstrap token only account → never sent to `/connect` → AC-5
-- [ ] `/connect` before pressing the button → every block shows `YOUR_TOKEN_HERE` and no token value → AC-12
-- [ ] Press the button → the raw token is in all four blocks; reload the page → the placeholder is back → AC-15, AC-12
-- [ ] Press each of the four tabs, then Copy on each → the clipboard holds that tab's block → AC-7, AC-13
-- [ ] Load `/connect` with JavaScript disabled → all four blocks render stacked and readable, tab strip hidden → AC-14
-- [ ] The console navigation carries `Connect your agent`, reachable without the one time redirect → AC-6
-- [ ] Both `/connect` routes answer on `DEPLOYER_CONSOLE_HOST` and the mint form posts there → AC-1, AC-2
+- [x] `/connect` before pressing the button → every block shows `YOUR_TOKEN_HERE` and no token value → AC-12
+- [x] Press the button → the raw token is in all four blocks; reload the page → the placeholder is back → AC-15, AC-12
+- [x] Press each of the four tabs, then Copy on each → the clipboard holds that tab's block → AC-7, AC-13
+- [x] Load `/connect` with JavaScript disabled → all four blocks render stacked and readable, tab strip hidden → AC-14
+- [x] The console navigation carries `Connect your agent`, reachable without the one time redirect → AC-6
+- [x] Both `/connect` routes answer on `DEPLOYER_CONSOLE_HOST` and the mint form posts there → AC-1, AC-2
 
 ## Commands
 
-- [ ] Paste the Claude Code line into a real Claude Code on a machine with no Tailscale, then drive a deploy to healthy → AC-8, AC-10, AC-15, AC-20
+- [x] Paste the Claude Code line into a real Claude Code on a machine with no Tailscale, then drive a deploy to healthy → AC-8, AC-10, AC-15, AC-20
 - [ ] Repeat with the Codex block (`~/.codex/config.toml`) and the Gemini CLI block (`~/.gemini/settings.json`) → AC-10
+      _2026-08-16: not run in either client. Both blocks were read against current
+      sources instead and neither needs a change: Codex still takes
+      `[mcp_servers.<id>]` with `url` and `http_headers`, Gemini CLI still takes a
+      top level `mcpServers` with `httpUrl` and `headers`. Each now documents an
+      env var for the token rather than a literal, which this page cannot use
+      because it hands over the value itself._
       _Only the endpoint inside these is pinned by a test. The format is not, and it is set by
       somebody else's release schedule, so this step is the only thing that catches a stale block._
-- [ ] `kubectl exec` the pod and confirm `accounts.connected_at` exists, is nullable and has no default → AC-24
-- [ ] Change `DEPLOYER_MCP_HOST`, restart, reload `/connect` → every block's endpoint follows, no stale hostname anywhere → AC-9
-- [ ] Mint twice from one tab on one real day → two live tokens named `<Client> <date>` and `<Client> <date> (2)` → AC-16, AC-16a, AC-23
-- [ ] Read the `token_mint` audit row for a mint made through the tunnel → `client_address` is the visitor's address from `CF-Connecting-IP`, not the tunnel's → AC-19
-- [ ] Revoke a token minted here from `/tokens`, then try a deploy with it → refused → AC-20, AC-21
+- [x] `kubectl exec` the pod and confirm `accounts.connected_at` exists, is nullable and has no default → AC-24
+- [x] Change `DEPLOYER_MCP_HOST`, restart, reload `/connect` → every block's endpoint follows, no stale hostname anywhere → AC-9
+- [x] Mint twice from one tab on one real day → two live tokens named `<Client> <date>` and `<Client> <date> (2)` → AC-16, AC-16a, AC-23
+- [x] Read the `token_mint` audit row for a mint made through the tunnel → `client_address` is the visitor's address from `CF-Connecting-IP`, not the tunnel's → AC-19
+- [x] Revoke a token minted here from `/tokens`, then try a deploy with it → refused → AC-20, AC-21
 
 ## Acceptance-criteria coverage
 
