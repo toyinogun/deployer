@@ -64,7 +64,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 21 | Platform backup & restore | Slice 12 | done |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | done |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
-| 24 | Publishing the deploy path | Slice 13 | planned |
+| 24 | Publishing the deploy path | Slice 13 | in-progress |
 
 ## Foundations
 
@@ -456,15 +456,28 @@ Joining is still a developer's job even though using the platform is not. Removi
 **Done when:** a newly verified person lands on one page holding a ready to paste MCP client block with a token already in it, the token is minted at that moment and shown once, it appears in their token list afterwards like any other, and the page never shows a token again on a later visit.
 - [ ] Design it (spec): `/architect joining`
 
-### 24. Publishing the deploy path · needs a decision
+### 24. Publishing the deploy path · in-progress
 The MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one.
 **Done when:** an agent on a machine with no Tailscale can upload a source tarball and drive a deploy to a healthy hostname, the upload ceiling and what happens to a body the edge refuses are both settled and enforced by the platform rather than discovered at the edge, and the controls the tailnet was providing on this path are named and either held elsewhere or accepted in writing.
-- [ ] Design it (spec): `/architect publishing the deploy path`
+spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `internal/config`, `internal/httpapi`, `internal/mcp`, `internal/auth`, `internal/identity`, `internal/domain`, `internal/store`, `internal/uploads`, `internal/web`, `cmd/deployer`, `deploy/` (the `cloudflared` ConfigMap), plus one DNS record
+- [x] Design it (spec): `/architect publishing the deploy path`
+- [ ] Build it: `/develop publishing the deploy path`
+  - [ ] The name and the route: `DEPLOYER_MCP_HOST` with its validation and derived URL, the four `DEPLOYER_PUBLIC_URL` consumers each given a replacement, the host qualified registrations with their catch all, and the tunnel rule listed above the wildcard — AC-2, AC-3, AC-4, AC-6, AC-7, AC-8, AC-9, AC-10, AC-22
+  - [ ] One real deploy through the public hostname, from a machine with no Tailscale, before any bound is thickened — AC-1
+  - [ ] The ceiling and the visitor: the 90 MB default so the platform always refuses before Cloudflare does, and `CF-Connecting-IP` trusted on both origins that bypass `ingress-nginx` — AC-11, AC-12, AC-13, AC-14
+  - [ ] The controls the tailnet was providing: the deploy path limiter with its own numbers, the bad token lockout inside the authenticator with its two reason codes, the unclaimed upload cap, the expiry sweep, and the corrected limiter reasoning — AC-15, AC-16, AC-17, AC-18, AC-19, AC-23
+  - [ ] The flip, last and alone: every tool timed against the 125 second edge bound, then the tailnet registrations removed in their own commit — AC-5, AC-20, AC-21
+- [ ] Verify it: `/check verify publishing the deploy path`
+- [ ] Test it: `/test publishing the deploy path`
+- [ ] Review it (fresh model): `/check review publishing the deploy path`
+- [ ] Document it: `/document publishing the deploy path`
 
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
 
-- **Publishing the deploy path**: the MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one · promoted into feature 24
+- **Publishing the deploy path**: the MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one · promoted into feature 24, decided in spec 0022
+- **A total bound on the upload volume**: from spec 0022, which caps one account at three unclaimed uploads of 90 MB each and sweeps the expired ones. Nothing bounds accounts multiplied by that cap against the size of the PVC, so enough valid tokens still fill it. The same shape as the app cap question feature 17 answered per account rather than per cluster, and invisible while there is one account · needs a decision
+- **Whether the edge's origin timeout is reset by a streaming response**: from spec 0022. Cloudflare documents a 125 second origin timeout on the free plan and does not say whether bytes flowing reset it, so the MCP transport's standalone stream sits on an assumption rather than a checked fact. Worth reopening if a tool call ever fails with no trace on the platform side · needs a decision
 - **App databases**: a provisioned Postgres database and role per app · needs a decision
 - **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
 - **Public exposure per app**: a real public hostname with a certificate, chosen per app. Narrowed by slice 13: the shared wildcard becomes publicly reachable there, so what is left here is an app choosing its own name rather than taking its slug · needs a decision
