@@ -123,20 +123,29 @@ func IsSessionCookie(name string) bool {
 	return name == SessionCookieSecure || name == SessionCookiePlain
 }
 
-// SessionID pulls the raw session id out of a request's cookies. It returns an
-// empty string when there is none, which AuthenticateSession treats as invalid.
+// SessionID pulls the raw session id out of a request's cookies, under the one
+// name this platform's scheme writes. It returns an empty string when there is
+// none, which AuthenticateSession treats as invalid.
 //
-// Both names are tried, secure first, because the caller here does not hold the
-// platform's scheme and reading the wrong one would sign everybody out on every
-// request rather than once. Only one of the two is ever written, so there is no
-// ambiguity to resolve: whichever arrives is the one this platform set.
-func SessionID(r *http.Request) string {
-	for _, name := range []string{SessionCookieSecure, SessionCookiePlain} {
-		if c, err := r.Cookie(name); err == nil && c.Value != "" {
-			return c.Value
-		}
+// It takes secure rather than trying both names, and that is load bearing. Trying
+// both was the original shape, on the reasoning that the reader did not hold the
+// scheme and reading the wrong name would sign everybody out on every request
+// rather than once. Signing everybody out once is exactly what the rename was
+// for, and the fallback cost more than it saved: SessionCookiePlain carries no
+// `__Host-` prefix, so unlike the name written here it can be set with a Domain,
+// and an app deployed by a stranger on a sibling hostname under the platform's
+// wildcard could scope one to the parent domain and have the console read it.
+// That is the session fixation SessionCookieSecure's prefix exists to close,
+// reopened on the read side. It was live until 2026-08-16.
+//
+// So the write picks a name and the read picks the same one. A cookie under the
+// other name is not a session, whichever way round the two are.
+func SessionID(r *http.Request, secure bool) string {
+	c, err := r.Cookie(SessionCookieName(secure))
+	if err != nil {
+		return ""
 	}
-	return ""
+	return c.Value
 }
 
 // usable reports whether an account may authenticate at all.

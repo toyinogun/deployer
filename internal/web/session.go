@@ -19,7 +19,7 @@ import (
 // and is treated as signed out, which is what keeps the browser from being a
 // second door for a machine credential (AC-3).
 func (s *Server) currentSession(r *http.Request) (auth.Account, auth.Session, bool) {
-	raw := auth.SessionID(r)
+	raw := auth.SessionID(r, s.secure)
 	if raw == "" {
 		return auth.Account{}, auth.Session{}, false
 	}

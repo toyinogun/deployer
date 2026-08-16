@@ -86,7 +86,7 @@ func (i *Identity) Register(mux *http.ServeMux) {
 // there is exactly one place a person is turned into an account.
 func (i *Identity) session(w http.ResponseWriter, r *http.Request) (auth.Account, auth.Session, bool) {
 	ctx := r.Context()
-	account, sess, err := i.auth.AuthenticateSession(ctx, auth.SessionID(r))
+	account, sess, err := i.auth.AuthenticateSession(ctx, auth.SessionID(r, i.secure))
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrEmailUnverified):
