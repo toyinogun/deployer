@@ -124,7 +124,8 @@ func afterSignIn(next string, account identity.Account) string {
 	if account.Verified && !account.Connected {
 		return "/connect"
 	}
-	return safeNext(next)
+	// next is "" by here, so this is where an ordinary sign in lands.
+	return "/apps"
 }
 
 // registerPage renders the form and copies the invite code from the query into

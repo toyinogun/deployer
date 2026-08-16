@@ -515,3 +515,29 @@ func TestARefusedMintRerendersWithNoToken(t *testing.T) {
 		t.Errorf("a refused mint left %d placeholders, want 4", got)
 	}
 }
+
+// TestTheNavigationCarriesTheConnectEntry is AC-6: the page is reachable from
+// every signed in page rather than only from the redirect, and it marks itself
+// current when it is the page you are on.
+// covers: AC-6
+func TestTheNavigationCarriesTheConnectEntry(t *testing.T) {
+	h := newHarness(t, nil)
+	cookie := h.signIn(t, "navigator@example.test")
+
+	apps := h.get(t, "/apps", cookie)
+	if apps.Code != http.StatusOK {
+		t.Fatalf("GET /apps: got %d, want 200: %s", apps.Code, apps.Body)
+	}
+	if !strings.Contains(apps.Body.String(), `<a href="/connect">Connect your agent</a>`) {
+		t.Error("the connect entry is missing from the navigation on /apps")
+	}
+
+	connect := h.get(t, "/connect", cookie)
+	if connect.Code != http.StatusOK {
+		t.Fatalf("GET /connect: got %d, want 200: %s", connect.Code, connect.Body)
+	}
+	if !strings.Contains(connect.Body.String(),
+		`<a href="/connect" aria-current="page">Connect your agent</a>`) {
+		t.Error("the connect entry is not marked current on /connect itself")
+	}
+}
