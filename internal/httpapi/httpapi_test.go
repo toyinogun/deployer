@@ -8,9 +8,11 @@ import (
 	"compress/gzip"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -76,6 +78,14 @@ func newHarness(t *testing.T) *harness {
 		// where /mcp is registered, never about what it answers.
 		w.WriteHeader(http.StatusTeapot)
 	}))
+	// The console's own catch all, which internal/web registers in the running
+	// process. It is here because AC-3 is about what these routes do on that
+	// hostname, and a mux without it is not the mux the platform serves: a
+	// hostless pattern would then answer a console request, which is the exact
+	// thing the console's opt in registration exists to prevent.
+	mux.HandleFunc(testConsoleHost+"/", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
 	return &harness{mux: mux, store: st, uploads: svc, dir: uploadDir}
 }
 
@@ -127,6 +137,69 @@ func oversized(t *testing.T) []byte {
 		t.Fatalf("the test body compressed to %d bytes, which is under the cap", len(body))
 	}
 	return body
+}
+
+// filesOnVolume counts what is actually on the upload directory, which is the
+// only way to tell a refusal that wrote nothing from one that wrote and then
+// deleted.
+func (h *harness) filesOnVolume(t *testing.T) int {
+	t.Helper()
+	entries, err := os.ReadDir(h.dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return 0
+	}
+	if err != nil {
+		t.Fatalf("reading the upload directory: %v", err)
+	}
+	return len(entries)
+}
+
+// uploadRows counts the rows in the uploads table.
+func (h *harness) uploadRows(t *testing.T) int {
+	t.Helper()
+	var n int
+	if err := h.store.DB().QueryRow(`SELECT COUNT(*) FROM uploads`).Scan(&n); err != nil {
+		t.Fatalf("counting uploads: %v", err)
+	}
+	return n
+}
+
+// expireUpload moves an upload's expiry into the past. The window is an hour,
+// which no test waits out, and every path that reads expiry reads this column
+// rather than the clock the row was written by.
+func (h *harness) expireUpload(t *testing.T, id string) {
+	t.Helper()
+	_, err := h.store.DB().Exec(
+		`UPDATE uploads SET expires_at = '2000-01-01T00:00:00Z' WHERE id = ?`, id)
+	if err != nil {
+		t.Fatalf("expiring upload %s: %v", id, err)
+	}
+}
+
+// referenceUpload writes an app and a deployment naming the upload, which is
+// what makes the sweep leave its row alone. Raw SQL rather than the store's own
+// methods, because what is under test is the sweep's query rather than the write
+// path that produced the row.
+func (h *harness) referenceUpload(t *testing.T, uploadID string) {
+	t.Helper()
+	var accountID string
+	err := h.store.DB().QueryRow(`SELECT account_id FROM uploads WHERE id = ?`, uploadID).Scan(&accountID)
+	if err != nil {
+		t.Fatalf("reading the upload's account: %v", err)
+	}
+	const now = "2026-01-01T00:00:00Z"
+	if _, err := h.store.DB().Exec(
+		`INSERT INTO apps (id, account_id, name, slug, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		"app_sweeptest", accountID, "sweeptest", "sweeptest", now, now); err != nil {
+		t.Fatalf("inserting the app: %v", err)
+	}
+	if _, err := h.store.DB().Exec(
+		`INSERT INTO deployments (id, app_id, account_id, upload_id, state, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, 'queued', ?, ?)`,
+		"dep_sweeptest", "app_sweeptest", accountID, uploadID, now, now); err != nil {
+		t.Fatalf("inserting the deployment: %v", err)
+	}
 }
 
 // auditRows counts audit_log rows matching an action and outcome.
