@@ -98,9 +98,15 @@ func (h *harness) do(t *testing.T, req *http.Request) *httptest.ResponseRecorder
 }
 
 // post builds an upload request carrying the given body and bearer token.
+//
+// It goes to the deploy host, because since spec 0022's cutover that is the only
+// hostname the upload route answers on (AC-5). A request built without a Host
+// here lands on the default pattern and gets a 404 that has nothing to do with
+// what the test was checking.
 func post(t *testing.T, token string, body []byte) *http.Request {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, "/v1/uploads", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "http://"+testMCPHost+"/v1/uploads", bytes.NewReader(body))
+	req.Host = testMCPHost
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}

@@ -27,6 +27,10 @@ import (
 // authenticator rather than in a handler, and the only way to tell that apart
 // from a copy in one handler is to spend the penalty on one route and see the
 // other honour it.
+// deployPathHost is the hostname both deploy routes answer on, and since the
+// cutover the only one.
+const deployPathHost = "mcp.apps.example.org"
+
 type deployPathHarness struct {
 	server *httptest.Server
 	clock  *ids.FixedClock
@@ -61,7 +65,7 @@ func newDeployPathHarness(t *testing.T) *deployPathHarness {
 	uploadSvc := uploads.NewService(store.ForUploads(st), filepath.Join(dir, "uploads"), 4096, 3, clock)
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
 		forTool{svc: uploadSvc}, nil, acceptingCluster{}, mcp.Options{
-			MCPURL:            "https://mcp.apps.example.org",
+			MCPURL:            "https://" + deployPathHost,
 			AppDomain:         "apps.example.org",
 			MaxAppsPerAccount: 10,
 			Limiter:           limiter,
@@ -70,6 +74,10 @@ func newDeployPathHarness(t *testing.T) *deployPathHarness {
 	mux := http.NewServeMux()
 	httpapi.New(authenticator, as, uploadSvc, limiter, httpapi.Options{
 		MaxBytes: 4096,
+		// Both routes live under this hostname and no other since spec 0022's
+		// cutover, so a harness without it registers nothing and every call
+		// here answers 404 instead of exercising the lockout (AC-5).
+		MCPHost: deployPathHost,
 	}).Register(mux, tools.Handler())
 
 	server := httptest.NewServer(mux)
@@ -85,6 +93,9 @@ func (h *deployPathHarness) call(t *testing.T, path, token string) (int, map[str
 	if err != nil {
 		t.Fatalf("building the request: %v", err)
 	}
+	// The deploy host is the only pattern these routes answer on, so the Host
+	// carries it rather than the test server's address.
+	req.Host = deployPathHost
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	res, err := h.server.Client().Do(req)

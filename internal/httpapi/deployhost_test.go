@@ -84,6 +84,45 @@ func TestARouteNobodyRegistersTwiceIsAbsentFromTheDeployHost(t *testing.T) {
 	}
 }
 
+// TestTheCutoverTookTheDeployRoutesOffTheTailnet is AC-5. The deploy path used
+// to answer on the default pattern as well, which is what the tailnet name
+// reaches, and spec 0022 retires that half once the public one is proved. Both
+// routes now live under the deploy host alone and answer a plain 404 on the
+// tailnet, the same as any route nobody registered.
+//
+// The single use fetch is the one that must not move. It is read by a build's
+// init container over cluster DNS, which knows no public name, so it stays on
+// the default pattern and stays off the deploy host (AC-4). The two halves are
+// asserted together on purpose: this is the commit where confusing them breaks
+// every build rather than leaking a route.
+func TestTheCutoverTookTheDeployRoutesOffTheTailnet(t *testing.T) {
+	// covers: AC-5
+	t.Parallel()
+	h := newHarness(t)
+
+	const tailnet = "deployer.example.test"
+
+	for _, tc := range []struct {
+		method, path string
+	}{
+		{http.MethodPost, "/v1/uploads"},
+		{http.MethodPost, "/mcp"},
+		{http.MethodGet, "/mcp"},
+	} {
+		if rec := h.onHost(t, tc.method, tailnet, tc.path); rec.Code != http.StatusNotFound {
+			t.Errorf("%s %s on the tailnet name = %d, want 404: the cutover took it off this pattern",
+				tc.method, tc.path, rec.Code)
+		}
+	}
+
+	// Still there, and it has to be: a build's init container reaches this on
+	// cluster DNS and has no other way to fetch its source. A 404 here means
+	// every deploy fails at the fetch.
+	if rec := h.onHost(t, http.MethodGet, tailnet, "/v1/uploads/upl_nothing"); rec.Code == http.StatusNotFound {
+		t.Error("GET /v1/uploads/{id} answered 404 on the default pattern: the init container can no longer fetch its source")
+	}
+}
+
 // TestTheConsoleHostCarriesNoDeployRoute is AC-3. Adding the deploy host
 // registered nothing on the console: a route that changes cluster state is
 // absent from that hostname's mux rather than refused by a check inside it.
