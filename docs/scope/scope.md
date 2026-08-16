@@ -64,7 +64,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 21 | Platform backup & restore | Slice 12 | done |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | done |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
-| 24 | Publishing the deploy path | Slice 13 | in-progress |
+| 24 | Publishing the deploy path | Slice 13 | done |
 
 ## Foundations
 
@@ -456,7 +456,7 @@ Joining is still a developer's job even though using the platform is not. Removi
 **Done when:** a newly verified person lands on one page holding a ready to paste MCP client block with a token already in it, the token is minted at that moment and shown once, it appears in their token list afterwards like any other, and the page never shows a token again on a later visit.
 - [ ] Design it (spec): `/architect joining`
 
-### 24. Publishing the deploy path · in-progress
+### 24. Publishing the deploy path · done
 The MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one.
 **Done when:** an agent on a machine with no Tailscale can upload a source tarball and drive a deploy to a healthy hostname, the upload ceiling and what happens to a body the edge refuses are both settled and enforced by the platform rather than discovered at the edge, and the controls the tailnet was providing on this path are named and either held elsewhere or accepted in writing.
 spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `internal/config`, `internal/httpapi`, `internal/mcp`, `internal/auth`, `internal/identity`, `internal/domain`, `internal/store`, `internal/uploads`, `internal/web`, `cmd/deployer`, `deploy/` (the `cloudflared` ConfigMap), plus one DNS record

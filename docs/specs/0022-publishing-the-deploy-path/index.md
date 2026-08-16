@@ -1,7 +1,7 @@
 # 0022. Publishing the deploy path
 
 **Date**: 2026-08-16
-**Status**: In Progress
+**Status**: Accepted
 
 ## Summary
 

@@ -54,6 +54,12 @@ spec 0022, on the deploy host; it is 404 on the console hostname.
   upload endpoint and the ceiling, both derived from configuration rather than
   written as literals, so the text cannot drift from the platform. See the root
   [AGENTS.md](../../AGENTS.md) rule.
+- **`New` falls back to a private limiter, and that fallback shares nothing.**
+  Production passes one instance to both `mcp.New` and `httpapi.New`, so one
+  caller's burst is one budget. A harness that omits `Options.Limiter` is bounded
+  but holds no shared budget, so it proves nothing about AC-15; build the limiter
+  and pass it, the way `deployPathHarness` in `lockout_test.go` does. The lockout
+  is unaffected either way, since it lives in `auth.Authenticator`.
 
 ## Tests
 
