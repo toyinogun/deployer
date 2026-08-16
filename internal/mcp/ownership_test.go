@@ -7,6 +7,7 @@ package mcp_test
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -200,6 +201,16 @@ type forTool struct{ svc *uploads.Service }
 
 func (f forTool) Get(ctx context.Context, id string) (mcp.Upload, error) {
 	up, err := f.svc.Get(ctx, id)
+	if err != nil {
+		return mcp.Upload{}, err
+	}
+	return mcp.Upload{
+		ID: up.ID, AccountID: up.AccountID, ExpiresAt: up.ExpiresAt, Redeemed: up.Redeemed,
+	}, nil
+}
+
+func (f forTool) Accept(ctx context.Context, accountID string, body io.Reader) (mcp.Upload, error) {
+	up, err := f.svc.Accept(ctx, accountID, body)
 	if err != nil {
 		return mcp.Upload{}, err
 	}
