@@ -1,7 +1,7 @@
 # 0024. OAuth for clients that will not hold a token
 
 **Date**: 2026-08-16
-**Status**: Proposed
+**Status**: In Progress
 
 The decision record (context, options considered, rationale) is in [rationale.md](rationale.md).
 
@@ -215,7 +215,7 @@ None. This feature adds no `DEPLOYER_*` variable (AC-30).
 
 Tracer Bullet, the project default. A thin thread through all five endpoints goes first and is proven against a real Claude desktop connection before any bound is thickened, because the parts most likely to be wrong are the ones no unit test can reach: the exact metadata shapes, the redirect URI Claude actually sends, and whether the two hostname registrations behave as expected through the tunnel.
 
-1. Migration `00007` with both tables, the new column and both indexes, plus the sqlc queries the later steps call, satisfies **AC-29**.
+1. [x] Migration `00007` with both tables, the new column and both indexes, plus the sqlc queries the later steps call, satisfies **AC-29**.
 2. The thin thread, end to end and no wider: both protected resource documents, the `WWW-Authenticate` header, the authorization server document, a registration endpoint, a plain approval page, and a token endpoint that mints through the new transaction backed grant path from the start, since retrofitting a transaction under a working mint is worse than building it once. Proved by adding the connector in the real Claude desktop app and driving one deploy to healthy before anything else is built, satisfies **AC-1**, **AC-2**, **AC-3**, **AC-3a**, **AC-4**, **AC-9**, **AC-16**, **AC-17**, **AC-19**, **AC-19a**, **AC-20**, **AC-25**.
 3. The refusals that keep it safe: redirect URI validation including both loopback literals, the exact comparison rule, the validation order that forbids an open redirect and the error page that leaks nothing, the PKCE requirement, the resource check at both ends, single use codes enforced by a conditional update with the replay revoke, and OAuth error codes throughout, satisfies **AC-4a**, **AC-5**, **AC-10**, **AC-10a**, **AC-10b**, **AC-10c**, **AC-11**, **AC-12**, **AC-16a**, **AC-18**, **AC-18a**, **AC-21**, **AC-24**.
 4. The person's half done properly: the approval page's real content and ordering, the loopback warning in its pinned words, Deny, the CSRF check, the suspension refusal, and the session gate returning to an authorize URL with its query intact, satisfies **AC-9a**, **AC-13**, **AC-13a**, **AC-14**, **AC-15**.

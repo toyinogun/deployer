@@ -21,9 +21,6 @@ type Minted struct {
 // caller sees. It stays because a second caller of this service should not have to
 // know the gate ran.
 func (s *Service) MintToken(ctx context.Context, account Account, name string, days int) (Minted, error) {
-	if account.Email != "" && !account.Verified {
-		return Minted{}, Fail(CodeEmailUnverified, "confirm your email address before minting a token")
-	}
 	if name == "" {
 		return Minted{}, Fail(CodeTokenNameTaken, "a token needs a name")
 	}
@@ -32,11 +29,11 @@ func (s *Service) MintToken(ctx context.Context, account Account, name string, d
 		return Minted{}, err
 	}
 
-	raw, err := NewAPIToken()
+	raw, hash, prefix, err := s.prepareMint(account)
 	if err != nil {
 		return Minted{}, err
 	}
-	view, err := s.store.MintToken(ctx, account.ID, name, HashSecret(raw), TokenPrefix(raw), expires)
+	view, err := s.store.MintToken(ctx, account.ID, name, hash, prefix, expires)
 	if errors.Is(err, ErrTokenNameTaken) {
 		return Minted{}, Fail(CodeTokenNameTaken, "you already have a live token by that name")
 	}
@@ -44,6 +41,29 @@ func (s *Service) MintToken(ctx context.Context, account Account, name string, d
 		return Minted{}, err
 	}
 	return Minted{Raw: raw, Token: view}, nil
+}
+
+// prepareMint holds the rules every path that mints a token owes, whichever way
+// the token was asked for: the verified account check, drawing the value, and
+// deriving what is stored from it. Both MintToken and Grant come through here,
+// because a rule that lives in two mint paths is a rule that will hold in one
+// (spec 0024, AC-19a).
+//
+// An unverified account is refused, because a token is exactly the thing
+// verification gates (spec 0007, AC-15). An account with no address at all is
+// the bootstrap one, which was never a person and has nothing to confirm.
+//
+// The raw value is returned to its one caller and never again. What the row
+// holds is the hash and a short non secret prefix.
+func (s *Service) prepareMint(account Account) (raw, hash, prefix string, err error) {
+	if account.Email != "" && !account.Verified {
+		return "", "", "", Fail(CodeEmailUnverified, "confirm your email address before minting a token")
+	}
+	raw, err = NewAPIToken()
+	if err != nil {
+		return "", "", "", err
+	}
+	return raw, HashSecret(raw), TokenPrefix(raw), nil
 }
 
 // MarkConnected records that this account has been handed its agent

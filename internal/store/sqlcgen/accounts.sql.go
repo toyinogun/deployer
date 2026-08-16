@@ -31,7 +31,7 @@ func (q *Queries) ClearOldAuditAddresses(ctx context.Context, cutoff string) (in
 const createAPIToken = `-- name: CreateAPIToken :one
 INSERT INTO api_tokens (id, account_id, name, token_hash, token_prefix, expires_at, created_at, updated_at)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-RETURNING id, account_id, name, token_hash, token_prefix, last_used_at, expires_at, revoked_at, created_at, updated_at
+RETURNING id, account_id, name, token_hash, token_prefix, last_used_at, expires_at, revoked_at, created_at, updated_at, oauth_client_id
 `
 
 type CreateAPITokenParams struct {
@@ -68,6 +68,7 @@ func (q *Queries) CreateAPIToken(ctx context.Context, arg CreateAPITokenParams) 
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OauthClientID,
 	)
 	return i, err
 }
@@ -190,7 +191,7 @@ func (q *Queries) InsertAuditLog(ctx context.Context, arg InsertAuditLogParams) 
 }
 
 const resolveToken = `-- name: ResolveToken :one
-SELECT accounts.id, accounts.name, accounts.disabled_at, accounts.created_at, accounts.updated_at, accounts.email, accounts.password_hash, accounts.email_verified_at, accounts.is_admin, accounts.display_name, accounts.connected_at, api_tokens.id, api_tokens.account_id, api_tokens.name, api_tokens.token_hash, api_tokens.token_prefix, api_tokens.last_used_at, api_tokens.expires_at, api_tokens.revoked_at, api_tokens.created_at, api_tokens.updated_at
+SELECT accounts.id, accounts.name, accounts.disabled_at, accounts.created_at, accounts.updated_at, accounts.email, accounts.password_hash, accounts.email_verified_at, accounts.is_admin, accounts.display_name, accounts.connected_at, api_tokens.id, api_tokens.account_id, api_tokens.name, api_tokens.token_hash, api_tokens.token_prefix, api_tokens.last_used_at, api_tokens.expires_at, api_tokens.revoked_at, api_tokens.created_at, api_tokens.updated_at, api_tokens.oauth_client_id
 FROM api_tokens
 JOIN accounts ON accounts.id = api_tokens.account_id
 WHERE api_tokens.token_hash = ?1
@@ -242,6 +243,7 @@ func (q *Queries) ResolveToken(ctx context.Context, arg ResolveTokenParams) (Res
 		&i.ApiToken.RevokedAt,
 		&i.ApiToken.CreatedAt,
 		&i.ApiToken.UpdatedAt,
+		&i.ApiToken.OauthClientID,
 	)
 	return i, err
 }
