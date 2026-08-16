@@ -470,7 +470,7 @@ spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `inter
 - [x] Verify it: `/check verify publishing the deploy path`
 - [x] Test it: `/test publishing the deploy path`
 - [x] Review it (fresh model): `/check review publishing the deploy path`
-- [ ] Document it: `/document publishing the deploy path`
+- [x] Document it: `/document publishing the deploy path`
 
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
