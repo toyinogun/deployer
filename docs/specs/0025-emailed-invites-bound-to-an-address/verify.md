@@ -6,7 +6,7 @@ _Steps derived from spec 0025 acceptance criteria and its Value sourcing table. 
 - [x] Sign in as an admin, visit `/admin/invites`, submit the mint form with a note and an empty address → the link is shown once, no message is sent, the list row reads `not sent` → AC-1
 - [x] Mint with the address `Sam@Example.Test` → the page shows the link plus one line naming `sam@example.test`, and exactly one message arrives at that address → AC-4, AC-5, AC-9
 - [x] Read that message → it carries the register link, the minting admin's display name, and the seven day expiry → AC-4
-- [ ] Open the mailed link in a clean browser and register as `sam@example.test` → the account is created and the invite becomes `spent` → AC-1, AC-4
+- [x] Open the mailed link in a clean browser and register as `sam@example.test` → the account is created and the invite becomes `spent` → AC-1, AC-4
 - [x] Open the same link and register as `mallory@example.test` → refused with the invite only sentence, byte for byte the same page and status an unknown code gets, no account created → AC-8
 - [x] Reload `/admin/invites` after that refusal → the invite is still `live` → AC-8
 - [x] Mint with `not an address` → refused `email_invalid`, no new row in the list, no message → AC-2
@@ -19,7 +19,7 @@ _Steps derived from spec 0025 acceptance criteria and its Value sourcing table. 
 
 ## Commands
 
-- [ ] `curl -X POST /v1/admin/invites -d '{"note":"x","email":"Sam@Example.com"}'` with an admin cookie → 201 carrying `email` normalized to lowercase, `sent: true`, and the link → AC-15, AC-9
+- [x] `curl -X POST /v1/admin/invites -d '{"note":"x","email":"Sam@Example.com"}'` with an admin cookie → 201 carrying `email` normalized to lowercase, `sent: true`, and the link → AC-15, AC-9
 - [x] The same call with `"email":""` → 201, `email` empty, `sent: false`, no message → AC-1, AC-15
 - [x] The same call with a malformed address → 422 `email_invalid`; with a registered address → 409 `address_registered` → AC-2, AC-3, AC-15
 - [x] `curl GET /v1/admin/invites` → each row carries `email`, empty on the unbound ones → AC-14

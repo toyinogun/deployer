@@ -518,7 +518,7 @@ spec [0025](../specs/0025-emailed-invites-bound-to-an-address/index.md)
   - [x] Both surfaces: the address field, the send outcome and the address column on the page, and the same parameter and outcome on the JSON mint — AC-5, AC-14, AC-15
   - [x] What must not regress: the shared rate limit bucket, audit rows free of the address, the code in exactly three places, the register page unchanged, and no resend path — AC-11 to AC-13, AC-17, AC-18
 code in `internal/store/invites.go`, `internal/identity/invites.go`, `internal/web/invites.go`, `internal/httpapi/inviteroutes.go`
-- [ ] Verify it: `/check verify emailed invites bound to an address`
+- [x] Verify it: `/check verify emailed invites bound to an address` — every step in `verify.md` run against the branch image on the cluster, 2026-08-16: the last two closed once the opaque origin fix was live, a bound JSON mint answering 201 with the address lowercased and `sent: true`, and the mailed link registering that address and turning the invite `spent`
 - [ ] Test it: `/test emailed invites bound to an address`
 - [ ] Review it (fresh model): `/check review emailed invites bound to an address`
 - [ ] Document it: `/document emailed invites bound to an address`
