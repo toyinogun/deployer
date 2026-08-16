@@ -114,5 +114,6 @@ Declined: argocd-gitops, sqlite-database-expert, kubernetes-specialist (registry
 - [internal/backup/AGENTS.md](internal/backup/AGENTS.md): the platform's own backup and restore, the nil service that means backups are off, and why nothing in the cluster can decrypt one.
 - [internal/identity/AGENTS.md](internal/identity/AGENTS.md): the pure account rules, the closed code set, the two different things the limiter calls an address, and why a sign in refusal belongs to `Service.Login` rather than a handler.
 - [internal/httpapi/AGENTS.md](internal/httpapi/AGENTS.md): the two audiences sharing one package, the machine upload path and the cookie backed identity routes, and why every `/v1` route answers 404 on the console hostname.
+- [internal/auth/AGENTS.md](internal/auth/AGENTS.md): the one place a credential becomes an account, the gate both routes share, the closed audit action set, and the single derivation of the visitor's address.
 
 _Drafted by /audit from the repo, worth a quick human pass. Edit freely: once a line stops matching this draft, later runs treat it as curated and will flag rather than overwrite it._
