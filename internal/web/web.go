@@ -108,10 +108,13 @@ type Server struct {
 	backupRuns BackupRuns
 	opts       Options
 
-	// origins is every address a POST may claim to come from, each reduced to
-	// scheme and host and precomputed because every POST compares against them.
-	// The console's own address, and nothing else: the pages answer on no other
-	// name (spec 0021, AC-21).
+	// origins is the configured half of the addresses a POST may claim to come
+	// from, reduced to scheme and host and precomputed because every POST
+	// compares against it. The console's own address is the only one that can be
+	// known ahead of a request; the pages also answer on the bare pattern, so
+	// every other name they serve, the tailnet and the LAN included, is accepted
+	// by the same origin comparison in acceptedOrigin rather than from this list
+	// (spec 0021, AC-21).
 	origins []string
 	// secure is the cookie's Secure flag, derived from ConsoleURL exactly as the
 	// JSON surface derives it, so the two cannot hand out different cookies.
