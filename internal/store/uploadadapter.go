@@ -88,12 +88,13 @@ func (a UploadStore) SetFetchToken(ctx context.Context, uploadID, fetchTokenHash
 // RecordAudit writes one authorization outcome.
 func (a AuthStore) RecordAudit(ctx context.Context, e auth.Audit) error {
 	return a.s.RecordAudit(ctx, AuditEntry{
-		AccountID:  e.AccountID,
-		Action:     e.Action,
-		TargetType: e.TargetType,
-		TargetID:   e.TargetID,
-		Allowed:    e.Allowed,
-		Reason:     e.Reason,
+		AccountID:     e.AccountID,
+		Action:        e.Action,
+		TargetType:    e.TargetType,
+		TargetID:      e.TargetID,
+		Allowed:       e.Allowed,
+		Reason:        e.Reason,
+		ClientAddress: e.ClientAddress,
 	})
 }
 

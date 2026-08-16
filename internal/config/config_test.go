@@ -15,6 +15,7 @@ var valid = map[string]string{
 	"DEPLOYER_REGISTRY_USER":     "pusher",
 	"DEPLOYER_REGISTRY_PASSWORD": "s3cret",
 	"DEPLOYER_APP_DOMAIN":        "apps.example.ts.net",
+	"DEPLOYER_CONSOLE_HOST":      "console.apps.example.ts.net",
 	"DEPLOYER_NAMESPACE":         "deployer-system",
 	"DEPLOYER_PUBLIC_URL":        "https://deployer.example.ts.net",
 	"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",

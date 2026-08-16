@@ -71,6 +71,14 @@ type Options struct {
 	// MaxAppsPerAccount is how many live apps one account may hold, the same
 	// number deploy_app is refused against (spec 0016, AC-10, AC-11).
 	MaxAppsPerAccount int
+	// ConsoleHost is the public console hostname. Every public route is
+	// registered a second time under it and everything else on that host answers
+	// 404, which is what keeps the deploy path and the admin surface off the open
+	// internet (spec 0021, AC-2, AC-2a).
+	ConsoleHost string
+	// ConsoleURL is the console's own base address, the second origin a page POST
+	// is accepted from (spec 0021, AC-21).
+	ConsoleURL string
 }
 
 // Server is the page surface.
@@ -92,9 +100,10 @@ type Server struct {
 	backupRuns BackupRuns
 	opts       Options
 
-	// origin is PublicURL reduced to scheme and host, precomputed because every
-	// POST compares against it.
-	origin string
+	// origins is every address a POST may claim to come from, each reduced to
+	// scheme and host and precomputed because every POST compares against them.
+	// Two of them now: the tailnet name and the console (spec 0021, AC-21).
+	origins []string
 	// secure is the cookie's Secure flag, derived from PublicURL exactly as the
 	// JSON surface derives it, so the two cannot hand out different cookies.
 	secure bool
@@ -109,42 +118,76 @@ func New(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, dat
 	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, suspension: suspension,
 		backups: backups, backupRuns: backupRuns, opts: opts}
 	if u, err := url.Parse(opts.PublicURL); err == nil && u.Host != "" {
-		s.origin = u.Scheme + "://" + u.Host
+		s.origins = append(s.origins, u.Scheme+"://"+u.Host)
 		s.secure = u.Scheme == "https"
+	}
+	if u, err := url.Parse(opts.ConsoleURL); err == nil && u.Host != "" {
+		s.origins = append(s.origins, u.Scheme+"://"+u.Host)
 	}
 	return s
 }
 
 // Register adds every page route to mux. The paths are the root ones: /v1 and
 // /mcp are untouched by this package.
+//
+// Every public route is registered twice, once bare and once prefixed with the
+// console host, and one `<console host>/` pattern catches everything else on
+// that host and answers 404. The mux's own most specific match rule then decides,
+// so there is one routing table rather than a table plus a classifier that can
+// drift from it (spec 0021, AC-2a).
+//
+// The direction this fails in is the safe one. A future route nobody remembers
+// to register twice is private, because registration is opt in: it answers on the
+// tailnet and 404s on the console. The admin routes below are the same mechanism
+// used on purpose, registered once and so absent from the console entirely.
+//
+// The method is part of the doubling, not decoration. A pattern registered as
+// `GET <console>/login` leaves `POST <console>/login` to the catch all, which
+// would 404 the sign in form on the one host it exists to serve.
 func (s *Server) Register(mux *http.ServeMux) {
-	mux.HandleFunc("GET /{$}", s.root)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", staticHandler()))
+	// public is every route the open internet may reach. Each is registered on
+	// both hosts by the loop below.
+	public := []struct {
+		pattern string
+		handler http.Handler
+	}{
+		{"GET /{$}", http.HandlerFunc(s.root)},
+		{"GET /static/", http.StripPrefix("/static/", staticHandler())},
 
-	mux.HandleFunc("GET /login", s.loginPage)
-	mux.HandleFunc("POST /login", s.loginSubmit)
-	mux.HandleFunc("GET /register", s.registerPage)
-	mux.HandleFunc("POST /register", s.registerSubmit)
-	mux.HandleFunc("GET /verify", s.verifyPage)
-	mux.HandleFunc("GET /unverified", s.unverifiedPage)
-	mux.HandleFunc("POST /resend", s.resendSubmit)
-	mux.HandleFunc("GET /forgot", s.forgotPage)
-	mux.HandleFunc("POST /forgot", s.forgotSubmit)
-	mux.HandleFunc("GET /reset", s.resetPage)
-	mux.HandleFunc("POST /reset", s.resetSubmit)
-	mux.HandleFunc("POST /logout", s.logout)
+		{"GET /login", http.HandlerFunc(s.loginPage)},
+		{"POST /login", http.HandlerFunc(s.loginSubmit)},
+		{"GET /register", http.HandlerFunc(s.registerPage)},
+		{"POST /register", http.HandlerFunc(s.registerSubmit)},
+		{"GET /verify", http.HandlerFunc(s.verifyPage)},
+		{"GET /unverified", http.HandlerFunc(s.unverifiedPage)},
+		{"POST /resend", http.HandlerFunc(s.resendSubmit)},
+		{"GET /forgot", http.HandlerFunc(s.forgotPage)},
+		{"POST /forgot", http.HandlerFunc(s.forgotSubmit)},
+		{"GET /reset", http.HandlerFunc(s.resetPage)},
+		{"POST /reset", http.HandlerFunc(s.resetSubmit)},
+		{"POST /logout", http.HandlerFunc(s.logout)},
 
-	mux.HandleFunc("GET /apps", s.appsPage)
-	mux.HandleFunc("GET /apps/{slug}", s.appPage)
-	mux.HandleFunc("GET /apps/{slug}/releases", s.releasesPage)
-	mux.HandleFunc("GET /apps/{slug}/logs", s.logsPage)
-	mux.HandleFunc("GET /apps/{slug}/config", s.configPage)
-	mux.HandleFunc("POST /apps/{slug}/config/{key}/reveal", s.configReveal)
+		{"GET /apps", http.HandlerFunc(s.appsPage)},
+		{"GET /apps/{slug}", http.HandlerFunc(s.appPage)},
+		{"GET /apps/{slug}/releases", http.HandlerFunc(s.releasesPage)},
+		{"GET /apps/{slug}/logs", http.HandlerFunc(s.logsPage)},
+		{"GET /apps/{slug}/config", http.HandlerFunc(s.configPage)},
+		{"POST /apps/{slug}/config/{key}/reveal", http.HandlerFunc(s.configReveal)},
 
-	mux.HandleFunc("GET /tokens", s.tokensPage)
-	mux.HandleFunc("POST /tokens", s.tokenMint)
-	mux.HandleFunc("POST /tokens/{id}/revoke", s.tokenRevoke)
+		{"GET /tokens", http.HandlerFunc(s.tokensPage)},
+		{"POST /tokens", http.HandlerFunc(s.tokenMint)},
+		{"POST /tokens/{id}/revoke", http.HandlerFunc(s.tokenRevoke)},
+	}
+	for _, route := range public {
+		mux.Handle(route.pattern, route.handler)
+		if s.opts.ConsoleHost != "" {
+			mux.Handle(withHost(route.pattern, s.opts.ConsoleHost), route.handler)
+		}
+	}
 
+	// The admin surface, registered once. Absent from the console host, so it is
+	// unreachable from the open internet by routing rather than by a check that
+	// could be forgotten (AC-2).
 	mux.HandleFunc("GET /admin/accounts", s.adminAccountsPage)
 	mux.HandleFunc("POST /admin/accounts/{id}/disable", s.adminDisable)
 	mux.HandleFunc("POST /admin/accounts/{id}/enable", s.adminEnable)
@@ -156,6 +199,54 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /admin/invites", s.adminInvitesPage)
 	mux.HandleFunc("POST /admin/invites", s.adminInviteMint)
 	mux.HandleFunc("POST /admin/invites/{id}/revoke", s.adminInviteRevoke)
+
+	// The catch all, last. It carries no method, so it takes every verb, and it
+	// is a subtree pattern, so every path the loop above did not claim on this
+	// host lands here. A refusal writes no audit row: no caller has been
+	// identified at this point, so there is nobody to record it against (AC-2).
+	if s.opts.ConsoleHost != "" {
+		mux.HandleFunc(s.opts.ConsoleHost+"/", func(w http.ResponseWriter, r *http.Request) {
+			http.NotFound(w, r)
+		})
+	}
+}
+
+// withHost puts host in front of a mux pattern's path, keeping the method where
+// the pattern has one. `GET /login` under `console.example.org` becomes
+// `GET console.example.org/login`, which is the form the standard mux has taken
+// since Go 1.22.
+func withHost(pattern, host string) string {
+	method, path, found := strings.Cut(pattern, " ")
+	if !found {
+		return host + pattern
+	}
+	return method + " " + host + path
+}
+
+// onConsole reports whether this request arrived on the public console hostname.
+//
+// It is the gate on reading CF-Connecting-IP and on showing the admin navigation,
+// and it is deliberately a plain host comparison rather than anything cleverer:
+// the routing split is enforced by the mux, and this only decides what a request
+// that already reached a public page is allowed to be attributed to and shown.
+// r.Host carries the port when one is in the request line, so it is stripped
+// before comparing.
+func (s *Server) onConsole(r *http.Request) bool {
+	return s.opts.ConsoleHost != "" && hostOnly(r.Host) == s.opts.ConsoleHost
+}
+
+// hostOnly drops the port from a Host header value. A bare IPv6 literal keeps
+// its brackets and its colons, which is why this looks for the last colon after
+// the closing bracket rather than the first colon anywhere.
+func hostOnly(host string) string {
+	if i := strings.LastIndex(host, "]"); i >= 0 {
+		host = host[:i+1]
+		return host
+	}
+	if h, _, found := strings.Cut(host, ":"); found {
+		return h
+	}
+	return host
 }
 
 // root sends a visitor to the one page that is useful to them: the app list with

@@ -173,7 +173,7 @@ func TestAPostWithoutTheCookieIsRefusedAndComesBackAsTheForm(t *testing.T) {
 		t.Fatalf("a post with no cookie: got %d, want 403", rec.Code)
 	}
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.SessionCookie && c.Value != "" {
+		if auth.IsSessionCookie(c.Name) && c.Value != "" {
 			t.Error("a refused post signed the person in anyway")
 		}
 	}

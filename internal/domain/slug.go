@@ -28,6 +28,14 @@ func DeriveSlug(name string) string {
 // DeriveSlugWithSuffix is DeriveSlug with the suffix supplied, so a retry can
 // pass a fresh one and a test can pin it.
 func DeriveSlugWithSuffix(name, suffix string) string {
+	return DeriveBase(name) + "-" + suffix
+}
+
+// DeriveBase is the readable half of a slug: everything DeriveSlug produces
+// before the dash and the random suffix. It is what a person reads off an app's
+// hostname, which is why the reserved label check in reserved.go asks about this
+// rather than about the whole slug (spec 0021, AC-7).
+func DeriveBase(name string) string {
 	var b strings.Builder
 	dashPending := false
 	for _, r := range strings.ToLower(name) {
@@ -50,7 +58,7 @@ func DeriveSlugWithSuffix(name, suffix string) string {
 		// A name of pure punctuation still has to produce a usable hostname.
 		base = "app"
 	}
-	return base + "-" + suffix
+	return base
 }
 
 // RandomSuffix returns a fresh SlugSuffixLen character slug suffix.

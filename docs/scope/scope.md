@@ -62,7 +62,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 19 | Account suspension | Slice 12 | done |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | done |
 | 21 | Platform backup & restore | Slice 12 | in-progress |
-| 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | planned |
+| 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | in-progress |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
 
 ## Foundations
@@ -433,11 +433,22 @@ spec [0020](../specs/0020-platform-backup-restore/index.md) · code in `internal
 
 The flip. One manifest change plus the pieces that only matter once the traffic is real, kept apart from slice 12 so the irreversible step lands on top of controls that already work.
 
-### 22. Public edge: tunnel, real certificates & the console hostname · needs a decision
+### 22. Public edge: tunnel, real certificates & the console hostname · in-progress
 The control plane sits on the `tailscale` ingress class and the wildcard certificate is still issued by the staging authority. This gives the console a name of its own, moves both onto certificates a browser trusts, and puts a tunnel in front so your home address is never in DNS. It also has to solve the smaller thing the tunnel breaks: behind a proxy the rate limiter and the audit trail see the proxy, not the visitor.
-From spec 0019: this feature has to add its tunnel's namespace as an ingress peer on the new `deployer-system` policy, or the console goes dark on the flip, since that policy's only inbound peer today is the `tailscale` namespace it is replacing.
+Spec 0021 narrows the row twice and confirms it once. The console goes public and the MCP and upload endpoints do not, because the deploy path is the surface that runs code on your cluster, so joining stops needing a VPN for three of its four steps rather than all four. The admin pages stay on the tailnet too, which means two hostnames over one server and signing in on each. And the row's warning from spec 0019 is right: the tunnel's own namespace is the new `deployer-system` peer, on port 8080, because the console reaches the control plane Service directly rather than through `ingress-nginx`. That direct origin is what lets network policy prove a request carrying the visitor's address really came through the tunnel.
 **Done when:** from a machine with no Tailscale the console answers on its own public hostname with a trusted certificate and a deployed app answers on its wildcard hostname, the console name is reserved so no app slug can ever claim it, your home address appears in no DNS record or certificate, the rate limiter and audit rows carry the visitor's real address, and cluster administration stays on the tailnet.
-- [ ] Design it (spec): `/architect public edge`
+spec [0021](../specs/0021-public-edge/index.md) · code in `internal/config`, `internal/web`, `internal/httpapi`, `internal/domain`, `internal/auth`, `internal/mcp`, `internal/store` (migration `00005`), `internal/tunnelwatch`, `deploy/` (the `cloudflared-*` manifests), plus the `ClusterIssuer` in `k3sprox-gitops`
+- [x] Design it (spec): `/architect public edge`
+- [ ] Build it: `/develop public edge`
+  - [x] The split and the name: the console host setting with its validation and derived URL, the host qualified mux registrations with their catch all, the hidden admin links, and the reserved label set with its reason code — AC-1, AC-2, AC-2a, AC-3, AC-4, AC-5, AC-6, AC-7
+  - [x] Seeing the visitor: the single header derivation shared by both surfaces, migration `00005` with the address on `auth.Audit`, and the daily sweep that nulls it after the retention window — AC-15, AC-15b, AC-16, AC-17, AC-18, AC-18a
+  - [x] The sibling subdomain problem: the `__Host-` session cookie with its plain HTTP fallback, the two accepted origins, and the proof the CSRF pre token stays host scoped — AC-19, AC-20, AC-21, AC-21a
+  - [ ] The tunnel: the namespace peer on the control plane policy, then the tunnel itself with two origins, its own policy, the production certificate, and the health mail on the existing Resend path — AC-8, AC-9, AC-9a, AC-10, AC-11, AC-12, AC-22, AC-22a, AC-23, AC-23a, AC-24, AC-25 · everything in this repository is built; the production `ClusterIssuer` move lives in `k3sprox-gitops` and is still owed (AC-8)
+  - [ ] The flip, last and alone: prove everything above from the tailnet with a host header override, then change the two DNS records and retire the `/32` host route — AC-13, AC-14, AC-15a, AC-26
+- [ ] Verify it: `/check verify public edge` — includes AC-14, the console and an app answered from a machine with no Tailscale
+- [ ] Test it: `/test public edge`
+- [ ] Review it (fresh model): `/check review public edge`
+- [ ] Document it: `/document public edge`
 
 ### 23. Joining: the ready to paste agent configuration · needs a decision
 Joining is still a developer's job even though using the platform is not. Removing Tailscale takes it from four steps to three, and the step that actually goes wrong is the last one: a token is a password that grants deploys on your cluster, and pasting a secret into a configuration file by hand is exactly what a non technical person mishandles. This hands them one block to copy rather than a token and a format to work out.
@@ -447,6 +458,7 @@ Joining is still a developer's job even though using the platform is not. Removi
 ## Deferred
 Out of scope for the current build pass, kept so the plan stays honest.
 
+- **Publishing the deploy path**: the MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one · needs a decision
 - **App databases**: a provisioned Postgres database and role per app · needs a decision
 - **Persistent volumes**: disk that survives a restart, for apps that are not stateless · needs a decision
 - **Public exposure per app**: a real public hostname with a certificate, chosen per app. Narrowed by slice 13: the shared wildcard becomes publicly reachable there, so what is left here is an app choosing its own name rather than taking its slug · needs a decision

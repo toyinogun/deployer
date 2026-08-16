@@ -95,7 +95,12 @@ type shell struct {
 	// name is deliberately not here: auth.Account carries the platform's own
 	// internal account name rather than the person's, and showing that is how
 	// the sidebar ended up reading out an account id.
-	Email   string
+	Email string
+	// IsAdmin drives the administration group in the navigation, and it is not
+	// the same question as whether the account is an administrator. On the public
+	// console every admin page answers 404, so an administrator signed in there
+	// sees no administration group: the split is visible in the interface rather
+	// than discovered as an error (spec 0021, AC-5).
 	IsAdmin bool
 	CSRF    string
 	Nav     string
@@ -127,7 +132,7 @@ func (s *Server) render(w http.ResponseWriter, r *http.Request, account auth.Acc
 		Shell: shell{
 			SignedIn: true,
 			Email:    account.Email,
-			IsAdmin:  account.IsAdmin,
+			IsAdmin:  account.IsAdmin && !s.onConsole(r),
 			CSRF:     s.csrfToken(sess.ID),
 			Nav:      nav,
 		},

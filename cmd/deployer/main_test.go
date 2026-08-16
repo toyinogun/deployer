@@ -231,6 +231,7 @@ func startServer(t *testing.T, dbPath string) string {
 	t.Setenv("DEPLOYER_REGISTRY_USER", "deployer")
 	t.Setenv("DEPLOYER_REGISTRY_PASSWORD", "not-a-real-password")
 	t.Setenv("DEPLOYER_APP_DOMAIN", "deploy.example.test")
+	t.Setenv("DEPLOYER_CONSOLE_HOST", "console.deploy.example.test")
 	t.Setenv("DEPLOYER_NAMESPACE", "deployer-system")
 	t.Setenv("DEPLOYER_POD_NAME", "deployer-test-0")
 	t.Setenv("DEPLOYER_PUBLIC_URL", "https://deployer.example.test")
@@ -399,6 +400,7 @@ func TestReconcileOptions_carriesEveryDurationAcrossFromTheConfig(t *testing.T) 
 			"DEPLOYER_REGISTRY_USER":     "pusher",
 			"DEPLOYER_REGISTRY_PASSWORD": "s3cret",
 			"DEPLOYER_APP_DOMAIN":        "apps.example.ts.net",
+			"DEPLOYER_CONSOLE_HOST":      "console.apps.example.ts.net",
 			"DEPLOYER_NAMESPACE":         "deployer-system",
 			"DEPLOYER_PUBLIC_URL":        "https://deployer.example.ts.net",
 			"DEPLOYER_INTERNAL_URL":      "http://deployer.deployer-system.svc",

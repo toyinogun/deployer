@@ -107,6 +107,14 @@ type Audit struct {
 	TargetID   string
 	Allowed    bool
 	Reason     string
+	// ClientAddress is the visitor the action was attributed to, from
+	// ClientAddress on the request that caused it. Empty on a row the platform
+	// wrote itself, which is written as null: a suspension sweep, a reconcile
+	// drive and a scheduled backup run have no visitor to record (spec 0021,
+	// AC-17). It is a new field rather than a new parameter so every current call
+	// site still compiles, and each one that has a request sets it where it
+	// builds this struct.
+	ClientAddress string
 }
 
 // Auditor records authorization outcomes. A failure to audit is logged and

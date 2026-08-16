@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"net/url"
+	"slices"
 
 	"github.com/toyinogun/deployer/internal/auth"
 )
@@ -56,6 +57,13 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request, account auth.
 // This is the whole guard on the pre authentication forms, which have no session
 // to bind a synchroniser token to. That is stated knowingly in the spec's
 // security model rather than papered over with a pre session cookie.
+//
+// The platform answers on two names now, the tailnet one and the console one, so
+// the accepted set is two rather than one and a post carrying a third origin is
+// still refused (spec 0021, AC-21). Widening the set does not weaken the pre
+// authentication CSRF pair: that cookie carries the `__Host-` prefix, so it is
+// host scoped and each hostname mints its own nonce. A token minted on one host
+// cannot satisfy a post to the other (AC-21a).
 func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account auth.Account) bool {
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 		s.refuseCSRF(w, r, account, "origin_cross_site")
@@ -63,7 +71,7 @@ func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account aut
 	}
 	if origin := r.Header.Get("Origin"); origin != "" {
 		u, err := url.Parse(origin)
-		if err != nil || s.origin == "" || u.Scheme+"://"+u.Host != s.origin {
+		if err != nil || !s.acceptedOrigin(u.Scheme+"://"+u.Host) {
 			s.refuseCSRF(w, r, account, "origin_mismatch")
 			return false
 		}
@@ -71,12 +79,20 @@ func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account aut
 	return true
 }
 
+// acceptedOrigin reports whether a POST may claim to come from this address. An
+// empty set accepts nothing, which is what an unparseable PublicURL leaves
+// behind and is the right direction to fail in.
+func (s *Server) acceptedOrigin(origin string) bool {
+	return slices.Contains(s.origins, origin)
+}
+
 // refuseCSRF records the refusal and renders the 403 page. The reason names
 // which of the two checks failed, because a form that stopped working and an
 // attempt from elsewhere look identical without it.
 func (s *Server) refuseCSRF(w http.ResponseWriter, r *http.Request, account auth.Account, reason string) {
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionPageCSRF, Reason: reason,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionPageCSRF, Reason: reason,
 	})
 	s.renderPublic(w, r, http.StatusForbidden, "message", messagePage{
 		Title:   "That form could not be accepted",

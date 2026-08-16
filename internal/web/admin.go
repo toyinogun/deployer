@@ -68,7 +68,8 @@ func (s *Server) adminDisable(w http.ResponseWriter, r *http.Request) {
 	// lives here too (spec 0018, AC-17).
 	if target == admin.ID {
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "account", TargetID: target, Reason: "suspend: self",
 		})
 		s.renderAdmin(w, r, admin, sess, http.StatusUnprocessableEntity,
@@ -84,7 +85,8 @@ func (s *Server) adminDisable(w http.ResponseWriter, r *http.Request) {
 	typed := strings.TrimSpace(r.PostFormValue("confirm_email"))
 	if !strings.EqualFold(typed, account.Email) {
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "account", TargetID: target, Reason: "suspend: confirmation_mismatch",
 		})
 		s.renderAdmin(w, r, admin, sess, http.StatusUnprocessableEntity,
@@ -197,14 +199,16 @@ func (s *Server) adminRevokeToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "api_token", TargetID: tokenID, Reason: "revoke: " + string(code),
 		})
 		s.renderAdmin(w, r, admin, sess, statusFor(code), "There is no token by that id on that account.")
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "api_token", TargetID: tokenID, Allowed: true, Reason: "revoke",
 	})
 	http.Redirect(w, r, "/admin/accounts", http.StatusSeeOther)
@@ -221,7 +225,8 @@ func (s *Server) adminFailure(w http.ResponseWriter, r *http.Request, admin auth
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "account", TargetID: target, Reason: action + ": " + string(code),
 	})
 	s.renderAdmin(w, r, admin, sess, http.StatusNotFound, "There is no account by that id.")
@@ -251,7 +256,8 @@ func (s *Server) renderAdmin(w http.ResponseWriter, r *http.Request, admin auth.
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "accounts", Allowed: true, Reason: "list",
 	})
 

@@ -103,3 +103,39 @@ func TestAValidCallStillPassesTheSchema(t *testing.T) {
 		t.Errorf("the call was refused with %q, want it to pass", resultText(res))
 	}
 }
+
+// TestDeployAppRefusesAReservedNameWithTheReasonCode is AC-6 of spec 0021. The
+// refusal has to reach a caller as the closed reason code over a real client and
+// server session: a handler called directly never crosses the tool's argument
+// schema, so a schema that refused the call first would hand back a validation
+// string and still pass the suite.
+func TestDeployAppRefusesAReservedNameWithTheReasonCode(t *testing.T) {
+	// covers: AC-6
+	s, _, account := configServer()
+	res := callOverTheWire(t, s, account, "deploy_app", map[string]any{
+		"name":      "console",
+		"upload_id": "upl_1",
+	})
+	if !res.IsError {
+		t.Fatalf("the call was accepted, want a refusal")
+	}
+	got := resultText(res)
+	if !strings.HasPrefix(got, string(domain.ReasonAppNameReserved)) {
+		t.Errorf("the refusal reads %q, want it to start with %s", got, domain.ReasonAppNameReserved)
+	}
+}
+
+// TestDeployAppStillAcceptsANameThatMerelyContainsAReservedLabel keeps the
+// refusal narrow. The check is on the whole derived base, so a name that starts
+// with a reserved label is not the same as one that is it.
+func TestDeployAppStillAcceptsANameThatMerelyContainsAReservedLabel(t *testing.T) {
+	// covers: AC-7
+	s, _, account := configServer()
+	res := callOverTheWire(t, s, account, "deploy_app", map[string]any{
+		"name":      "console-shop",
+		"upload_id": "upl_1",
+	})
+	if res.IsError {
+		t.Errorf("a name that merely starts with a reserved label was refused: %s", resultText(res))
+	}
+}

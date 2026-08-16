@@ -29,14 +29,16 @@ func (i *Identity) mintToken(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: account.ID, Action: auth.ActionTokenMint, Reason: string(code),
+			ClientAddress: i.clientAddress(r),
+			AccountID:     account.ID, Action: auth.ActionTokenMint, Reason: string(code),
 		})
 		i.fail(ctx, w, err)
 		return
 	}
 
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionTokenMint,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionTokenMint,
 		TargetType: "api_token", TargetID: minted.Token.ID, Allowed: true,
 	})
 	writeJSON(ctx, w, http.StatusCreated, map[string]any{
@@ -78,14 +80,16 @@ func (i *Identity) revokeToken(w http.ResponseWriter, r *http.Request) {
 	if err := i.svc.RevokeToken(ctx, account.ID, tokenID); err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: account.ID, Action: auth.ActionTokenRevoke,
+			ClientAddress: i.clientAddress(r),
+			AccountID:     account.ID, Action: auth.ActionTokenRevoke,
 			TargetType: "api_token", TargetID: tokenID, Reason: string(code),
 		})
 		i.fail(ctx, w, err)
 		return
 	}
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionTokenRevoke,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionTokenRevoke,
 		TargetType: "api_token", TargetID: tokenID, Allowed: true,
 	})
 	w.WriteHeader(http.StatusNoContent)
@@ -116,7 +120,8 @@ func (i *Identity) adminListAccounts(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "accounts", Allowed: true, Reason: "list",
 	})
 	writeJSON(ctx, w, http.StatusOK, map[string]any{"accounts": bodies})
@@ -156,7 +161,8 @@ func (i *Identity) setDisabled(w http.ResponseWriter, r *http.Request, disabled 
 	// (spec 0018, AC-17, AC-19).
 	if disabled && target == admin.ID {
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: i.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "account", TargetID: target, Reason: "suspend: self",
 		})
 		writeError(ctx, w, http.StatusUnprocessableEntity, "an admin cannot suspend their own account")
@@ -170,7 +176,8 @@ func (i *Identity) setDisabled(w http.ResponseWriter, r *http.Request, disabled 
 	if err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: i.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "account", TargetID: target, Reason: action + ": " + string(code),
 		})
 		i.fail(ctx, w, err)
@@ -197,14 +204,16 @@ func (i *Identity) adminRevokeToken(w http.ResponseWriter, r *http.Request) {
 	if err := i.svc.RevokeTokenOf(ctx, target, tokenID); err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: i.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "api_token", TargetID: tokenID, Reason: "revoke: " + string(code),
 		})
 		i.fail(ctx, w, err)
 		return
 	}
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "api_token", TargetID: tokenID, Allowed: true, Reason: "revoke",
 	})
 	w.WriteHeader(http.StatusNoContent)

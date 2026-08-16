@@ -278,7 +278,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionLogout, Allowed: true,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionLogout, Allowed: true,
 	})
 	s.clearSessionCookie(w)
 	http.Redirect(w, r, "/login", http.StatusSeeOther)

@@ -88,10 +88,17 @@ func TestTheControlPlaneFenceNeverPolicesEgress(t *testing.T) {
 	}
 }
 
-// AC-12: exactly three ways in, in order. The count is the assertion that
-// matters most, because a fourth rule is how an exception gets smuggled in.
+// AC-12, and spec 0021 AC-22: exactly four ways in, in order. The count is the
+// assertion that matters most, because an extra rule is how an exception gets
+// smuggled in.
 //
-// Three, not four: the node peer that used to sit second is gone. It was four
+// The fourth is the Cloudflare tunnel's namespace, added by spec 0021. It is
+// what makes CF-Connecting-IP trustworthy on the console hostname: the tunnel
+// reaches the deployer Service directly, so a request arriving on that hostname
+// really did come through it. ingress-nginx is not here and must not be, which
+// TestTheControlPlaneFenceIsNotBehindTheSharedIngress pins on its own.
+//
+// The node peer that used to sit second is gone. It was four
 // /32 entries and it admitted nothing, because Cilium settles node traffic onto
 // reserved identities before a CIDR rule is read. The nodes are now entities in
 // deployer-system-cilium-networkpolicy.yaml, and this name changed with the
@@ -107,10 +114,11 @@ func TestTheControlPlaneFenceNeverPolicesEgress(t *testing.T) {
 // Every port pinned here is the destination pod's own container port. Cilium
 // translates a ClusterIP address in eBPF before policy is evaluated, so the
 // platform Service's port 80 would permit nothing at all.
-func TestTheControlPlaneIngressIsTheTailnetTheBuildsAndItself(t *testing.T) {
+func TestTheControlPlaneIngressIsTheTailnetTheTunnelTheBuildsAndItself(t *testing.T) {
 	p := controlPlanePolicies(t)["control-plane-allow"]
-	if len(p.Spec.Ingress) != 3 {
-		t.Fatalf("ingress rules = %d, want exactly 3 (tailnet, builds, the control plane pod)", len(p.Spec.Ingress))
+	if len(p.Spec.Ingress) != 4 {
+		t.Fatalf("ingress rules = %d, want exactly 4 (tailnet, the tunnel, builds, the control plane pod)",
+			len(p.Spec.Ingress))
 	}
 
 	// The Tailscale ingress proxy, on 8080 alone. Console traffic never has
@@ -124,8 +132,20 @@ func TestTheControlPlaneIngressIsTheTailnetTheBuildsAndItself(t *testing.T) {
 	}
 	assertPorts(t, "tailnet", tailnet.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {8080}})
 
+	// The Cloudflare tunnel's namespace, on 8080 alone. This is the peer the
+	// console arrives through, and the reason the platform may believe the
+	// address header on that hostname (spec 0021, AC-15a, AC-22).
+	tunnel := p.Spec.Ingress[1]
+	if len(tunnel.From) != 1 || tunnel.From[0].NamespaceSelector == nil || tunnel.From[0].PodSelector != nil {
+		t.Fatalf("tunnel peer = %+v, want one namespace selector alone", tunnel.From)
+	}
+	if got := tunnel.From[0].NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; got != "deployer-edge" {
+		t.Errorf("tunnel namespace = %q, want deployer-edge", got)
+	}
+	assertPorts(t, "the tunnel", tunnel.Ports, map[corev1.Protocol][]int32{corev1.ProtocolTCP: {8080}})
+
 	// The two build namespaces, mirroring the egress rules they already carry.
-	builds := p.Spec.Ingress[1]
+	builds := p.Spec.Ingress[2]
 	wantBuilds := []string{"deployer-builds", "deployer-builds-dockerfile"}
 	if len(builds.From) != len(wantBuilds) {
 		t.Fatalf("build peers = %d, want exactly %d", len(builds.From), len(wantBuilds))
@@ -145,7 +165,7 @@ func TestTheControlPlaneIngressIsTheTailnetTheBuildsAndItself(t *testing.T) {
 	// registry on 5000. A namespaceSelector beside this podSelector would widen
 	// it from this namespace to every namespace carrying the label, so its
 	// absence is the assertion rather than an omission.
-	self := p.Spec.Ingress[2]
+	self := p.Spec.Ingress[3]
 	if len(self.From) != 1 || self.From[0].PodSelector == nil || self.From[0].NamespaceSelector != nil {
 		t.Fatalf("in namespace peer = %+v, want one pod selector alone", self.From)
 	}
@@ -195,5 +215,30 @@ func assertIngressOnly(t *testing.T, name string, p networkingv1.NetworkPolicy) 
 	if len(p.Spec.PolicyTypes) != 1 || p.Spec.PolicyTypes[0] != networkingv1.PolicyTypeIngress {
 		t.Errorf("%s policy types = %v, want Ingress alone: naming Egress here cuts the platform off from the API server",
 			name, p.Spec.PolicyTypes)
+	}
+}
+
+// Spec 0021, AC-22: ingress-nginx is not a peer of this namespace and must never
+// become one.
+//
+// The control plane is not behind that controller: apps are, and the console
+// reaches the Service directly. That is the whole reason CF-Connecting-IP can be
+// trusted on the console hostname. ingress-nginx is shared with a dozen unrelated
+// apps and reachable from most of the cluster, so admitting it here would quietly
+// turn a header the platform believes into one most of the cluster can write.
+func TestTheControlPlaneFenceIsNotBehindTheSharedIngress(t *testing.T) {
+	for name, p := range controlPlanePolicies(t) {
+		for i, rule := range p.Spec.Ingress {
+			for j, peer := range rule.From {
+				if peer.NamespaceSelector == nil {
+					continue
+				}
+				if got := peer.NamespaceSelector.MatchLabels["kubernetes.io/metadata.name"]; strings.Contains(got, "ingress") {
+					t.Errorf("%s ingress[%d].from[%d] admits namespace %q: the control plane is not behind the "+
+						"shared ingress controller, and admitting it makes the visitor address header forgeable "+
+						"from most of the cluster", name, i, j, got)
+				}
+			}
+		}
 	}
 }

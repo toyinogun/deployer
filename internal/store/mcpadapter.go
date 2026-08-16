@@ -76,6 +76,9 @@ func (a MCPApps) Create(ctx context.Context, accountID, name string, limit int) 
 	if errors.Is(err, ErrAppLimit) {
 		return mcp.App{}, mcp.ErrAppLimit
 	}
+	if errors.Is(err, ErrAppNameReserved) {
+		return mcp.App{}, mcp.ErrAppNameReserved
+	}
 	if err != nil {
 		return mcp.App{}, err
 	}

@@ -74,7 +74,8 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.backups == nil || !s.backups.Configured() {
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "backup", Reason: "run: not_configured",
 		})
 		s.renderBackups(w, r, admin, sess, http.StatusUnprocessableEntity,
@@ -97,7 +98,8 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 		// The refusal comes from the unique index, not from a read followed by a
 		// write, and the caller is told with the closed code (AC-20).
 		auth.Record(runCtx, s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "backup", Reason: "run: in_flight",
 		})
 		s.renderBackups(w, r, admin, sess, http.StatusConflict,
@@ -105,7 +107,8 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 		return
 	case reason != "":
 		auth.Record(runCtx, s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin, Allowed: true,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin, Allowed: true,
 			TargetType: "backup", Reason: "run: " + reason.String(),
 		})
 		s.renderBackups(w, r, admin, sess, http.StatusOK,
@@ -114,7 +117,8 @@ func (s *Server) adminBackupRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.Record(runCtx, s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin, Allowed: true,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin, Allowed: true,
 		TargetType: "backup", Reason: "run: succeeded",
 	})
 	s.renderBackups(w, r, admin, sess, http.StatusOK, "The backup finished.")

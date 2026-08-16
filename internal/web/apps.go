@@ -427,7 +427,8 @@ func (s *Server) configReveal(w http.ResponseWriter, r *http.Request) {
 			reason = "config_key_secret"
 		}
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: account.ID, Action: auth.ActionConfigReveal,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     account.ID, Action: auth.ActionConfigReveal,
 			TargetType: auth.TargetAppConfig, TargetID: app.ID + "/" + key, Reason: reason,
 		})
 		s.renderRefused(w, r, account, sess, http.StatusForbidden, "That value cannot be shown",
@@ -435,7 +436,8 @@ func (s *Server) configReveal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionConfigReveal, Allowed: true,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionConfigReveal, Allowed: true,
 		TargetType: auth.TargetAppConfig, TargetID: app.ID + "/" + key,
 	})
 
@@ -481,7 +483,8 @@ func (s *Server) ownedApp(w http.ResponseWriter, r *http.Request, account auth.A
 	}
 	if err != nil || app.AccountID != account.ID {
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: account.ID, Action: auth.ActionAppView,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     account.ID, Action: auth.ActionAppView,
 			TargetType: "app", TargetID: slug, Reason: string(domain.ReasonAppUnknown),
 		})
 		s.renderRefused(w, r, account, sess, http.StatusNotFound, "No such app",

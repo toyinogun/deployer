@@ -23,8 +23,36 @@ var ErrSessionInvalid = errors.New("auth: session invalid")
 // the token does not work (AC-16).
 var ErrEmailUnverified = errors.New("auth: email unverified")
 
-// SessionCookie is the name the session id travels under.
-const SessionCookie = "deployer_session"
+// The two names the session id travels under. Which one is live is decided by
+// whether the platform is served over HTTPS, exactly as the pre authentication
+// CSRF cookie already decides it (spec 0021, AC-19).
+const (
+	// SessionCookieSecure is the name in production. The `__Host-` prefix is
+	// part of the protection, not decoration: a browser refuses such a cookie
+	// from any page that sets a Domain attribute, so an app deployed by a
+	// stranger on a sibling hostname under the platform's wildcard can neither
+	// read this cookie nor shadow it with one of its own. Without it, setting a
+	// parent scoped cookie of the same name is session fixation with a deploy as
+	// the delivery mechanism.
+	SessionCookieSecure = "__Host-deployer_session"
+	// SessionCookiePlain is the name over plain HTTP, where a browser refuses a
+	// Secure cookie outright and keeping the prefix would make signing in locally
+	// impossible. A plain HTTP deployment therefore loses the sibling subdomain
+	// guarantee above. The cluster is served over HTTPS, so this name is never
+	// reached in production.
+	SessionCookiePlain = "deployer_session"
+)
+
+// SessionCookieName is the name the session id travels under, given whether the
+// platform is served over HTTPS. Both surfaces read and write through it, so a
+// cookie written one way and cleared another is not a session that outlives its
+// sign out.
+func SessionCookieName(secure bool) string {
+	if secure {
+		return SessionCookieSecure
+	}
+	return SessionCookiePlain
+}
 
 // Session is one browser sign in, carrying only what this package reads.
 type Session struct {
@@ -88,14 +116,27 @@ func (a *Authenticator) AuthenticateSession(ctx context.Context, raw string) (Ac
 	return account, session, nil
 }
 
+// IsSessionCookie reports whether name is either name the session id travels
+// under. It exists for the callers that inspect a Set-Cookie without holding the
+// platform's scheme, which is every test that checks a sign in handed one back.
+func IsSessionCookie(name string) bool {
+	return name == SessionCookieSecure || name == SessionCookiePlain
+}
+
 // SessionID pulls the raw session id out of a request's cookies. It returns an
 // empty string when there is none, which AuthenticateSession treats as invalid.
+//
+// Both names are tried, secure first, because the caller here does not hold the
+// platform's scheme and reading the wrong one would sign everybody out on every
+// request rather than once. Only one of the two is ever written, so there is no
+// ambiguity to resolve: whichever arrives is the one this platform set.
 func SessionID(r *http.Request) string {
-	c, err := r.Cookie(SessionCookie)
-	if err != nil {
-		return ""
+	for _, name := range []string{SessionCookieSecure, SessionCookiePlain} {
+		if c, err := r.Cookie(name); err == nil && c.Value != "" {
+			return c.Value
+		}
 	}
-	return c.Value
+	return ""
 }
 
 // usable reports whether an account may authenticate at all.

@@ -29,6 +29,13 @@ const slugAttempts = 5
 // because a fresh suffix cannot change how many apps the account holds, so it
 // never recounts.
 func (s *Store) CreateApp(ctx context.Context, accountID, name string, limit int) (App, error) {
+	// The reserved name check, on the create path only, and before the
+	// transaction because it reads nothing. An app that already holds one of
+	// these names keeps deploying, rolling back and being listed exactly as
+	// before, and no migration runs (spec 0021, AC-7).
+	if domain.ReservedLabel(name) {
+		return App{}, ErrAppNameReserved
+	}
 	now := s.now()
 	var created App
 	err := s.inTx(ctx, func(q *sqlcgen.Queries) error {

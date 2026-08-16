@@ -15,6 +15,15 @@ resources:
   # address. It lands in the same sync as the pair above: the v1 pair on its own
   # breaks image pulls on every node but the registry's.
   - deployer-system-cilium-networkpolicy.yaml
+  # The Cloudflare tunnel: its own namespace, the fence around it in both
+  # directions, its routing rules, its credential, and the two connectors
+  # (spec 0021). Its own namespace is what the control plane's fence names as a
+  # peer, so the two files move together.
+  - cloudflared-namespace.yaml
+  - cloudflared-networkpolicy.yaml
+  - cloudflared-sealedsecret.yaml
+  - cloudflared-configmap.yaml
+  - cloudflared-deployment.yaml
   - builds-namespace.yaml
   - builds-networkpolicy.yaml
   # The Dockerfile path's own namespace, at `privileged`, holding rootless

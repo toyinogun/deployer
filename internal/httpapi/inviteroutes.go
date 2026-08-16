@@ -34,7 +34,8 @@ func (i *Identity) adminListInvites(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "invites", Allowed: true, Reason: "list",
 	})
 	writeJSON(ctx, w, http.StatusOK, map[string]any{"invites": bodies})
@@ -58,14 +59,16 @@ func (i *Identity) adminMintInvite(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: i.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "invite", Reason: "issue: " + string(code),
 		})
 		i.fail(ctx, w, err)
 		return
 	}
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "invite", TargetID: issued.ID, Allowed: true, Reason: "issue",
 	})
 	writeJSON(ctx, w, http.StatusCreated, map[string]any{
@@ -90,14 +93,16 @@ func (i *Identity) adminRevokeInvite(w http.ResponseWriter, r *http.Request) {
 	if err := i.svc.RevokeInvite(ctx, target); err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: i.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "invite", TargetID: target, Reason: "revoke: " + string(code),
 		})
 		i.fail(ctx, w, err)
 		return
 	}
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "invite", TargetID: target, Allowed: true, Reason: "revoke",
 	})
 	w.WriteHeader(http.StatusNoContent)

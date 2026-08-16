@@ -26,6 +26,7 @@ import (
 	"github.com/toyinogun/deployer/internal/registry"
 	"github.com/toyinogun/deployer/internal/store"
 	"github.com/toyinogun/deployer/internal/suspend"
+	"github.com/toyinogun/deployer/internal/tunnelwatch"
 	"github.com/toyinogun/deployer/internal/uploads"
 	"github.com/toyinogun/deployer/internal/web"
 )
@@ -191,8 +192,13 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	if sender == nil {
 		slog.Warn("DEPLOYER_RESEND_API_KEY is unset, so nobody can register or reset a password")
 	}
+	// The links in a verification, reset or invite mail are built from the
+	// console address, not from PublicURL. PublicURL narrows to one job here: the
+	// tailnet address an agent is told about in the deploy_app description. A
+	// person clicking a link needs the name they can reach without a VPN
+	// (spec 0021, Value sourcing).
 	identitySvc := identity.NewService(store.ForIdentity(st), mailerOrNil(sender), ids.SystemClock{},
-		identity.Options{PublicURL: cfg.PublicURL})
+		identity.Options{PublicURL: cfg.ConsoleURL})
 	bootstrapInvite(ctx, identitySvc)
 
 	mux := http.NewServeMux()
@@ -211,7 +217,8 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// shared by the JSON admin route, the admin page, and the sweep that holds a
 	// suspended account's apps at zero (spec 0018, AC-19).
 	suspensions := suspend.New(store.ForSuspend(st), identitySvc, suspendCluster(cluster), as)
-	httpapi.NewIdentity(identitySvc, authenticator, as, suspensions, cfg.PublicURL, sender != nil).Register(mux)
+	httpapi.NewIdentity(identitySvc, authenticator, as, suspensions,
+		cfg.PublicURL, cfg.ConsoleHost, sender != nil).Register(mux)
 
 	tools := mcp.New(authenticator, as, store.ForMCPApps(st), store.ForMCPDeployments(st),
 		forTool{svc: uploadSvc}, podReader(cluster), clusterPort(cluster), mcp.Options{
@@ -230,6 +237,8 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// which is what keeps a rule from differing between a page and a tool
 	// (spec 0013, AC-4).
 	backups := startBackups(ctx, st, cfg, sender)
+	startAuditSweep(ctx, st, cfg.Retention)
+	startTunnelWatch(ctx, cfg, sender)
 
 	web.New(identitySvc, authenticator, as, st, webPods(cluster), suspensions,
 		webBackups(backups), st, web.Options{
@@ -239,6 +248,8 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 			SecretLiterals:    []string{cfg.RegistryPass},
 			HasMailer:         sender != nil,
 			MaxAppsPerAccount: cfg.MaxAppsPerAccount,
+			ConsoleHost:       cfg.ConsoleHost,
+			ConsoleURL:        cfg.ConsoleURL,
 		}).Register(mux)
 
 	if cluster != nil {
@@ -246,6 +257,96 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		startSuspensionSweep(ctx, suspensions, cfg.ReconcileInterval)
 	}
 	return mux
+}
+
+// tunnelReadyURL is cloudflared's own ready endpoint, reached through the Service
+// in the tunnel namespace on cluster DNS.
+//
+// A constant rather than a DEPLOYER_ value, because it is not a choice: the
+// namespace, the Service name and the metrics port are all fixed by the manifests
+// in deploy/, and a second place to write them down is a second place for them to
+// disagree. Reading it needs no Kubernetes API access, so this whole check grants
+// the platform no new cluster rights (spec 0021, AC-23).
+const tunnelReadyURL = "http://cloudflared.deployer-edge.svc.cluster.local:2000/ready"
+
+// startTunnelWatch tells the platform's owner when the public edge has no
+// connectors, and once more when it comes back. One mail each way, never one per
+// check, so silence means healthy.
+//
+// The address it reports to is the backup alert address, which is the only
+// operator address the platform holds. That couples the two: a platform with
+// backups switched off has nowhere to send a tunnel alert either, and so is told
+// nothing. It is worth its own setting and does not have one, because spec 0021
+// added no variable for it.
+//
+// The mail leaves over the ordinary outbound path and does not depend on the
+// tunnel, so an outage is a thing you are told about rather than one that
+// silences the telling (AC-24).
+func startTunnelWatch(ctx context.Context, cfg config.Config, sender *mail.Sender) {
+	watcher := tunnelwatch.New(tunnelMailer(sender), tunnelwatch.Options{
+		ReadyURL: tunnelReadyURL,
+		To:       cfg.BackupAlertEmail,
+	})
+	if watcher == nil {
+		slog.Warn("no tunnel health check, so nothing will tell you when the public edge goes down",
+			"reason", "no mailer or no alert address configured")
+		return
+	}
+	go watcher.Watch(ctx, tunnelwatch.DefaultInterval)
+}
+
+// tunnelMailer keeps a nil sender nil through the interface, so the watcher sees
+// an absent mailer rather than a non nil interface holding a nil pointer.
+func tunnelMailer(s *mail.Sender) tunnelwatch.Mailer {
+	if s == nil {
+		return nil
+	}
+	return s
+}
+
+// auditSweepInterval is how often the audit retention sweep runs. Daily: the
+// window it enforces is measured in months, so the cost of being up to a day
+// late is a day, and the cost of running it more often is a full table scan
+// nobody asked for (spec 0021, AC-18).
+const auditSweepInterval = 24 * time.Hour
+
+// startAuditSweep nulls the client address on every audit row past the retention
+// window, at boot and then daily. The row itself is never deleted: the trail
+// stays and only the identifier goes.
+//
+// It runs on a ticker in this process, the same shape the suspension sweep and
+// the backup schedule already use, rather than as a CronJob. A second workload
+// writing this database would put two writers on one SQLite file, which the whole
+// deployment is built to prevent.
+//
+// After the window a nulled row and a platform written row are indistinguishable.
+// That is accepted and specified, so a person reading an old denial knows why the
+// address is missing rather than suspecting a bug (AC-18a).
+func startAuditSweep(ctx context.Context, st *store.Store, retention time.Duration) {
+	sweep := func() {
+		n, err := st.ClearOldAuditAddresses(ctx, retention)
+		if err != nil {
+			slog.ErrorContext(ctx, "could not clear audit addresses past the retention window", "error", err)
+			return
+		}
+		if n > 0 {
+			slog.InfoContext(ctx, "cleared audit addresses past the retention window", "rows", n)
+		}
+	}
+	go func() {
+		sweep()
+		ticker := time.NewTicker(auditSweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				sweep()
+			}
+		}
+	}()
+	slog.Info("audit address sweep started", "interval", auditSweepInterval, "retention", retention)
 }
 
 // startBackups builds the backup service and gets it going, or returns nil when

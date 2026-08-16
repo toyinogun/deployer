@@ -42,7 +42,7 @@ func (i *Identity) register(w http.ResponseWriter, r *http.Request) {
 	// Audited without an account id on purpose: naming the account here would
 	// record whether the address was already taken, which is the one thing this
 	// endpoint is built not to reveal.
-	auth.Record(ctx, i.auditor, auth.Audit{Action: auth.ActionRegister, Allowed: true})
+	auth.Record(ctx, i.auditor, auth.Audit{ClientAddress: i.clientAddress(r), Action: auth.ActionRegister, Allowed: true})
 	writeJSON(ctx, w, http.StatusAccepted, map[string]string{"message": checkYourMail})
 }
 
@@ -98,7 +98,8 @@ func (i *Identity) login(w http.ResponseWriter, r *http.Request) {
 	// costs neither a database read nor a password hash.
 	if _, locked := i.svc.Limits().LockedOut(email); locked {
 		auth.Record(ctx, i.auditor, auth.Audit{
-			Action: auth.ActionLogin, Reason: string(identity.CodeRateLimited),
+			ClientAddress: i.clientAddress(r),
+			Action:        auth.ActionLogin, Reason: string(identity.CodeRateLimited),
 		})
 		writeCode(ctx, w, http.StatusTooManyRequests, identity.CodeRateLimited,
 			"too many failed sign ins, wait a moment")
@@ -113,7 +114,7 @@ func (i *Identity) login(w http.ResponseWriter, r *http.Request) {
 		if code != identity.CodeEmailUnverified {
 			i.svc.Limits().Failed(email)
 		}
-		auth.Record(ctx, i.auditor, auth.Audit{Action: auth.ActionLogin, Reason: string(code)})
+		auth.Record(ctx, i.auditor, auth.Audit{ClientAddress: i.clientAddress(r), Action: auth.ActionLogin, Reason: string(code)})
 		i.fail(ctx, w, err)
 		return
 	}
@@ -121,7 +122,8 @@ func (i *Identity) login(w http.ResponseWriter, r *http.Request) {
 
 	i.setSessionCookie(w, in.Raw)
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: in.Account.ID, Action: auth.ActionLogin, Allowed: true,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     in.Account.ID, Action: auth.ActionLogin, Allowed: true,
 	})
 	writeJSON(ctx, w, http.StatusOK, meBody(identityToAuth(in.Account)))
 }
@@ -139,7 +141,8 @@ func (i *Identity) logout(w http.ResponseWriter, r *http.Request) {
 	}
 	i.clearSessionCookie(w)
 	auth.Record(ctx, i.auditor, auth.Audit{
-		AccountID: account.ID, Action: auth.ActionLogout, Allowed: true,
+		ClientAddress: i.clientAddress(r),
+		AccountID:     account.ID, Action: auth.ActionLogout, Allowed: true,
 	})
 	w.WriteHeader(http.StatusNoContent)
 }

@@ -51,14 +51,15 @@ type AppConfig struct {
 }
 
 type AuditLog struct {
-	ID         string
-	AccountID  *string
-	Action     string
-	TargetType *string
-	TargetID   *string
-	Outcome    string
-	Reason     *string
-	OccurredAt string
+	ID            string
+	AccountID     *string
+	Action        string
+	TargetType    *string
+	TargetID      *string
+	Outcome       string
+	Reason        *string
+	OccurredAt    string
+	ClientAddress *string
 }
 
 type BackupRun struct {

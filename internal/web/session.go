@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/auth"
@@ -63,7 +62,8 @@ func (s *Server) adminSession(w http.ResponseWriter, r *http.Request) (auth.Acco
 	}
 	if !account.IsAdmin {
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: account.ID, Action: auth.ActionAdmin, Reason: string(identity.CodeAdminRequired),
+			ClientAddress: s.clientAddress(r),
+			AccountID:     account.ID, Action: auth.ActionAdmin, Reason: string(identity.CodeAdminRequired),
 		})
 		s.renderRefused(w, r, account, sess, http.StatusForbidden, "Not for this account",
 			"This page is for platform administrators.")
@@ -76,7 +76,7 @@ func (s *Server) adminSession(w http.ResponseWriter, r *http.Request) (auth.Acco
 // share the same bucket the JSON surface uses, because they run the same service
 // call and a limit that a second surface resets is not a limit (AC-5).
 func (s *Server) spend(w http.ResponseWriter, r *http.Request) bool {
-	if s.svc.Limits().Allow(clientAddress(r)) {
+	if s.svc.Limits().Allow(s.clientAddress(r)) {
 		return true
 	}
 	s.renderPublic(w, r, http.StatusTooManyRequests, "message", messagePage{
@@ -91,7 +91,7 @@ func (s *Server) spend(w http.ResponseWriter, r *http.Request) bool {
 // one way and cleared another is a session that outlives its sign out.
 func (s *Server) setSessionCookie(w http.ResponseWriter, raw string) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookie,
+		Name:     auth.SessionCookieName(s.secure),
 		Value:    raw,
 		Path:     "/",
 		HttpOnly: true,
@@ -104,7 +104,7 @@ func (s *Server) setSessionCookie(w http.ResponseWriter, raw string) {
 // clearSessionCookie empties the cookie and expires it immediately.
 func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
-		Name:     auth.SessionCookie,
+		Name:     auth.SessionCookieName(s.secure),
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
@@ -114,18 +114,10 @@ func (s *Server) clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-// clientAddress is who a rate limit bucket belongs to: the last hop of
-// X-Forwarded-For when the request came through the ingress, and the connection
-// address on a direct call. The same derivation the JSON surface uses, so the
-// two surfaces spend from the same bucket rather than from two.
-func clientAddress(r *http.Request) string {
-	if fwd := r.Header.Get("X-Forwarded-For"); fwd != "" {
-		hops := strings.Split(fwd, ",")
-		return strings.TrimSpace(hops[len(hops)-1])
-	}
-	host, _, found := strings.Cut(r.RemoteAddr, ":")
-	if !found {
-		return r.RemoteAddr
-	}
-	return host
+// clientAddress is who a rate limit bucket belongs to and whose address an audit
+// row records. It is auth.ClientAddress with this surface's console host filled
+// in: the derivation itself lives in one place, so the page surface and the JSON
+// surface cannot spend from two different buckets (spec 0021, AC-16).
+func (s *Server) clientAddress(r *http.Request) string {
+	return auth.ClientAddress(r, s.opts.ConsoleHost)
 }

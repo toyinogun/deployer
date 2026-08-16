@@ -51,7 +51,8 @@ func (s *Server) adminInviteMint(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "invite", Reason: "issue: " + string(code),
 		})
 		var e *identity.Error
@@ -60,7 +61,8 @@ func (s *Server) adminInviteMint(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "invite", TargetID: issued.ID, Allowed: true, Reason: "issue",
 	})
 	s.renderInvites(w, r, admin, sess, http.StatusOK, invitesPageData{
@@ -87,7 +89,8 @@ func (s *Server) adminInviteRevoke(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		auth.Record(r.Context(), s.auditor, auth.Audit{
-			AccountID: admin.ID, Action: auth.ActionAdmin,
+			ClientAddress: s.clientAddress(r),
+			AccountID:     admin.ID, Action: auth.ActionAdmin,
 			TargetType: "invite", TargetID: target, Reason: "revoke: " + string(code),
 		})
 		s.renderInvites(w, r, admin, sess, statusFor(code), invitesPageData{
@@ -96,7 +99,8 @@ func (s *Server) adminInviteRevoke(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "invite", TargetID: target, Allowed: true, Reason: "revoke",
 	})
 	http.Redirect(w, r, "/admin/invites", http.StatusSeeOther)
@@ -113,7 +117,8 @@ func (s *Server) renderInvites(w http.ResponseWriter, r *http.Request, admin aut
 		return
 	}
 	auth.Record(r.Context(), s.auditor, auth.Audit{
-		AccountID: admin.ID, Action: auth.ActionAdmin,
+		ClientAddress: s.clientAddress(r),
+		AccountID:     admin.ID, Action: auth.ActionAdmin,
 		TargetType: "invites", Allowed: true, Reason: "list",
 	})
 	data.Invites = invites

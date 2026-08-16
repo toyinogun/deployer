@@ -29,6 +29,14 @@ spec:
       namespace: deployer-builds
     - server: https://kubernetes.default.svc
       namespace: deployer-builds-dockerfile
+    # The tunnel's own namespace (spec 0021). Named deployer-edge rather than
+    # cloudflared because the cluster already runs a separate, remotely managed
+    # tunnel in a namespace of that name, owned by the k3sprox-gitops repository
+    # and carrying the routes for every other app on the cluster. Two ArgoCD
+    # applications naming one Deployment is a fight, and the loser is the
+    # connector those apps depend on.
+    - server: https://kubernetes.default.svc
+      namespace: deployer-edge
   # The cluster scoped kinds the control plane's own manifests contain. Namespace
   # is listed by name so the project cannot manage any other namespace object.
   clusterResourceWhitelist:

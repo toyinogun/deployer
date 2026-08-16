@@ -1,0 +1,62 @@
+# What the tunnel is allowed to route (spec 0021, AC-11, AC-12).
+#
+# The tunnel is locally managed: these rules live here, in a reviewed file, not
+# in the Cloudflare dashboard. What is public is therefore reviewable and
+# testable, at the cost of a deploy to change a route. A parse test in
+# internal/config pins this file the way the static network policies are already
+# pinned; nothing at run time reads it.
+#
+# Exactly two hostnames, then a catch all that refuses. Anything else that
+# becomes public is a deliberate edit to this file.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cloudflared
+  namespace: deployer-edge
+  labels:
+    app.kubernetes.io/name: cloudflared
+    app.kubernetes.io/managed-by: argocd
+data:
+  config.yaml: |
+    tunnel: deployer
+    credentials-file: /etc/cloudflared/creds/credentials.json
+    # The local metrics and readiness endpoint. The platform's own health check
+    # reads /ready through the Service in this namespace, which is why this
+    # binds to every interface rather than to loopback, and why it needs no
+    # Kubernetes API access and no new Role anywhere (AC-23).
+    metrics: 0.0.0.0:2000
+    ingress:
+      # Apps go on through ingress-nginx, exactly as tailnet traffic does today.
+      #
+      # Two different mechanisms are at work here and conflating them is how an
+      # origin looks verified while serving the wrong thing (AC-9a). Which
+      # backend serves the request is decided by the Host header, which
+      # cloudflared passes through unchanged. originServerName only proves to
+      # cloudflared that its TLS peer holds a certificate for that name, and the
+      # bare app domain is a name the wildcard certificate covers.
+      #
+      # noTLSVerify is deliberately absent. Origin verification stays on, so a
+      # wrong certificate fails the route closed. That looks like a Cloudflare
+      # outage from outside, so check this before blaming the vendor.
+      - hostname: "*.deploy.toyintest.org"
+        service: https://ingress-nginx-controller.ingress-nginx.svc.cluster.local:443
+        originRequest:
+          originServerName: deploy.toyintest.org
+      # The console goes straight to the control plane Service, skipping
+      # ingress-nginx entirely (AC-9).
+      #
+      # That is not a shortcut, it is the point. ingress-nginx is a shared
+      # controller reachable from most of the cluster, so a request that arrived
+      # through it proves nothing about where it came from. Reaching the Service
+      # directly means the control plane's own NetworkPolicy can name this
+      # namespace as the only outside peer on 8080, which is what lets the
+      # platform believe CF-Connecting-IP on this hostname (AC-15a).
+      #
+      # Plain HTTP inside the cluster. It is a pod to pod hop across the Cilium
+      # network, fenced by policy on both ends, and it is a real reduction from
+      # the app route's verified TLS. Named here rather than buried.
+      - hostname: console.deploy.toyintest.org
+        service: http://deployer.deployer-system.svc.cluster.local:80
+      # The catch all, required by cloudflared and load bearing here: no other
+      # name reaches the cluster through this tunnel (AC-12).
+      - service: http_status:404

@@ -7,7 +7,7 @@ package domain
 // AC-16).
 type Reason string
 
-// The twenty two codes. Nine are failures a deploy can end on; ReasonSuperseded
+// The closed set. Nine are failures a deploy can end on; ReasonSuperseded
 // describes a cancellation, ReasonDeploymentUnknown, ReasonAppUnknown and
 // ReasonReleaseUnknown a refused readback, ReasonDeploymentInFlight a refused
 // delete, ReasonAppLimitReached a refused create, ReasonAccountSuspended every
@@ -57,6 +57,11 @@ const (
 	// runs and nothing it runs keeps serving. Only an admin restoring it clears
 	// this (spec 0018, AC-15).
 	ReasonAccountSuspended Reason = "account_suspended"
+	// ReasonAppNameReserved is why a create is refused: the name derives to a
+	// hostname label the platform keeps for itself, the console's among them.
+	// Nothing is written. It is decided on the create path only, so an app that
+	// already holds one of these names keeps deploying (spec 0021, AC-6, AC-7).
+	ReasonAppNameReserved Reason = "app_name_reserved"
 
 	// The configuration refusals, added by spec 0010. Every one of them is
 	// decided before any write happens, so a refused call changes nothing.
@@ -106,6 +111,8 @@ var messages = map[Reason]string{
 
 	ReasonAccountSuspended: "this account is suspended, so its apps are stopped and nothing it asks for will run until an administrator restores it",
 
+	ReasonAppNameReserved: "that name is reserved by the platform, so pick another one",
+
 	ReasonConfigKeyInvalid:  "a configuration key must be upper case letters, digits, and underscores, not start with a digit, and appear once per call",
 	ReasonConfigKeyReserved: "PORT and APP_URL are set by the platform and cannot be configured",
 	ReasonConfigKeyUnknown:  "one of those keys is not set on this app, so nothing was removed",
@@ -114,7 +121,7 @@ var messages = map[Reason]string{
 	ReasonConfigTooLarge:    "a value may be at most 4 KB and an app's whole configuration at most 32 KB",
 }
 
-// Valid reports whether r is one of the twenty two codes.
+// Valid reports whether r is one of the closed set.
 func (r Reason) Valid() bool {
 	_, ok := messages[r]
 	return ok

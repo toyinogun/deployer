@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/toyinogun/deployer/internal/ids"
 	"github.com/toyinogun/deployer/internal/store/sqlcgen"
@@ -131,6 +132,25 @@ type AuditEntry struct {
 	TargetID   string
 	Allowed    bool
 	Reason     string
+	// ClientAddress is the visitor the action was attributed to. Empty is written
+	// as null, which is what a platform initiated write leaves (spec 0021, AC-17).
+	ClientAddress string
+}
+
+// ClearOldAuditAddresses nulls the client address on every audit row older than
+// retention, returning how many it changed. The rows themselves are never
+// deleted: the trail stays and only the identifier goes (spec 0021, AC-18).
+//
+// One UPDATE with no supporting index, so it scans the whole table. That is the
+// right cost for a table this size, running once a day, and it is stated here
+// rather than discovered later.
+func (s *Store) ClearOldAuditAddresses(ctx context.Context, retention time.Duration) (int64, error) {
+	cutoff := ids.Stamp(s.clock.Now().Add(-retention))
+	n, err := s.q.ClearOldAuditAddresses(ctx, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("store: clearing audit addresses before %s: %w", cutoff, err)
+	}
+	return n, nil
 }
 
 // RecordAudit writes one audit row. Every authorization outcome writes one,
@@ -158,6 +178,9 @@ func (s *Store) RecordAudit(ctx context.Context, e AuditEntry) error {
 	}
 	if e.Reason != "" {
 		params.Reason = ptr(e.Reason)
+	}
+	if e.ClientAddress != "" {
+		params.ClientAddress = ptr(e.ClientAddress)
 	}
 	if err := s.q.InsertAuditLog(ctx, params); err != nil {
 		return fmt.Errorf("store: recording audit for %q: %w", e.Action, err)

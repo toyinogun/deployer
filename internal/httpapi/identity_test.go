@@ -115,7 +115,8 @@ func newIDHarness(t *testing.T, withMailer bool) *idHarness {
 	})
 
 	mux := http.NewServeMux()
-	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(st), svc, nil, as), "https://deploy.example.org", withMailer).Register(mux)
+	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(st), svc, nil, as),
+		"https://deploy.example.org", "console.apps.example.org", withMailer).Register(mux)
 	return &idHarness{mux: mux, store: st, mail: box, clock: clock}
 }
 
@@ -193,7 +194,7 @@ func (h *idHarness) signIn(t *testing.T, email, password string) *http.Cookie {
 		t.Fatalf("signing in: got %d, want 200: %s", rec.Code, rec.Body)
 	}
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.SessionCookie {
+		if auth.IsSessionCookie(c.Name) {
 			return c
 		}
 	}
@@ -277,7 +278,8 @@ func TestCookieIsNotSecureOnPlainHTTP(t *testing.T) {
 	svc := identity.NewService(store.ForIdentity(h.store), h.mail, h.clock,
 		identity.Options{PublicURL: "http://localhost:8080", Hasher: identity.NewHasherWith(2, 64, 1)})
 	mux := http.NewServeMux()
-	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(h.store), svc, nil, as), "http://localhost:8080", true).Register(mux)
+	httpapi.NewIdentity(svc, authenticator, as, suspend.New(store.ForSuspend(h.store), svc, nil, as),
+		"http://localhost:8080", "console.apps.example.org", true).Register(mux)
 	h.mux = mux
 
 	cookie := h.registerAndVerify(t, "a@example.com")
@@ -554,7 +556,7 @@ func TestLogoutAndDisableEndASession(t *testing.T) {
 		t.Fatalf("logging out: got %d, want 204", rec.Code)
 	}
 	for _, c := range rec.Result().Cookies() {
-		if c.Name == auth.SessionCookie && c.MaxAge >= 0 {
+		if auth.IsSessionCookie(c.Name) && c.MaxAge >= 0 {
 			t.Errorf("the cookie was not expired: MaxAge=%d", c.MaxAge)
 		}
 	}

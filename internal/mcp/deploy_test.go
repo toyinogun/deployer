@@ -144,6 +144,13 @@ func (s *stubApps) Create(_ context.Context, _, name string, _ int) (App, error)
 	if s.createLimitErr {
 		return App{}, ErrAppLimit
 	}
+	// The reserved name refusal, delegated to the same domain function the real
+	// store calls rather than restated here. A stub that answered this question
+	// itself would prove the rule it was written against instead of the one that
+	// ships (spec 0021, AC-6).
+	if domain.ReservedLabel(name) {
+		return App{}, ErrAppNameReserved
+	}
 	s.created = append(s.created, name)
 	app := App{ID: "app_2", Slug: "new-b2c3d4", Name: name}
 	if s.existing == nil {
