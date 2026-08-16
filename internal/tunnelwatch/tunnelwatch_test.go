@@ -147,6 +147,78 @@ func TestNoMailerOrNoAddressMeansNoWatcher(t *testing.T) {
 	w.Watch(t.Context(), 0)
 }
 
+// TestARestartCostsExactlyOneExtraMail is AC-23a. The already told flag lives in
+// memory rather than in the database, which is a deliberate exception to the rule
+// that a state transition is a database write before it is an action. The
+// exception holds because the flag dedupes a notification rather than recording a
+// transition, and the price of that is written down here rather than only argued
+// for in a comment: a new process knows nothing, so it tells you once more about
+// an outage you were already told about.
+//
+// One extra, not one per check. A restart that reset the flag and then kept
+// mailing every two minutes would be the failure the flag exists to prevent,
+// arriving by a different road. Driven live on 2026-08-16 with the edge held down
+// across a control plane restart, which produced exactly one further mail.
+func TestARestartCostsExactlyOneExtraMail(t *testing.T) {
+	// covers: AC-23a
+	t.Parallel()
+	status := http.StatusServiceUnavailable
+	url := edge(t, &status)
+
+	before := &recorder{}
+	w := New(before, Options{ReadyURL: url, To: "owner@example.test"})
+	for range 3 {
+		w.check(t.Context())
+	}
+	if len(before.sent) != 1 {
+		t.Fatalf("the first process sent %d messages, want 1", len(before.sent))
+	}
+
+	// The restart. Same endpoint, still down, nothing carried across, because
+	// nothing about the flag was ever written down.
+	after := &recorder{}
+	restarted := New(after, Options{ReadyURL: url, To: "owner@example.test"})
+	for range 5 {
+		restarted.check(t.Context())
+	}
+	if len(after.sent) != 1 {
+		t.Errorf("the restarted process sent %d messages over five checks, want exactly 1: the whole cost "+
+			"of the in memory flag is one extra mail, not one per check", len(after.sent))
+	}
+}
+
+// TestTheTellingDoesNotDependOnTheThingItReportsOn is AC-24. A tunnel outage is a
+// thing you are told about rather than a thing that silences the telling.
+//
+// The suite can only prove the half that lives in this process, and that half is
+// real: the watcher reaches the mailer on a path that has nothing to do with the
+// endpoint it just failed to read. The other half, that Resend is reached over
+// ordinary egress rather than through the tunnel, is a network fact and belongs
+// to the live walk in verify.md, which observed both outage mails arriving with
+// the connectors at zero.
+//
+// The way this breaks is not exotic. A watcher that returned early on an
+// unreachable endpoint, or that sent its mail through anything the tunnel
+// carries, would look correct in every other test here, because every other test
+// answers the ready endpoint with a real HTTP status.
+func TestTheTellingDoesNotDependOnTheThingItReportsOn(t *testing.T) {
+	// covers: AC-24
+	t.Parallel()
+	box := &recorder{}
+	// Not a server that answers badly: a port with nothing on it at all, which
+	// is what the tunnel namespace looks like from here with zero connectors.
+	w := New(box, Options{ReadyURL: "http://127.0.0.1:1/ready", To: "owner@example.test"})
+	w.check(t.Context())
+
+	if len(box.sent) != 1 {
+		t.Fatalf("a totally unreachable edge sent %d messages, want 1: an outage nobody is told about is "+
+			"the failure this check exists to prevent", len(box.sent))
+	}
+	if box.sent[0].to != "owner@example.test" {
+		t.Errorf("the mail went to %q, want the configured address", box.sent[0].to)
+	}
+}
+
 // TestASendFailureChangesNothing keeps the alert best effort, the same way every
 // other message this platform sends is. The flag still moves, so a failed send
 // is not retried forever.
