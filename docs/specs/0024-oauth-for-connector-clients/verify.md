@@ -9,10 +9,10 @@ ideas about what a metadata document should say.
 
 ## UI / manual
 
-- [ ] In the real Claude desktop app, add a connector with the address from the fifth `/connect` tab → discovery finds the console, the browser lands on the approval page, Approve returns to the app, and the app lists the tools → AC-1, AC-3, AC-4, AC-9, AC-16, AC-19
-- [ ] From that connector, run one `deploy_app` through to healthy → AC-20
+- [x] In the real Claude desktop app, add a connector with the address from the fifth `/connect` tab → discovery finds the console, the browser lands on the approval page, Approve returns to the app, and the app lists the tools → AC-1, AC-3, AC-4, AC-9, AC-16, AC-19 · driven 2026-08-16 against digest `sha256:77de8773`: the app registered itself as `Claude`, listed all ten tools, and its grant reads `Claude 2026-08-16` in `/tokens`, last used one minute after it was issued
+- [x] From that connector, run one `deploy_app` through to healthy → AC-20 · driven with a granted token rather than from the desktop app: release 8 of `verify demo` reached healthy in 44s and the hostname answers 200
 - [x] Sign in to the console, open `/tokens` → the grant is listed under the client's name plus today's date; revoke it → the connector's next call fails → AC-20, AC-20a
-- [ ] Open `/connect` → five tabs; the fifth shows only `https://<MCPHost>/mcp`, carries no token and no placeholder, and offers no mint control → AC-26
+- [x] Open `/connect` → five tabs; the fifth shows only `https://<MCPHost>/mcp`, carries no token and no placeholder, and offers no mint control → AC-26
 - [x] Load `/connect` with JavaScript disabled → all five panels stack, the fifth included → AC-27
 - [x] Sign out, then open an authorize URL with a query string directly → you land on `/login`, and signing in returns you to that same authorize URL with `state` and `redirect_uri` intact → AC-9a
 - [x] On the approval page for a client whose registered addresses are all loopback → the heading is the redirect host, the client's name is quoted and labelled as its own claim, and the local machine warning is present → AC-13, AC-13a
@@ -35,10 +35,10 @@ ideas about what a metadata document should say.
 - [x] Authorize with `code_challenge_method=plain`, then with no challenge at all → both redirect to the registered address with `invalid_request`, carrying `state` and `iss` → AC-11
 - [x] Authorize with `resource=https://someone-else.example/mcp` → redirects with `invalid_target` → AC-12
 - [x] Exchange a code twice, the second time with a wrong `code_verifier` → the second is `400 invalid_grant`, and the token the first issued no longer authenticates `/mcp` → AC-16a, AC-16b
-- [ ] Exchange a code, then exchange it again with the **right** verifier once the first has finished → the second is still `400 invalid_grant`, and the token the first issued still authenticates `/mcp` → AC-16b
-- [ ] Do that again with a mismatched `client_id` but the right verifier → refused, and the first token still authenticates, so the verifier alone decided → AC-16b
-- [ ] Exchange the same code twice concurrently, then use the token that came back → it authenticates, rather than having been revoked by its own duplicate → AC-16b, AC-18a
-- [ ] Register a loopback client with no port, authorize with one, and follow the whole flow → the redirect carries `localhost:<port>`, and the exchange against that same address succeeds → AC-10a, AC-10d
+- [x] Exchange a code, then exchange it again with the **right** verifier once the first has finished → the second is still `400 invalid_grant`, and the token the first issued still authenticates `/mcp` → AC-16b
+- [x] Do that again with a mismatched `client_id` but the right verifier → refused, and the first token still authenticates, so the verifier alone decided → AC-16b
+- [x] Exchange the same code twice concurrently, then use the token that came back → it authenticates, rather than having been revoked by its own duplicate → AC-16b, AC-18a
+- [x] Register a loopback client with no port, authorize with one, and follow the whole flow → the redirect carries `localhost:<port>`, and the exchange against that same address succeeds → AC-10a, AC-10d · a real listener on 54321 caught the callback
 - [x] Wait 61 seconds after approving, then exchange → `400 invalid_grant` → AC-16a
 - [x] `curl -X POST .../oauth/token -H 'Content-Type: application/json' -d '{}'` → `400 invalid_request`, never `415` → AC-17
 - [x] Exchange with a wrong `code_verifier` → `400 invalid_grant`, and the body names no check → AC-18
@@ -62,7 +62,7 @@ value taken from the wrong place is visible rather than merely plausible.
 - [x] Change `DEPLOYER_CONSOLE_HOST`, restart → `issuer`, all three endpoint URLs, `authorization_servers` and every `iss` on a redirect follow → AC-1, AC-3, AC-15, AC-16
 - [x] Register a client with two redirect URIs, authorize against the second → the approval page's heading is the host of the **matched** one, not the first registered and not the requested string → AC-13
 - [x] Register a client named `<script>alert(1)</script>` with control characters and a trailing run of spaces → the approval page shows it escaped, and the token name in `/tokens` is bounded, single line and printable → AC-13, AC-20a
-- [ ] Grant the same client twice on one day → the second token's name carries the ` (2)` ordinal rather than failing on the live name index → AC-20a
+- [x] Grant a **second client of the same name** on one day → the second token's name carries the ` (2)` ordinal rather than failing on the live name index → AC-20a · the original wording could never fire it, since AC-19 revokes the previous token in the same transaction and so frees the name; a colliding name across two clients is what exercises the fallback
 - [ ] Approve from account A while account B is signed in elsewhere → the code is written against A, the session that approved, and the token lands on A → AC-9, AC-16
 - [ ] Move the platform clock forward a day and grant again → the token name carries the new date, from the service clock rather than the machine's → AC-20a
 - [x] Exchange with no `resource` at all → succeeds, taking the value stored on the code; exchange with a different one → `invalid_grant` → AC-18
@@ -94,4 +94,9 @@ value taken from the wrong place is visible rather than merely plausible.
 
 Nothing. The three wordings this file used to owe were settled by `/architect` on 2026-08-16, in the spec rather than here: **AC-25b** now says `404` on a host scoped pattern and `405` on the bare one, which is what `TestAWrongMethodOnAnOAuthRouteIsRefused` already asserts; **AC-26** records that the connector tab sits before the generic one because the last entry in the set is the fallback; and **AC-10d** pins which of the two addresses a redirect URI match yields, after the build yielded the wrong one.
 
-**AC-16b** is not owed, it is unbuilt. The replay revoke is being changed to fire only when the replay cannot prove its PKCE verifier, so the three steps above tagged AC-16b fail until that lands, and the AC-16a step passes throughout because a second exchange is refused either way.
+**AC-16b** landed on 2026-08-16 and was driven on the cluster the same day against digest `sha256:77de8773`: the client's own retry is refused and keeps its token, a replay carrying another client's id but the right verifier is refused and also keeps it, and a replay with a wrong verifier still revokes. The raced pair mints once and leaves that token live.
+
+The real connector step was driven the same day and passed, so the platform's half and a real client's half have both been seen. Two steps stay undriven, neither of them fixable by running something again today, and neither leaving a criterion without evidence:
+
+- **Two accounts at once** (AC-9, AC-16). Only one account was available, so approving as A while B is signed in elsewhere was never exercised.
+- **The clock a day forward** (AC-20a). Moving the live platform's clock is a change to the deployment, which this gate does not make. The date half of the name is therefore covered by the suite alone; the ordinal half was driven.
