@@ -43,7 +43,11 @@ type Account struct {
 	Verified     bool
 	Disabled     bool
 	IsAdmin      bool
-	CreatedAt    string
+	// Connected is whether this person has already been handed their agent
+	// configuration. It rides on the account a sign in already resolved, so the
+	// destination that sign in picks costs no second query (spec 0023, AC-3a).
+	Connected bool
+	CreatedAt string
 }
 
 // NewAccount is a registration about to be written.
@@ -72,6 +76,11 @@ type Store interface {
 	AccountByID(ctx context.Context, id string) (Account, error)
 	ListAccounts(ctx context.Context) ([]Account, error)
 	MarkVerified(ctx context.Context, id string) error
+	// MarkConnected stamps the account as having been handed its agent
+	// configuration. It is conditional in the statement itself, so calling it
+	// again on an already stamped account changes nothing and is not an error
+	// (spec 0023, AC-4a).
+	MarkConnected(ctx context.Context, id string) error
 	SetPassword(ctx context.Context, id, passwordHash string) error
 	SetDisabled(ctx context.Context, id string, disabled bool) error
 

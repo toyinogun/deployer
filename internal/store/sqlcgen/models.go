@@ -15,6 +15,7 @@ type Account struct {
 	EmailVerifiedAt *string
 	IsAdmin         int64
 	DisplayName     *string
+	ConnectedAt     *string
 }
 
 type ApiToken struct {

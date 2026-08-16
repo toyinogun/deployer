@@ -85,6 +85,10 @@ func TestNoPageOrLogLineCarriesACredential(t *testing.T) {
 		"/apps/crawled/logs",
 		"/apps/crawled/config",
 		"/tokens",
+		// The connect page carries a credential shaped hole on every visit but
+		// the one that minted, so a past token turning up in a block is exactly
+		// what this crawl is for (spec 0023, AC-12).
+		"/connect",
 		"/admin/accounts",
 		"/admin/invites",
 		"/login", "/register", "/forgot", "/reset", "/unverified",

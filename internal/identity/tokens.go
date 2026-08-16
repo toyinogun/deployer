@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"errors"
+	"time"
 )
 
 // Minted is a freshly created API token. Raw is the only time the value exists
@@ -44,6 +45,19 @@ func (s *Service) MintToken(ctx context.Context, account Account, name string, d
 	}
 	return Minted{Raw: raw, Token: view}, nil
 }
+
+// MarkConnected records that this account has been handed its agent
+// configuration. It is safe to call on every visit: the store's statement is
+// conditional, so the stamp lands once and a later call changes nothing
+// (spec 0023, AC-4, AC-4a).
+func (s *Service) MarkConnected(ctx context.Context, accountID string) error {
+	return s.store.MarkConnected(ctx, accountID)
+}
+
+// Now is the service clock, for a caller that has to name a date in text it
+// composes rather than in a row it writes. The clock is injected, so a test owns
+// what "today" means here exactly as it does everywhere else.
+func (s *Service) Now() time.Time { return s.clock.Now() }
 
 // ListTokens reads one account's live tokens, newest first. It never reads
 // another account's, because the account id is the caller's own resolved identity

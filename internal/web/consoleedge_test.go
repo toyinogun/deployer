@@ -117,6 +117,11 @@ func TestEveryPublicRouteAnswersOnBothHosts(t *testing.T) {
 		{http.MethodGet, "/apps/hello/logs"},
 		{http.MethodGet, "/apps/hello/config"},
 		{http.MethodPost, "/apps/hello/config/KEY/reveal"},
+		// Joining's two routes, doubled method and all: a GET registered alone
+		// would leave the mint form to the catch all on the one host the page
+		// exists to serve (spec 0023, AC-1, AC-2).
+		{http.MethodGet, "/connect"},
+		{http.MethodPost, "/connect"},
 		{http.MethodGet, "/tokens"},
 		{http.MethodPost, "/tokens"},
 		{http.MethodPost, "/tokens/tok_1/revoke"},

@@ -1,0 +1,57 @@
+{{define "title"}}Connect your agent{{end}}
+{{define "content"}}
+<header class="page-head">
+  <h1>Connect your agent</h1>
+  <p class="sub">One block to paste into your coding agent. Pick your client, mint the token, copy it across.</p>
+</header>
+
+{{if .Data.Message}}<p class="alert" role="alert">{{.Data.Message}}</p>{{end}}
+
+{{if .Data.Minted}}
+{{/* The one and only time this value exists outside the person's clipboard. It
+     is in the blocks below, in this response body, and nowhere else: not in a
+     URL, not in a later render, not in a log line (AC-15). */}}
+<p class="alert minted" role="alert">
+  <strong>{{.Data.MintedName}}</strong> is in the block below. This is the only time it is shown.
+  Copy it now; you can always mint another.
+</p>
+{{end}}
+
+{{/* Without the script every panel is shown, so the page is four stacked blocks
+     rather than a blank one. The tab strip is hidden in that case, because it
+     would select nothing (AC-14). */}}
+<noscript>
+  <style>
+    .connect-tabs { display: none; }
+    .connect-panel[hidden] { display: block; }
+  </style>
+</noscript>
+
+<div class="tabs connect-tabs" role="tablist" aria-label="Coding agent">
+  {{range .Data.Blocks}}
+  <button type="button" role="tab" id="tab-{{.Key}}" data-connect-tab="{{.Key}}"
+          aria-controls="panel-{{.Key}}" aria-selected="{{if .Selected}}true{{else}}false{{end}}">{{.Label}}</button>
+  {{end}}
+</div>
+
+{{range .Data.Blocks}}
+<section class="card connect-panel" id="panel-{{.Key}}" role="tabpanel"
+         aria-labelledby="tab-{{.Key}}"{{if not .Selected}} hidden{{end}}>
+  <h2>{{.Label}}</h2>
+  <p class="hint">{{.Where}}</p>
+  <div class="copy-row">
+    <pre class="token block" id="block-{{.Key}}">{{.Text}}</pre>
+    <button class="button" type="button" data-copy="block-{{.Key}}">Copy</button>
+  </div>
+  <form method="post" action="/connect">
+    <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
+    <input type="hidden" name="client" value="{{.Key}}">
+    <button class="button{{if $.Data.Minted}} secondary{{end}}" type="submit">Mint a token for this block</button>
+  </form>
+  <p class="hint">
+    The token is an ordinary API token. It shows up on
+    <a href="/tokens">your token list</a> and you revoke it there.
+  </p>
+</section>
+{{end}}
+{{end}}

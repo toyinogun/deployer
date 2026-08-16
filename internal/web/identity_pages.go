@@ -102,7 +102,30 @@ func (s *Server) loginSubmit(w http.ResponseWriter, r *http.Request) {
 	// here, so the pre authentication cookie goes in the same response (AC-7).
 	s.clearPreCSRFCookie(w)
 	s.setSessionCookie(w, in.Raw)
-	http.Redirect(w, r, safeNext(next), http.StatusSeeOther)
+	http.Redirect(w, r, afterSignIn(next, in.Account), http.StatusSeeOther)
+}
+
+// afterSignIn is where a successful sign in lands. Someone who has verified their
+// address and has never been handed their agent configuration goes to /connect
+// once; everybody else goes where they always did (spec 0023, AC-3).
+//
+// A next outranks it, and that is the whole reason this is not a check inside
+// /apps. A next only exists because the session gate put it there, meaning the
+// person was already trying to reach a particular page, and sending them
+// elsewhere would drop that with nothing to recover it from. They are not
+// stamped by that sign in either, so the next plain one still lands on /connect.
+//
+// The bootstrap account never satisfies this: it holds no address, so it is
+// never verified, and it is refused by Login before reaching here anyway (AC-5).
+func afterSignIn(next string, account identity.Account) string {
+	if next != "" {
+		return safeNext(next)
+	}
+	if account.Verified && !account.Connected {
+		return "/connect"
+	}
+	// next is "" by here, so this is where an ordinary sign in lands.
+	return "/apps"
 }
 
 // registerPage renders the form and copies the invite code from the query into

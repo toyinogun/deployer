@@ -37,6 +37,9 @@ func toAuthAccount(acc Account) auth.Account {
 		Verified: acc.EmailVerifiedAt != nil,
 		Disabled: acc.DisabledAt != nil,
 		IsAdmin:  acc.IsAdmin == 1,
+		// A stamp, not a flag: the column holds when the configuration was handed
+		// over, and every caller above only ever asks whether it happened.
+		Connected: acc.ConnectedAt != nil,
 	}
 }
 

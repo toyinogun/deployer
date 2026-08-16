@@ -68,6 +68,11 @@ type Account struct {
 	Disabled bool
 	// IsAdmin carries visibility over accounts, and nothing over apps.
 	IsAdmin bool
+	// Connected is whether this person has already been handed their agent
+	// configuration. It rides on the account every request already resolves, so
+	// the page that hands it over spends no write on a repeat visit (spec 0023,
+	// AC-3a).
+	Connected bool
 }
 
 // Token is one bearer credential, carrying only what this package reads. The

@@ -263,6 +263,33 @@ code { font-family: var(--mono); font-size: 0.9em; }
 .tabs a:hover { color: var(--ink); }
 .tabs a[aria-current="page"] { color: var(--accent-strong); border-bottom-color: var(--accent); }
 
+/* The connect page's tabs are buttons rather than links: they select a panel
+   already in the document instead of navigating. Same look, so the two tab
+   strips in the interface read as one thing. */
+.connect-tabs button {
+  padding: var(--s2) var(--s3);
+  color: var(--ink-soft);
+  background: none;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  white-space: nowrap;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.connect-tabs button:hover { color: var(--ink); }
+.connect-tabs button[aria-selected="true"] { color: var(--accent-strong); border-bottom-color: var(--accent); }
+
+/* A block is copied whole, so it keeps its own line breaks and scrolls inside
+   itself rather than pushing the page sideways. */
+.token.block {
+  margin: 0;
+  white-space: pre;
+  overflow-x: auto;
+  overflow-wrap: normal;
+  font-size: var(--text-sm);
+}
+
 /* Tables: dense rows, tight radius inside them. */
 
 .table-card { padding: 0; overflow: hidden; }

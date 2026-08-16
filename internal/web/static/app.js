@@ -174,6 +174,28 @@
     });
   }
 
+  // The client tabs on the connect page. Without this script every panel is
+  // shown and the strip is hidden by the page's own noscript rule, so the page
+  // is four stacked blocks rather than a blank one (AC-14).
+  function wireConnectTabs() {
+    var tabs = document.querySelectorAll("[data-connect-tab]");
+    if (!tabs.length) {
+      return;
+    }
+    tabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        tabs.forEach(function (other) {
+          var chosen = other === tab;
+          other.setAttribute("aria-selected", chosen ? "true" : "false");
+          var panel = document.getElementById("panel-" + other.dataset.connectTab);
+          if (panel) {
+            panel.hidden = !chosen;
+          }
+        });
+      });
+    });
+  }
+
   // The sidebar toggle below the breakpoint. Without this script the sidebar is
   // simply always open, which is why the markup starts unhidden.
   function wireNav() {
@@ -223,6 +245,7 @@
   startPolling();
   wireLoadMore();
   wireCopy();
+  wireConnectTabs();
   wireNav();
   wireConfirm();
 })();
