@@ -9,6 +9,21 @@ import (
 	"context"
 )
 
+const accountExistsByEmail = `-- name: AccountExistsByEmail :one
+SELECT EXISTS (SELECT 1 FROM accounts WHERE email = ?1)
+`
+
+// Whether an address already has an account. Read inside the same transaction
+// that mints, so a registration landing between the check and the insert cannot
+// produce an invite bound to an address that now has an account (spec 0025,
+// AC-3).
+func (q *Queries) AccountExistsByEmail(ctx context.Context, email *string) (bool, error) {
+	row := q.db.QueryRowContext(ctx, accountExistsByEmail, email)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const anyAccountHasEmail = `-- name: AnyAccountHasEmail :one
 SELECT EXISTS (SELECT 1 FROM accounts WHERE email IS NOT NULL)
 `
@@ -41,15 +56,16 @@ func (q *Queries) AnyLiveBootstrapInvite(ctx context.Context, now string) (bool,
 
 const createInvite = `-- name: CreateInvite :one
 
-INSERT INTO invites (id, code_hash, note, created_by, expires_at, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-RETURNING id, code_hash, note, created_by, expires_at, consumed_at, consumed_by, revoked_at, created_at
+INSERT INTO invites (id, code_hash, note, email, created_by, expires_at, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+RETURNING id, code_hash, note, created_by, expires_at, consumed_at, consumed_by, revoked_at, created_at, email
 `
 
 type CreateInviteParams struct {
 	ID        string
 	CodeHash  string
 	Note      *string
+	Email     *string
 	CreatedBy *string
 	ExpiresAt string
 	Now       string
@@ -66,6 +82,7 @@ func (q *Queries) CreateInvite(ctx context.Context, arg CreateInviteParams) (Inv
 		arg.ID,
 		arg.CodeHash,
 		arg.Note,
+		arg.Email,
 		arg.CreatedBy,
 		arg.ExpiresAt,
 		arg.Now,
@@ -81,12 +98,13 @@ func (q *Queries) CreateInvite(ctx context.Context, arg CreateInviteParams) (Inv
 		&i.ConsumedBy,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.Email,
 	)
 	return i, err
 }
 
 const listInvites = `-- name: ListInvites :many
-SELECT i.id, i.note, i.expires_at, i.consumed_at, i.revoked_at, i.created_at,
+SELECT i.id, i.note, i.email, i.expires_at, i.consumed_at, i.revoked_at, i.created_at,
        issuer.display_name AS issuer_name,
        spender.email       AS spender_email
 FROM invites i
@@ -98,6 +116,7 @@ ORDER BY i.created_at DESC
 type ListInvitesRow struct {
 	ID           string
 	Note         *string
+	Email        *string
 	ExpiresAt    string
 	ConsumedAt   *string
 	RevokedAt    *string
@@ -121,6 +140,7 @@ func (q *Queries) ListInvites(ctx context.Context) ([]ListInvitesRow, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Note,
+			&i.Email,
 			&i.ExpiresAt,
 			&i.ConsumedAt,
 			&i.RevokedAt,
@@ -142,23 +162,32 @@ func (q *Queries) ListInvites(ctx context.Context) ([]ListInvitesRow, error) {
 }
 
 const liveInviteByCodeHash = `-- name: LiveInviteByCodeHash :one
-SELECT id, code_hash, note, created_by, expires_at, consumed_at, consumed_by, revoked_at, created_at FROM invites
+SELECT id, code_hash, note, created_by, expires_at, consumed_at, consumed_by, revoked_at, created_at, email FROM invites
 WHERE code_hash = ?1
+  AND (email IS NULL OR email = ?2)
   AND consumed_at IS NULL
   AND revoked_at IS NULL
-  AND expires_at > ?2
+  AND expires_at > ?3
 `
 
 type LiveInviteByCodeHashParams struct {
-	CodeHash string
-	Now      string
+	CodeHash  string
+	Candidate *string
+	Now       string
 }
 
 // The lookup registration makes before it does any other work. A code that is
 // unknown, spent, revoked or expired is the same empty result, so the caller
 // cannot tell which kind of bad code they hold (AC-2).
+//
+// The bound address is part of that same predicate rather than a comparison
+// above it (spec 0025, AC-8): a live invite presented with the wrong address is
+// the same empty result as a dead code, costs the same work, and no ordering of
+// checks can tell the two apart. An unbound invite carries null here and matches
+// every candidate, which is what keeps every invite minted before spec 0025
+// working (AC-16).
 func (q *Queries) LiveInviteByCodeHash(ctx context.Context, arg LiveInviteByCodeHashParams) (Invite, error) {
-	row := q.db.QueryRowContext(ctx, liveInviteByCodeHash, arg.CodeHash, arg.Now)
+	row := q.db.QueryRowContext(ctx, liveInviteByCodeHash, arg.CodeHash, arg.Candidate, arg.Now)
 	var i Invite
 	err := row.Scan(
 		&i.ID,
@@ -170,6 +199,7 @@ func (q *Queries) LiveInviteByCodeHash(ctx context.Context, arg LiveInviteByCode
 		&i.ConsumedBy,
 		&i.RevokedAt,
 		&i.CreatedAt,
+		&i.Email,
 	)
 	return i, err
 }

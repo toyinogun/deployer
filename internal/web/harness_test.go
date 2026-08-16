@@ -184,12 +184,25 @@ func (rec *recorder) hasReason(action, reason string) bool {
 type mailbox struct {
 	mu   sync.Mutex
 	sent []string
+	// to and subjects run alongside sent, so a test that needs to know where a
+	// message went reads the same index. Spec 0025 is the first feature where the
+	// recipient is the thing under test rather than a detail.
+	to       []string
+	subjects []string
+	// refuse makes every send fail, which is how the invite mint's inline send is
+	// driven down its failure path (spec 0025, AC-6).
+	refuse bool
 }
 
-func (m *mailbox) Send(_ context.Context, _, _, body string) error {
+func (m *mailbox) Send(_ context.Context, to, subject, body string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.refuse {
+		return errors.New("the provider refused it")
+	}
 	m.sent = append(m.sent, body)
+	m.to = append(m.to, to)
+	m.subjects = append(m.subjects, subject)
 	return nil
 }
 
@@ -201,6 +214,24 @@ func (m *mailbox) latest(t *testing.T) string {
 		t.Fatal("no message was sent")
 	}
 	return m.sent[len(m.sent)-1]
+}
+
+// count is how many messages have been sent, for the cases that assert none was.
+func (m *mailbox) count() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.sent)
+}
+
+// latestTo is who the last message went to.
+func (m *mailbox) latestTo(t *testing.T) string {
+	t.Helper()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.to) == 0 {
+		t.Fatal("no message was sent")
+	}
+	return m.to[len(m.to)-1]
 }
 
 // harness is the page surface over a real database, ready to be driven with

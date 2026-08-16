@@ -20,6 +20,15 @@ type invitesPageData struct {
 	// MintedNote is what the admin typed about that invite, so the link on the
 	// page is identifiable when several were minted in a row.
 	MintedNote string
+	// MintedEmail is the address a bound mint was sent to, empty on an unbound
+	// one. Shown beside the link so the admin can see which address the platform
+	// normalized theirs to (spec 0025, AC-5).
+	MintedEmail string
+	// SendFailed is a bound mint whose message the provider refused. The invite
+	// is minted, bound and live either way, and the link is on the page either
+	// way: this only says whether it still has to be handed over by hand
+	// (spec 0025, AC-6).
+	SendFailed bool
 }
 
 func (s *Server) adminInvitesPage(w http.ResponseWriter, r *http.Request) {
@@ -43,7 +52,8 @@ func (s *Server) adminInviteMint(w http.ResponseWriter, r *http.Request) {
 	if !s.checkCSRF(w, r, admin, sess) {
 		return
 	}
-	issued, err := s.svc.IssueInvite(r.Context(), admin.ID, r.PostFormValue("note"))
+	issued, err := s.svc.IssueInvite(r.Context(), admin.ID,
+		r.PostFormValue("note"), r.PostFormValue("email"))
 	if err != nil {
 		code, refusal := identity.CodeOf(err)
 		if !refusal {
@@ -67,6 +77,10 @@ func (s *Server) adminInviteMint(w http.ResponseWriter, r *http.Request) {
 	})
 	s.renderInvites(w, r, admin, sess, http.StatusOK, invitesPageData{
 		Minted: issued.Link, MintedNote: issued.Note,
+		// The audit row above names the invite id and nothing else, so the bound
+		// address stays in the one place it lives, the invite row (AC-13).
+		MintedEmail: issued.Email,
+		SendFailed:  issued.Email != "" && !issued.Sent,
 	})
 }
 

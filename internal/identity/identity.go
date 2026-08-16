@@ -49,6 +49,14 @@ const (
 	// than a statement that their input was malformed. The closest existing
 	// pairing is CodeAdminRequired, which is also a 403.
 	CodeInviteInvalid Code = "invite_invalid"
+	// CodeAddressRegistered means a mint named an address that already has an
+	// account, so there is nobody left to invite (spec 0025, AC-3). It is a 409:
+	// the request is well formed and describes a state the platform is already in.
+	//
+	// It is safe to say plainly because the only surface that can produce it is
+	// admin only. It must never reach the register path, where the same sentence
+	// would tell a stranger which addresses are registered.
+	CodeAddressRegistered Code = "address_registered"
 	// CodeAdminRequired means a live session that is not an admin's.
 	CodeAdminRequired Code = "admin_required"
 	// CodeTokenNameTaken means the account already holds a live token by that name.

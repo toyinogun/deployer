@@ -27,7 +27,7 @@ func TestRegistrationNeedsALiveInvite(t *testing.T) {
 	}
 
 	revoked := h.invite(t)
-	revokedRow, err := h.store.LiveInvite(t.Context(), identity.HashSecret(revoked))
+	revokedRow, err := h.store.LiveInvite(t.Context(), identity.HashSecret(revoked), "")
 	if err != nil {
 		t.Fatalf("reading the invite to revoke: %v", err)
 	}

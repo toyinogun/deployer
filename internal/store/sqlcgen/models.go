@@ -127,6 +127,7 @@ type Invite struct {
 	ConsumedBy *string
 	RevokedAt  *string
 	CreatedAt  string
+	Email      *string
 }
 
 type OauthClient struct {

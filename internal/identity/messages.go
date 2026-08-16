@@ -12,7 +12,29 @@ const (
 	verifySubject            = "Confirm your Deployer address"
 	alreadyRegisteredSubject = "Someone tried to register your Deployer address"
 	resetSubject             = "Reset your Deployer password"
+	inviteSubject            = "You have been invited to Deployer"
 )
+
+// inviteBody is the message an invited person gets. It is the platform's first
+// message to somebody who has no account, and the only one that carries a live
+// credential rather than a link to an account that already exists (spec 0025,
+// AC-4, AC-12).
+//
+// The link works for this address alone, which is worth saying: a person who
+// registers with a different address of theirs is refused in words that cannot
+// explain why, so the message is the one place they can be told.
+func inviteBody(inviter, link string, days int) string {
+	return fmt.Sprintf(`%s has invited you to Deployer.
+
+Create your account here:
+
+%s
+
+The link works once, expires in %d days, and only works for the address this
+message was sent to. If you were not expecting this, you can ignore it: nothing
+happens until the link is used.
+`, inviter, link, days)
+}
 
 // verifyBody is the message a new registration gets.
 func verifyBody(link string) string {

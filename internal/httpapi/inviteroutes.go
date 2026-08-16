@@ -26,6 +26,7 @@ func (i *Identity) adminListInvites(w http.ResponseWriter, r *http.Request) {
 		bodies = append(bodies, map[string]any{
 			"id":        inv.ID,
 			"note":      inv.Note,
+			"email":     inv.Email,
 			"issued_by": inv.IssuedBy,
 			"spent_by":  inv.SpentBy,
 			"expires":   inv.ExpiresAt,
@@ -51,11 +52,16 @@ func (i *Identity) adminMintInvite(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Note string `json:"note"`
+		// Email is optional and binds the invite to that address, mailing the
+		// link to it. It takes the same validation, the same refusals and the
+		// same inline send the page does, so neither surface can mint an invite
+		// the other cannot (spec 0025, AC-15).
+		Email string `json:"email"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	issued, err := i.svc.IssueInvite(ctx, admin.ID, body.Note)
+	issued, err := i.svc.IssueInvite(ctx, admin.ID, body.Note, body.Email)
 	if err != nil {
 		code, _ := identity.CodeOf(err)
 		auth.Record(ctx, i.auditor, auth.Audit{
@@ -75,7 +81,10 @@ func (i *Identity) adminMintInvite(w http.ResponseWriter, r *http.Request) {
 		"id":      issued.ID,
 		"note":    issued.Note,
 		"expires": issued.ExpiresAt,
-		// The one and only time this value leaves the platform.
+		"email":   issued.Email,
+		"sent":    issued.Sent,
+		// The one and only time this value leaves the platform, other than the
+		// message a bound mint sends to its own address (spec 0025, AC-12).
 		"link": issued.Link,
 	})
 }

@@ -30,11 +30,17 @@ func (s *Server) csrfToken(sessionID string) string {
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// originOpaque is what a browser sends instead of naming the page a post came
+// from, when that page's referrer policy forbids naming it. It is a value the
+// URL parser reads as a path rather than as an origin, so it can never satisfy
+// acceptedOrigin and has to be recognised before that comparison.
+const originOpaque = "null"
+
 // checkCSRF guards one authenticated POST: the origin check first, then the
 // synchroniser token compared in constant time. A refusal changes nothing,
 // answers 403, and writes an audit row.
 func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request, account auth.Account, sess auth.Session) bool {
-	if !s.checkOrigin(w, r, account) {
+	if !s.checkOrigin(w, r, account, false) {
 		return false
 	}
 	want := s.csrfToken(sess.ID)
@@ -54,9 +60,22 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request, account auth.
 // scripted client that omits both carries no session cookie either, so it is an
 // unauthenticated request the session gate refuses anyway (AC-13).
 //
-// This is the whole guard on the pre authentication forms, which have no session
-// to bind a synchroniser token to. That is stated knowingly in the spec's
-// security model rather than papered over with a pre session cookie.
+// It is no longer the whole guard on the pre authentication forms: spec 0021
+// gave those the nonce cookie and its HMAC in pretoken.go, and this comment said
+// otherwise until 2026-08-16.
+//
+// opaqueIsAbsent is what that second mechanism buys. A page answering
+// Referrer-Policy: no-referrer makes a browser serialise its own form post as
+// `Origin: null`, which names nobody: it is the absent header, not a foreign
+// one. The register page answers exactly that header, because the invite code
+// rides in its query string (spec 0015, AC-14), so every browser registration
+// arrived here claiming an opaque origin and was refused. Treating it as absent
+// on the pre authentication path is safe because the pair behind it does the
+// work: the nonce cookie is SameSite=Lax and `__Host-` prefixed, so a post from
+// somebody else's page, sandboxed iframe included, carries no nonce at all and
+// is refused for the half it is missing. The session path passes false, because
+// no signed in page answers no-referrer and an opaque origin there is not
+// something a browser produces.
 //
 // The platform answers on more than one name, so a post is accepted from the
 // console's configured origin or from the name it was itself addressed to, and a
@@ -66,12 +85,12 @@ func (s *Server) checkCSRF(w http.ResponseWriter, r *http.Request, account auth.
 // carries the `__Host-` prefix, so it is host scoped and each hostname mints its
 // own nonce. A token minted on one host cannot satisfy a post to another
 // (AC-21a).
-func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account auth.Account) bool {
+func (s *Server) checkOrigin(w http.ResponseWriter, r *http.Request, account auth.Account, opaqueIsAbsent bool) bool {
 	if site := r.Header.Get("Sec-Fetch-Site"); site != "" && site != "same-origin" && site != "none" {
 		s.refuseCSRF(w, r, account, "origin_cross_site")
 		return false
 	}
-	if origin := r.Header.Get("Origin"); origin != "" {
+	if origin := r.Header.Get("Origin"); origin != "" && (!opaqueIsAbsent || origin != originOpaque) {
 		u, err := url.Parse(origin)
 		if err != nil || !s.acceptedOrigin(u, r) {
 			s.refuseCSRF(w, r, account, "origin_mismatch")

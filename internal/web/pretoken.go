@@ -175,7 +175,10 @@ func (s *Server) renderPreAuth(w http.ResponseWriter, r *http.Request, status in
 // It runs before the rate limiter is spent, so a refused post does not also cost
 // the person one of their attempts.
 func (s *Server) checkPreCSRF(w http.ResponseWriter, r *http.Request, page string, form preAuthForm) bool {
-	if !s.checkOrigin(w, r, auth.Account{}) {
+	// An opaque origin is accepted here and nowhere else: the register page's own
+	// no-referrer header is what produces it, and the nonce pair below is the
+	// guard that makes accepting it safe. See checkOrigin.
+	if !s.checkOrigin(w, r, auth.Account{}, true) {
 		return false
 	}
 	nonce, ok := s.preCSRFNonce(r)

@@ -129,14 +129,20 @@ func (a IdentityStore) ConsumeLink(ctx context.Context, tokenHash, purpose strin
 	return tok.AccountID, nil
 }
 
-// CreateInvite mints one invite and returns its id.
+// CreateInvite mints one invite and returns its id. An address that already has
+// an account is refused rather than minted, decided inside the same transaction
+// as the insert (spec 0025, AC-3).
 func (a IdentityStore) CreateInvite(ctx context.Context, n identity.NewInvite) (string, error) {
 	inv, err := a.s.CreateInvite(ctx, NewInvite{
 		CodeHash:  n.CodeHash,
 		Note:      n.Note,
+		Email:     n.Email,
 		CreatedBy: n.CreatedBy,
 		ExpiresAt: ids.Stamp(n.ExpiresAt),
 	})
+	if errors.Is(err, ErrAddressRegistered) {
+		return "", identity.ErrAddressRegistered
+	}
 	if err != nil {
 		return "", err
 	}
@@ -156,6 +162,7 @@ func (a IdentityStore) ListInvites(ctx context.Context) ([]identity.InviteRow, e
 		out = append(out, identity.InviteRow{
 			ID:           r.ID,
 			Note:         deref(r.Note),
+			Email:        deref(r.Email),
 			IssuerName:   deref(r.IssuerName),
 			SpenderEmail: deref(r.SpenderEmail),
 			ExpiresAt:    r.ExpiresAt,
@@ -177,9 +184,11 @@ func (a IdentityStore) RevokeInvite(ctx context.Context, id string) error {
 }
 
 // LiveInvite resolves a code hash to the invite it names, and only while that
-// invite is live.
-func (a IdentityStore) LiveInvite(ctx context.Context, codeHash string) (string, error) {
-	inv, err := a.s.LiveInvite(ctx, codeHash)
+// invite is live and the candidate address satisfies it. The bound address is
+// never returned upward: nothing above needs to read it, so no handler can
+// answer with it or branch on it (spec 0025).
+func (a IdentityStore) LiveInvite(ctx context.Context, codeHash, candidateEmail string) (string, error) {
+	inv, err := a.s.LiveInvite(ctx, codeHash, candidateEmail)
 	if errors.Is(err, ErrInviteInvalid) {
 		return "", identity.ErrInviteInvalid
 	}
