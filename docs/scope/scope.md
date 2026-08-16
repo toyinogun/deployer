@@ -465,8 +465,8 @@ spec [0023](../specs/0023-joining-agent-configuration/index.md) · code in `inte
   - [x] The surface and the proof nothing else moved: tabs and copy in `app.js`, the `<noscript>` stacked fallback, the navigation link, and a token minted here listed, revoked and authenticating the deploy path with `/tokens` unchanged — AC-6, AC-13, AC-14, AC-20, AC-21
 - [x] Verify it: `/check verify joining`
 - [x] Test it: `/test joining` — `internal/web/connect_test.go` covers the two routes, the redirect and the deep link that outranks it, the stamp and the race on it, the four blocks with their endpoint and placeholder, the mint and the second mint on the same day, the unknown tab, the missing CSRF token and the refusal; `consoleedge_test.go` and `leak_test.go` extend over the new page
-- [ ] Review it (fresh model): `/check review joining`
-- [ ] Document it: `/document joining`
+- [x] Review it (fresh model): `/check review joining` — reviewed on Sonnet 5 (the code was written on Opus), scoped to the branch diff against `main`. Approve with nits: two minor, two nits, no blockers. Findings in [docs/reviews/2026-08-16-feat-joining-agent-configuration.md](../reviews/2026-08-16-feat-joining-agent-configuration.md)
+- [x] Document it: `/document joining` — a changelog entry under `Unreleased`, 8 lines in `Added` covering the page, the four tabs, the ordinary token and its dated name, the show once rule, the audit row, migration `00006` and the no script fallback, plus 2 in `Changed` for the one time sign in redirect and the `Connected` field both account structs now carry
 
 ### 24. Publishing the deploy path · done
 The MCP endpoint and the tarball upload stay on the tailnet in feature 22, so an agent still needs Tailscale to deploy even though a person no longer needs it to sign in. From spec 0021, which split them deliberately because the deploy path is the surface that runs code on your cluster. The blocker is not routing: a Cloudflare free plan refuses a request body over 100 MB and the upload ceiling is exactly 100 MB, so this is a body size decision before it is an exposure one.
