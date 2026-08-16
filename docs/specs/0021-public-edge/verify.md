@@ -60,6 +60,9 @@ the mux sees a console request without any DNS involved.
 - [x] from one machine, fail sign in through the console repeatedly until it answers 429 → AC-16
 - [x] immediately post to `/v1/auth/login` from the same machine → also refused, because both surfaces spend from one bucket → AC-16
 - [x] from a second machine on a different address, sign in through the console → not refused, so one abuser is one bucket rather than everybody → AC-16
+- [x] re confirmed against the live deployment on 2026-08-16, after the flip, using synthetic `CF-Connecting-IP` values so no real address entered a bucket or a lockout. Posting `/forgot` with `CF-Connecting-IP: 203.0.113.10` on the console host gave ten `200`s and then `429`, matching `bucketCapacity = 10` exactly; `203.0.113.20` on the same host was still `200`, so buckets are per visitor rather than shared; `203.0.113.10` again was `429`, so the key really is the header value; and the same header on the tailnet host was `200`, so it is read on the console hostname and nowhere else → AC-15, AC-16
+
+  Worth stating because it is the question the `X-Forwarded-For` finding under AC-25 raises: the limiter is unaffected by nginx rewriting that header, because the console never passes through nginx. The tunnel sends console traffic straight to the `deployer` Service, so the platform reads `CF-Connecting-IP` as Cloudflare set it. Nothing on the cluster uses nginx `limit-rps`, `limit-connections` or a source allowlist annotation, so no app is currently bucketing on the rewritten value either
 
 ### Cookies and origins
 
