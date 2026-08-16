@@ -1,7 +1,7 @@
 # 0020. Platform backup and restore: a snapshot the platform takes of itself, encrypted to a key it does not hold
 
 **Date**: 2026-08-15
-**Status**: In Progress
+**Status**: Accepted
 
 The decision record (context, options considered, rationale) is in [rationale.md](rationale.md).
 
@@ -220,7 +220,7 @@ Tracer Bullet, the project's approach: the first task carries a real backup all 
 8. [x] The admin surfaces: the read only page behind `adminSession` with its not configured state, the run now post with the session CSRF token, the in flight refusal surfaced with its reason, the trigger and `triggered_by` columns written correctly, and the `audit_log` row on both outcomes, satisfies **AC-17**, **AC-18**, **AC-19**, **AC-20**, **AC-21**, **AC-22**.
 9. [x] `deployer restore` as a subcommand: fetch, decrypt from an identity file named by a flag, integrity check, write to a destination that must not already exist, satisfies **AC-23**, **AC-24**.
 10. [x] The parts that live outside this repository, plus the leftovers: the bucket's 7 day retention rule and its prefixed 30 day lifecycle rule, the Longhorn recurring job for the registry volume in `k3sprox-gitops`, the SealedSecret carrying the bucket credential marked optional on the Deployment, the manual sealed secrets key export, and the runbook in `deploy/README.md` covering setup and restore end to end plus the uploads exclusion, satisfies **AC-6a**, **AC-26**, **AC-27**, **AC-28**, **AC-29**.
-11. The rehearsal: a real object restored into a scratch instance and signed in to, against the real cluster, satisfies **AC-25**.
+11. [x] The rehearsal: a real object restored into a scratch instance and signed in to, against the real cluster, satisfies **AC-25**.
 
 ## Consequences
 

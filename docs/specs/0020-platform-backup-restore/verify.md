@@ -40,7 +40,7 @@ cluster and the real bucket unless it says otherwise.
 - [x] `kubectl -n longhorn-system get backuptarget default -o jsonpath='{.status.available}'` → `true`, so the target and the credential are good → AC-27
 - [x] `kubectl -n longhorn-system get recurringjob registry-backup -o yaml` → task `backup`, retain 30, group `registry` and **not** `default` → AC-27
 - [x] List every Longhorn volume with its recurring job labels → the registry volume is in the `registry` group, and the volume behind `deployer-data` is in no group that has a job → AC-27
-- [ ] `kubectl -n longhorn-system get backups` the morning after → a completed backup of the registry volume, and none of the SQLite volume → AC-27
+- [x] `kubectl -n longhorn-system get backups` the morning after → a completed backup of the registry volume, and none of the SQLite volume → AC-27
 - [x] Confirm the sealed secrets controller key export is in your password manager, and re-run the export command → it produces a key matching what you hold → AC-28
 - [x] Confirm no Secret, ConfigMap, environment variable, or file in the cluster holds an age identity: `kubectl -n deployer-system get secret,cm -o yaml | grep -i "AGE-SECRET-KEY"` → nothing → AC-4
 

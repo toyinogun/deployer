@@ -61,7 +61,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 18 | Bounded app egress | Slice 12 | done |
 | 19 | Account suspension | Slice 12 | done |
 | 20 | Open internet hardening: login CSRF & control plane policy | Slice 12 | done |
-| 21 | Platform backup & restore | Slice 12 | in-progress |
+| 21 | Platform backup & restore | Slice 12 | done |
 | 22 | Public edge: tunnel, real certificates & the console hostname | Slice 13 | in-progress |
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | planned |
 
@@ -412,7 +412,7 @@ spec [0019](../specs/0019-open-internet-hardening/index.md) · code in `deploy/d
 - [x] Review it (fresh model): `/check review open internet hardening`
 - [x] Document it: `/document open internet hardening`
 
-### 21. Platform backup & restore · in-progress
+### 21. Platform backup & restore · done
 The SQLite file is a secret store, not just metadata: every release snapshots the app's configuration in clear, releases are never pruned, and since slice 7 those are live third party credentials rather than hypothetical ones. Right now one lost volume is every account, every app, and every secret anyone ever set.
 **Done when:** the database is backed up on a schedule to somewhere that is not the cluster, the backup is encrypted at rest, a restore has actually been rehearsed into a scratch instance rather than assumed, and you can sign in to the restored copy.
 Spec 0020 settles the shape three ways the row did not anticipate. The control plane backs itself up rather than anything reading the volume from outside, because the database is in WAL mode with one writer and a `Recreate` strategy, so a CronJob cannot mount the volume beside the live pod and a Longhorn snapshot of the live file is a coin flip on consistency. The encryption is to an age public recipient whose private half never enters the cluster, which is what makes a total cluster loss recoverable and also why the read back can only verify ciphertext. And the row's one store is really three: the database here in Go, the registry volume by a Longhorn recurring job in `k3sprox-gitops`, and the sealed secrets controller key by a manual export, because the platform's RBAC does not reach `kube-system` and should not start to.
@@ -424,7 +424,7 @@ spec [0020](../specs/0020-platform-backup-restore/index.md) · code in `internal
   - [x] Configuration, the schedule, and the two startup sweeps: the six value all or nothing group validated at startup, the ticker measured from the end of each run and skipping one in flight, the stranded row ended, and `/data/backup-tmp/` emptied before serving — AC-2a, AC-9, AC-12, AC-12a, AC-15, AC-16
   - [x] Knowing it broke: failure and recovery mail through the existing Resend path carrying the reason code and nothing else, the admin page with its not configured state, and the run now post with its CSRF token, its in flight refusal, and its audit row — AC-13, AC-14, AC-17, AC-18, AC-19, AC-20, AC-21, AC-22
   - [x] Getting it back: the `deployer restore` subcommand reading the identity from a file, the Longhorn job for the registry volume, the manual sealed secrets key export, the SealedSecret for the bucket credential, and the runbook — AC-23, AC-24, AC-26, AC-27, AC-28, AC-29
-- [ ] Verify it: `/check verify platform backup & restore` — includes AC-25, a real object restored into a scratch instance and signed in to
+- [x] Verify it: `/check verify platform backup & restore` — all 29 acceptance criteria proved against the real cluster, including AC-25, a real object restored into a scratch instance and signed in to
 - [x] Test it: `/test platform backup & restore`
 - [x] Review it (fresh model): `/check review platform backup & restore`
 - [x] Document it: `/document platform backup & restore`
