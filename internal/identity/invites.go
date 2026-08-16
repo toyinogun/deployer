@@ -239,7 +239,7 @@ func (s *Service) mintInvite(ctx context.Context, adminID, note string) (IssuedI
 	}, nil
 }
 
-// inviteURL builds the address an invited person clicks. PublicURL, never
+// inviteURL builds the address an invited person clicks. ConsoleURL, never
 // InternalURL, for the same reason a mailed link is: this text is read by a
 // person, whose browser cannot resolve cluster DNS.
 func inviteURL(baseURL, rawCode string) string {

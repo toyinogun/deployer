@@ -252,6 +252,11 @@ type Server struct {
 func New(a *auth.Authenticator, auditor auth.Auditor, apps Apps, d Deployments, u Uploads, pods Pods, cluster Cluster, opts Options) *Server {
 	limiter := opts.Limiter
 	if limiter == nil {
+		// A private bucket, shared with nothing. Production always passes the same
+		// instance here and to the upload route, so one caller's burst is one
+		// budget; a test that relies on this fallback is bounded but holds no
+		// shared budget, and proves nothing about AC-15. The lockout is unaffected
+		// either way: it lives in auth.Authenticator, not here.
 		limiter = identity.NewLimiter(ids.SystemClock{}, identity.DeployPathSettings())
 	}
 	return &Server{auth: a, auditor: auditor, apps: apps, deployments: d, uploads: u,

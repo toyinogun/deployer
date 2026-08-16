@@ -208,7 +208,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// console address. A person clicking a link needs the name they can reach in
 	// a browser, which is never the deploy host (spec 0021, Value sourcing).
 	identitySvc := identity.NewService(store.ForIdentity(st), mailerOrNil(sender), ids.SystemClock{},
-		identity.Options{PublicURL: cfg.ConsoleURL})
+		identity.Options{ConsoleURL: cfg.ConsoleURL})
 	bootstrapInvite(ctx, identitySvc)
 
 	mux := http.NewServeMux()

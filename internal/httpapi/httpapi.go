@@ -120,32 +120,35 @@ func withHost(pattern, host string) string {
 // createUpload accepts a gzipped tar body and records it.
 func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// Derived once, so every use below is the same visitor by construction rather
+	// than by six call sites agreeing.
+	addr := a.address(r)
 	// The token bucket is spent here rather than inside the authenticator,
 	// because it bounds the call rate rather than judging the credentials. The
 	// lockout on repeated bad tokens is the other way round and lives in
 	// Authenticate, so both routes inherit it (spec 0022, AC-15, AC-16).
-	if !a.limiter.Allow(a.address(r)) {
-		a.denyUpload(ctx, w, a.address(r), "", domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
+	if !a.limiter.Allow(addr) {
+		a.denyUpload(ctx, w, addr, "", domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
 		return
 	}
-	account, err := a.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")), a.address(r))
+	account, err := a.auth.Authenticate(ctx, auth.BearerToken(r.Header.Get("Authorization")), addr)
 	// A suspended account presented a working credential, so it is refused as a
 	// decision rather than as a bad credential: 403 with the closed reason code,
 	// and audited against the account it actually belongs to (spec 0018, AC-11).
 	if errors.Is(err, auth.ErrAccountSuspended) {
-		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonAccountSuspended, http.StatusForbidden)
+		a.denyUpload(ctx, w, addr, account.ID, domain.ReasonAccountSuspended, http.StatusForbidden)
 		return
 	}
 	// The penalty a run of bad tokens earned. The rule itself is in the
 	// authenticator, so this only names the outcome (spec 0022, AC-16).
 	if errors.Is(err, auth.ErrTooManyAttempts) {
-		a.denyUpload(ctx, w, a.address(r), "", domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
+		a.denyUpload(ctx, w, addr, "", domain.ReasonTooManyAttempts, http.StatusTooManyRequests)
 		return
 	}
 	if err != nil {
 		// The denial is audited with a null account, which is exactly the row
 		// worth having: something presented a credential and it did not work.
-		auth.Record(ctx, a.auditor, auth.Audit{ClientAddress: a.address(r), Action: auth.ActionUpload, Reason: "token invalid"})
+		auth.Record(ctx, a.auditor, auth.Audit{ClientAddress: addr, Action: auth.ActionUpload, Reason: "token invalid"})
 		if !errors.Is(err, auth.ErrTokenInvalid) {
 			slog.ErrorContext(ctx, "authenticating an upload failed", "error", err)
 		}
@@ -156,7 +159,7 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	// A declared length over the cap is refused before a single byte is read, so
 	// an honest oversized client never spends the volume or the transfer.
 	if r.ContentLength > a.opts.MaxBytes {
-		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadTooLarge, http.StatusRequestEntityTooLarge)
+		a.denyUpload(ctx, w, addr, account.ID, domain.ReasonUploadTooLarge, http.StatusRequestEntityTooLarge)
 		return
 	}
 
@@ -165,25 +168,25 @@ func (a *API) createUpload(w http.ResponseWriter, r *http.Request) {
 	up, err := a.uploads.Accept(ctx, account.ID, http.MaxBytesReader(w, r.Body, a.opts.MaxBytes+1))
 	switch {
 	case errors.Is(err, uploads.ErrTooLarge):
-		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadTooLarge, http.StatusRequestEntityTooLarge)
+		a.denyUpload(ctx, w, addr, account.ID, domain.ReasonUploadTooLarge, http.StatusRequestEntityTooLarge)
 		return
 	case errors.Is(err, uploads.ErrNotGzip):
-		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadNotGzip, http.StatusBadRequest)
+		a.denyUpload(ctx, w, addr, account.ID, domain.ReasonUploadNotGzip, http.StatusBadRequest)
 		return
 	case errors.Is(err, uploads.ErrTooManyUnclaimed):
 		// Nothing reached the volume: the count and the insert are one
 		// transaction in the store, and the file is removed when it fails
 		// (spec 0022, AC-17).
-		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonUploadLimitReached, http.StatusTooManyRequests)
+		a.denyUpload(ctx, w, addr, account.ID, domain.ReasonUploadLimitReached, http.StatusTooManyRequests)
 		return
 	case err != nil:
 		slog.ErrorContext(ctx, "accepting an upload failed", "error", err, "account", account.ID)
-		a.denyUpload(ctx, w, a.address(r), account.ID, domain.ReasonInternal, http.StatusInternalServerError)
+		a.denyUpload(ctx, w, addr, account.ID, domain.ReasonInternal, http.StatusInternalServerError)
 		return
 	}
 
 	auth.Record(ctx, a.auditor, auth.Audit{
-		ClientAddress: a.address(r),
+		ClientAddress: addr,
 		AccountID:     account.ID, Action: auth.ActionUpload,
 		TargetType: "upload", TargetID: up.ID, Allowed: true,
 	})

@@ -469,7 +469,7 @@ spec [0022](../specs/0022-publishing-the-deploy-path/index.md) · code in `inter
   - [x] The flip, last and alone: every tool timed against the 125 second edge bound, then the tailnet registrations removed in their own commit — AC-5, AC-20, AC-21
 - [x] Verify it: `/check verify publishing the deploy path`
 - [x] Test it: `/test publishing the deploy path`
-- [ ] Review it (fresh model): `/check review publishing the deploy path`
+- [x] Review it (fresh model): `/check review publishing the deploy path`
 - [ ] Document it: `/document publishing the deploy path`
 
 ## Deferred

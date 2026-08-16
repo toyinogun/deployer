@@ -54,7 +54,7 @@ message and your password stays as it is.
 }
 
 // linkURL builds the address a mailed link points at. It is built from
-// PublicURL, never InternalURL: this text is read by a person, whose browser
+// ConsoleURL, never InternalURL: this text is read by a person, whose browser
 // resolves names on the tailnet rather than on cluster DNS.
 // The paths are the page ones, not the /v1 ones: a person clicking a link in
 // their mail should land on a page, not on a JSON body. The /v1 endpoints keep
