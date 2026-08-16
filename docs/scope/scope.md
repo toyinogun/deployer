@@ -66,7 +66,7 @@ Deployer needs to add, on top of this: an image registry, a builder, the control
 | 23 | Joining: the ready to paste agent configuration | Slice 13 | done |
 | 24 | Publishing the deploy path | Slice 13 | done |
 | 25 | Connecting a client that will not hold a token | Slice 13 | done |
-| 26 | Emailed invites bound to an address | Slice 14 | in-progress |
+| 26 | Emailed invites bound to an address | Slice 14 | done |
 
 ## Foundations
 
@@ -506,7 +506,7 @@ spec [0024](../specs/0024-oauth-for-connector-clients/index.md) · code in `inte
 
 ## Slice 14: Onboarding without you in the loop
 
-### 26. Emailed invites bound to an address · in-progress
+### 26. Emailed invites bound to an address · done
 Feature 16 mints an invite and shows you the link once, so getting it to the person is still your job: you copy it out of the admin page and paste it into a message yourself. The person you invited learns nothing until you do that. This sends the invite to them directly, and ties it to the address you sent it to, so the invite authorises one named person rather than whoever ends up holding the link.
 **Done when:** an admin types an address on the invite page, the person receives the invite on the existing mail path and can register from the link with no further help, registration is refused with a closed reason code when the address does not match the invite, a failed send still leaves the invite minted with its link on screen, and the invites that already exist keep working.
 spec [0025](../specs/0025-emailed-invites-bound-to-an-address/index.md)

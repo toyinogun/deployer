@@ -4,7 +4,8 @@ The rules a person's account turns on: what a password has to be, what an
 address has to look like, how long a link or a session lives, and the closed set
 of codes a caller is ever told. Governing specs:
 [0007](../../docs/specs/0007-accounts-tokens-app-ownership/index.md) for accounts,
-tokens and the admin view, [0015](../../docs/specs/0015-invite-only-registration/index.md)
+tokens and the admin view, [0015](../../docs/specs/0015-invite-only-registration/index.md) and
+[0025](../../docs/specs/0025-emailed-invites-bound-to-an-address/index.md)
 for invites, and [0021](../../docs/specs/0021-public-edge/index.md) for the parts
 the public edge changed.
 
@@ -131,6 +132,30 @@ narrow interfaces declared here.
   turn a successful registration into an error. A nil `Mailer` is a supported
   state and means the mail dependent endpoints answer `mail_unavailable` while
   everything else works.
+- **`sendNow` is the one send path that reports its failure, and it has exactly
+  one caller.** A bound invite mint has an admin sitting on the page who can act
+  on the answer by handing the link over another way, which is not true of a
+  verification or reset message nobody is waiting on (spec 0025). What reaches a
+  page is that the send failed, never why: the error it returns is the provider's,
+  and neither the address nor the body is in the log line, because that body
+  carries a live invite code. A second caller for it is a design question, not a
+  convenience.
+- **An invite's bound address is matched inside the store lookup, never compared
+  in Go above it.** `LiveInvite` takes the candidate address and the predicate
+  carries `email IS NULL OR email = @candidate`, so a live invite presented with
+  the wrong address is the same `ErrInviteInvalid` as an unknown, spent, revoked
+  or expired code, at the same cost, and no ordering of checks can tell the two
+  apart (spec 0025, AC-8). Lifting that comparison up to `Register` would still
+  refuse the caller and would quietly lose the indistinguishability. The bound
+  address is never returned upward for the same reason: nothing above can
+  accidentally answer with it or branch on it. `Register` normalizes the submitted
+  address before the lookup, which is what makes an invite minted to
+  `Alice@Example.com` answer a registration as `alice@example.com`, and
+  normalizing costs no key derivation so the gate stays as cheap as it was.
+- `CodeAddressRegistered` is safe to say plainly only because the mint surface is
+  admin only. The same sentence on the register path would tell a stranger which
+  addresses have accounts, which is the thing every uniform answer above exists to
+  prevent.
 - `InviteState` is derived from three timestamps against the clock, never stored,
   so nothing sweeps the table and a clock change leaves no stale value behind.
 - `SpendInviteAndCreateAccount` returns two errors that must not collapse into
