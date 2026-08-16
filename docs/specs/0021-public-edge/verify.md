@@ -9,10 +9,10 @@ quickly.
 
 ## Commands (already green in the suite)
 
-- [ ] `go test -race ./...` → passes                                             → AC-1, AC-2, AC-2a, AC-3, AC-4, AC-5, AC-6, AC-7, AC-15, AC-15b, AC-16, AC-17, AC-18, AC-18a, AC-19, AC-21, AC-21a, AC-23, AC-23a
-- [ ] `go test ./internal/config/ -run Tunnel` → the tunnel routes exactly two hostnames, two distinct origins, a refusing catch all, and its namespace is fenced both ways → AC-9, AC-11, AC-12, AC-22a
-- [ ] `go test ./internal/config/ -run ControlPlane` → the fence carries four peers including `deployer-edge` on 8080, names no `ingress-nginx` peer, and still has no `Egress` in `policyTypes` → AC-22
-- [ ] `kustomize build deploy/ > /dev/null` → builds, so every new manifest is listed in the kustomization and ArgoCD will see it
+- [x] `go test -race ./...` → passes                                             → AC-1, AC-2, AC-2a, AC-3, AC-4, AC-5, AC-6, AC-7, AC-15, AC-15b, AC-16, AC-17, AC-18, AC-18a, AC-19, AC-21, AC-21a, AC-23, AC-23a
+- [x] `go test ./internal/config/ -run Tunnel` → the tunnel routes exactly two hostnames, two distinct origins, a refusing catch all, and its namespace is fenced both ways → AC-9, AC-11, AC-12, AC-22a
+- [x] `go test ./internal/config/ -run ControlPlane` → the fence carries four peers including `deployer-edge` on 8080, names no `ingress-nginx` peer, and still has no `Egress` in `policyTypes` → AC-22
+- [x] `kustomize build deploy/ > /dev/null` → builds, so every new manifest is listed in the kustomization and ArgoCD will see it
 
 ## Before the flip: from a tailnet device, tunnel live, DNS unchanged
 
@@ -22,23 +22,23 @@ pass: it proves the split without publishing anything.
 
 ### The tunnel is up
 
-- [ ] `kubectl -n deployer-edge get deploy cloudflared` → 2/2 ready, so a node drain never leaves zero connectors → AC-10
-- [ ] `kubectl -n deployer-edge get pods -o wide` → the two are on different nodes
-- [ ] `kubectl -n deployer-edge get secret cloudflared-credentials` → exists, and `git grep -i 'credentials.json:' deploy/` shows only the sealed value, never plaintext → AC-10
-- [ ] `kubectl -n deployer-edge logs deploy/cloudflared | grep -i 'registered tunnel connection'` → connectors registered
-- [ ] `kubectl -n deployer-system run probe --rm -it --image=curlimages/curl --restart=Never -- curl -s http://cloudflared.deployer-edge.svc.cluster.local:2000/ready` → 200, which is the same endpoint the health check reads → AC-23
+- [x] `kubectl -n deployer-edge get deploy cloudflared` → 2/2 ready, so a node drain never leaves zero connectors → AC-10
+- [x] `kubectl -n deployer-edge get pods -o wide` → the two are on different nodes
+- [x] `kubectl -n deployer-edge get secret cloudflared-credentials` → exists, and `git grep -i 'credentials.json:' deploy/` shows only the sealed value, never plaintext → AC-10
+- [x] `kubectl -n deployer-edge logs deploy/cloudflared | grep -i 'registered tunnel connection'` → connectors registered
+- [x] `kubectl -n deployer-system run probe --rm -it --image=curlimages/curl --restart=Never -- curl -s http://cloudflared.deployer-edge.svc.cluster.local:2000/ready` → 200, which is the same endpoint the health check reads → AC-23
 
 ### The route split, by Host header override
 
 Run these against the platform's tailnet address with the console Host forced, so
 the mux sees a console request without any DNS involved.
 
-- [ ] `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: console.deploy.toyintest.org' https://deployer.tail62ceef.ts.net/login` → 200 → AC-2a
-- [ ] the same with `/admin/accounts` → 404 → AC-2
-- [ ] the same with `-X POST .../mcp` → 404 → AC-2
-- [ ] the same with `/v1/auth/me` → 404 → AC-2
-- [ ] the same three **without** the Host override, on the tailnet name → not 404: the tailnet stays a complete door, so a tunnel outage never costs you access to your own platform → AC-3
-- [ ] `curl -s -o /dev/null -w '%{http_code}\n' http://<control plane pod IP>:8080/login` from inside the cluster → 200, so an in cluster caller and a health probe still work → AC-4
+- [x] `curl -s -o /dev/null -w '%{http_code}\n' -H 'Host: console.deploy.toyintest.org' https://deployer.tail62ceef.ts.net/login` → 200 → AC-2a
+- [x] the same with `/admin/accounts` → 404 → AC-2
+- [x] the same with `-X POST .../mcp` → 404 → AC-2
+- [x] the same with `/v1/auth/me` → 404 → AC-2
+- [x] the same three **without** the Host override, on the tailnet name → not 404: the tailnet stays a complete door, so a tunnel outage never costs you access to your own platform → AC-3
+- [x] `curl -s -o /dev/null -w '%{http_code}\n' http://<control plane pod IP>:8080/login` from inside the cluster → 200, so an in cluster caller and a health probe still work → AC-4
 
 ### The console hostname through the tunnel, before DNS
 
@@ -57,15 +57,15 @@ the mux sees a console request without any DNS involved.
 
 ### The rate limiter sees one visitor, not the tunnel
 
-- [ ] from one machine, fail sign in through the console repeatedly until it answers 429 → AC-16
-- [ ] immediately post to `/v1/auth/login` from the same machine → also refused, because both surfaces spend from one bucket → AC-16
-- [ ] from a second machine on a different address, sign in through the console → not refused, so one abuser is one bucket rather than everybody → AC-16
+- [x] from one machine, fail sign in through the console repeatedly until it answers 429 → AC-16
+- [x] immediately post to `/v1/auth/login` from the same machine → also refused, because both surfaces spend from one bucket → AC-16
+- [x] from a second machine on a different address, sign in through the console → not refused, so one abuser is one bucket rather than everybody → AC-16
 
 ### Cookies and origins
 
 - [ ] sign in on the console, read the `Set-Cookie` → `__Host-deployer_session`, with `Secure`, `Path=/`, and no `Domain` → AC-19
 - [ ] everyone who was signed in before this deploy is signed out exactly once → AC-20
-- [ ] post a form with `Origin: https://console.deploy.toyintest.org` → accepted; with the tailnet origin → accepted; with a third → 403 → AC-21
+- [x] post a form with `Origin: https://console.deploy.toyintest.org` → accepted; with the tailnet origin → accepted; with a third → 403 → AC-21
 - [ ] take the `__Host-deployer_csrf` value minted on the tailnet host and post it to the console → refused, because the cookie is host scoped and each hostname mints its own → AC-21a
 
 ### The reserved name
@@ -80,18 +80,18 @@ the mux sees a console request without any DNS involved.
 The parse tests cannot tell you a peer is **missing**, because a shorter policy is
 still a valid policy. Only this walk can, which is the lesson spec 0019 recorded.
 
-- [ ] from a pod in `deployer-edge`, reach `deployer.deployer-system.svc:80` → succeeds → AC-22
-- [ ] from a pod in `default` or any unrelated namespace, reach the control plane on 8080 → refused, which is what makes `CF-Connecting-IP` trustworthy on the console hostname → AC-15a
-- [ ] from a pod in `ingress-nginx`, reach the control plane on 8080 → refused: the console is not behind that controller and must not be reachable from it → AC-15a, AC-22
+- [x] from a pod in `deployer-edge`, reach `deployer.deployer-system.svc:80` → succeeds → AC-22
+- [x] from a pod in `default` or any unrelated namespace, reach the control plane on 8080 → refused, which is what makes `CF-Connecting-IP` trustworthy on the console hostname → AC-15a
+- [x] from a pod in `ingress-nginx`, reach the control plane on 8080 → refused: the console is not behind that controller and must not be reachable from it → AC-15a, AC-22
 - [ ] from a pod in `deployer-edge`, reach anything other than DNS, `ingress-nginx:443`, `deployer-system:8080` and the public internet on 443/7844 → refused → AC-22a
-- [ ] from a pod in `deployer-system`, reach `cloudflared.deployer-edge.svc:2000` → succeeds; from anywhere else → refused → AC-22a
+- [x] from a pod in `deployer-system`, reach `cloudflared.deployer-edge.svc:2000` → succeeds; from anywhere else → refused → AC-22a
 - [ ] the tailnet peer, the two build namespaces, and the control plane pod on 5000 all still work, so adding a peer took none away → AC-22
 
 ### The certificate (still owed, in k3sprox-gitops)
 
-- [ ] move the `wildcard-apps` `Certificate` from the staging `ClusterIssuer` to the production one → AC-8
-- [ ] `kubectl -n ingress-nginx get certificate wildcard-apps` → `Ready`, covering both `*.deploy.toyintest.org` and the bare domain → AC-8
-- [ ] every path, tailnet and LAN included, serves a certificate a browser accepts with no warning → AC-8
+- [x] move the `wildcard-apps` `Certificate` from the staging `ClusterIssuer` to the production one → AC-8
+- [x] `kubectl -n ingress-nginx get certificate wildcard-apps` → `Ready`, covering both `*.deploy.toyintest.org` and the bare domain → AC-8
+- [x] every path, tailnet and LAN included, serves a certificate a browser accepts with no warning → AC-8
 - [ ] expect the shared `ingress-nginx` controller to restart, which briefly interrupts TLS for the twelve other apps on the cluster. Do this deliberately, not as a side effect of another change.
 
 ### Failure

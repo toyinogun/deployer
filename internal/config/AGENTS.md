@@ -10,12 +10,12 @@ composes.
 - `config.go`: the `Config` struct, one field per value with the spec that added
   it, and `Load`, which gathers every problem before it returns one error.
 - `firstdeploy.go`, `identity.go`, `web.go`, `isolation.go`, `lifecycle.go`,
-  `backup.go`: the
+  `backup.go`, `edge.go`: the
   per spec loaders `Load` calls, each returning its own problems rather than
   failing on the first.
 - `controlplanepolicy_test.go`, `nodepolicy_test.go`, `buildspolicy_test.go`,
-  `buildsnamespace_test.go`, `blockeddrift_test.go`: the parse tests over
-  `deploy/`, described below.
+  `buildsnamespace_test.go`, `blockeddrift_test.go`, `tunnel_test.go`: the parse
+  tests over `deploy/`, described below.
 - The remaining `*_test.go` files cover the loaders beside them.
 
 ## Conventions
@@ -62,6 +62,12 @@ and pin their whole shape. They are the only thing standing behind those files.
   there is a string where the v1 kind takes an int.
 - `buildspolicy_test.go` and `buildsnamespace_test.go` do the same for the two
   build namespaces and their pod security levels.
+- `tunnel_test.go` pins the Cloudflare tunnel's own files: the routing
+  `ConfigMap`'s two hostnames, its two distinct origins, its refusing catch all,
+  and the tunnel namespace's policy in both directions. It also reads
+  `DEPLOYER_CONSOLE_HOST` out of `deploy/configmap.yaml` and pairs it against the
+  console route, because those two values live in different files and a mismatch
+  is a console that answers 404 through the tunnel while every other test passes.
 - `blockeddrift_test.go` pins the blocked range list, which exists three times:
   as `defaultBlockedCIDRs` in `isolation.go` and as literal text in each build
   namespace's policy file. Editing one without the others is what this catches.
