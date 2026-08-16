@@ -34,6 +34,10 @@ const (
 
 	// Added by spec 0015, invite only registration.
 	Invite Prefix = "inv"
+
+	// Added by spec 0024, OAuth for connector clients. Codes carry no id of
+	// their own: an authorization code is keyed by the hash of the code itself.
+	OAuthClient Prefix = "oac"
 )
 
 // entropy is monotonic so two ids drawn in the same millisecond still differ and

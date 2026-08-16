@@ -258,15 +258,20 @@ func TestThePageRendersFourTabsWithClaudeCodeFirst(t *testing.T) {
 
 // TestEveryBlockCarriesTheConfiguredEndpoint is AC-9. The address is derived from
 // the configured deploy host rather than written into any block, so a hostname
-// change moves one value and all four follow. Driven as a configuration swap in
-// process, the same shape as the MCP tool description's own pinning test.
-// covers: AC-9, AC-11
+// change moves one value and every block follows. Driven as a configuration swap
+// in process, the same shape as the MCP tool description's own pinning test.
+//
+// The count is the size of the tab set rather than a literal, so spec 0024's
+// fifth tab is held to the same rule the first four are: it shows the configured
+// address and nothing typed in (spec 0024, AC-26).
+// covers: AC-9, AC-11, AC-26
 func TestEveryBlockCarriesTheConfiguredEndpoint(t *testing.T) {
 	h := newHarness(t, nil)
 	cookie := h.signIn(t, "endpoint@example.test")
+	want := len(connectClients)
 
-	if got := strings.Count(h.get(t, "/connect", cookie).Body.String(), testMCPURL+"/mcp"); got != 4 {
-		t.Errorf("the configured endpoint appears in %d blocks, want 4", got)
+	if got := strings.Count(h.get(t, "/connect", cookie).Body.String(), testMCPURL+"/mcp"); got != want {
+		t.Errorf("the configured endpoint appears in %d blocks, want %d", got, want)
 	}
 
 	const moved = "https://elsewhere.example.test"
@@ -283,8 +288,8 @@ func TestEveryBlockCarriesTheConfiguredEndpoint(t *testing.T) {
 	mux.ServeHTTP(rec, req)
 	body := rec.Body.String()
 
-	if got := strings.Count(body, moved+"/mcp"); got != 4 {
-		t.Errorf("after the configuration moved, the new endpoint appears in %d blocks, want 4", got)
+	if got := strings.Count(body, moved+"/mcp"); got != want {
+		t.Errorf("after the configuration moved, the new endpoint appears in %d blocks, want %d", got, want)
 	}
 	if strings.Contains(body, testMCPURL) {
 		t.Error("a block still carries the old endpoint, so a hostname is written in somewhere")

@@ -45,6 +45,11 @@ type connectClient struct {
 	// Block composes the text. endpoint is the deploy path's address, token is
 	// either a freshly minted value or the placeholder.
 	Block func(endpoint, token string) string
+	// NoToken marks a client that carries no credential of its own, because it
+	// obtains one itself. The block is the address and nothing else, and the
+	// mint control is absent from that panel rather than merely unused: a token
+	// minted here would be a second credential nobody needs (spec 0024, AC-26).
+	NoToken bool
 }
 
 // connectClients is the whole tab set, in the order the page renders them. The
@@ -94,6 +99,16 @@ var connectClients = []connectClient{
 		},
 	},
 	{
+		Key:   "claude-app",
+		Label: "Claude app and other connectors",
+		Where: "Add this address as a connector. You will be sent here to approve it.",
+		// The address alone. A connector surface has no header field to paste a
+		// token into: it takes a URL, asks the platform how to sign in, and is
+		// issued its own credential through the OAuth flow (spec 0024, AC-26).
+		Block:   func(endpoint, _ string) string { return endpoint },
+		NoToken: true,
+	},
+	{
 		Key:   "mcp-json",
 		Label: "Other (MCP JSON)",
 		Where: "For any client that takes a plain MCP server entry.",
@@ -133,6 +148,9 @@ type connectBlock struct {
 	Where    string
 	Text     string
 	Selected bool
+	// NoToken carries the client's own flag through to the template, which is
+	// what leaves the mint control off that panel (spec 0024, AC-26).
+	NoToken bool
 }
 
 // connectPageData is the four blocks and, on the one response that mints, the
@@ -260,6 +278,7 @@ func (s *Server) renderConnect(w http.ResponseWriter, r *http.Request, account a
 			Key: c.Key, Label: c.Label, Where: c.Where,
 			Text:     c.Block(endpoint, token),
 			Selected: c.Key == selected,
+			NoToken:  c.NoToken,
 		})
 	}
 	s.render(w, r, account, sess, status, "connect", "connect", data)

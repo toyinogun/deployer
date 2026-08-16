@@ -43,6 +43,17 @@
     <pre class="token block" id="block-{{.Key}}">{{.Text}}</pre>
     <button class="button" type="button" data-copy="block-{{.Key}}">Copy</button>
   </div>
+  {{if .NoToken}}
+  {{/* No mint control on this panel, deliberately. This client obtains its own
+       credential through the approval page, so a token minted here would be a
+       second one nobody needs (spec 0024, AC-26). */}}
+  <p class="hint">
+    Paste that address into your client. It will send you here to sign in and
+    approve the connection, and it is issued its own token: no copying required.
+    That token shows up on <a href="/tokens">your token list</a> and you revoke
+    it there like any other.
+  </p>
+  {{else}}
   <form method="post" action="/connect">
     <input type="hidden" name="csrf" value="{{$.Shell.CSRF}}">
     <input type="hidden" name="client" value="{{.Key}}">
@@ -52,6 +63,7 @@
     The token is an ordinary API token. It shows up on
     <a href="/tokens">your token list</a> and you revoke it there.
   </p>
+  {{end}}
 </section>
 {{end}}
 {{end}}

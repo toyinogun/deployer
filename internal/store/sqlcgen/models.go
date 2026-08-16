@@ -19,16 +19,17 @@ type Account struct {
 }
 
 type ApiToken struct {
-	ID          string
-	AccountID   string
-	Name        string
-	TokenHash   string
-	TokenPrefix string
-	LastUsedAt  *string
-	ExpiresAt   *string
-	RevokedAt   *string
-	CreatedAt   string
-	UpdatedAt   string
+	ID            string
+	AccountID     string
+	Name          string
+	TokenHash     string
+	TokenPrefix   string
+	LastUsedAt    *string
+	ExpiresAt     *string
+	RevokedAt     *string
+	CreatedAt     string
+	UpdatedAt     string
+	OauthClientID *string
 }
 
 type App struct {
@@ -126,6 +127,27 @@ type Invite struct {
 	ConsumedBy *string
 	RevokedAt  *string
 	CreatedAt  string
+}
+
+type OauthClient struct {
+	ID           string
+	Name         string
+	RedirectUris string
+	CreatedAt    string
+	ApprovedAt   *string
+}
+
+type OauthCode struct {
+	CodeHash      string
+	ClientID      string
+	AccountID     string
+	RedirectUri   string
+	CodeChallenge string
+	Resource      string
+	TokenID       *string
+	ExpiresAt     string
+	ConsumedAt    *string
+	CreatedAt     string
 }
 
 type Release struct {

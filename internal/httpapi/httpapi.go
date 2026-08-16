@@ -34,6 +34,14 @@ type Options struct {
 	// CF-Connecting-IP is read on. The same set every other surface holds
 	// (spec 0022, AC-13, AC-14).
 	TrustedHosts []string
+	// MCPURL is the deploy path's public base address, derived from MCPHost. It
+	// is what the protected resource documents name as the resource, and it has
+	// to be the exact address the person typed into their client or the client
+	// refuses the document (spec 0024, AC-1).
+	MCPURL string
+	// ConsoleURL is the console's public base address. It is the single
+	// authorization server those documents point a client at (spec 0024, AC-1).
+	ConsoleURL string
 }
 
 // API holds everything the HTTP handlers need.
@@ -84,6 +92,12 @@ func (a *API) Register(mux *http.ServeMux, mcpHandler http.Handler) {
 	}{
 		{"POST /v1/uploads", http.HandlerFunc(a.createUpload)},
 		{"/mcp", mcpHandler},
+
+		// The two discovery documents, and the only thing spec 0024 adds to
+		// this hostname. Each names its own exact resource, which is why there
+		// are two rather than one document serving both paths (AC-1, AC-25).
+		{"GET " + identity.ProtectedResourcePath, http.HandlerFunc(a.resourceDocument)},
+		{"GET " + identity.ProtectedResourcePath + "/mcp", http.HandlerFunc(a.mcpResourceDocument)},
 	}
 	for _, route := range public {
 		if route.handler == nil || a.opts.MCPHost == "" {

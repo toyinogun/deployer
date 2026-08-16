@@ -187,6 +187,11 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// authenticator, so both routes on that path inherit one rule and neither
 	// handler holds a copy (spec 0022, AC-15, AC-16).
 	deployLimiter := identity.NewLimiter(ids.SystemClock{}, identity.DeployPathSettings())
+	// The OAuth endpoints' own bucket, the third of the three. Adding one
+	// connector spends it three times in a row from one address, so it must not
+	// be the sign in bucket or a person adding a connector could lock themselves
+	// out of the console they are signing in to (spec 0024, AC-6, AC-22).
+	connectorLimiter := identity.NewLimiter(ids.SystemClock{}, identity.ConnectorSettings())
 	authenticator := auth.NewAuthenticator(as, as).
 		WithSessions(as, identity.SessionLifetime).
 		WithLockout(deployLimiter)
@@ -250,6 +255,8 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 		MaxBytes:     cfg.MaxUploadBytes,
 		MCPHost:      cfg.MCPHost,
 		TrustedHosts: trustedHosts,
+		MCPURL:       cfg.MCPURL,
+		ConsoleURL:   cfg.ConsoleURL,
 	}).Register(mux, tools.Handler())
 
 	// The browser surface, at the root paths of the same host. It reads through
@@ -257,7 +264,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 	// which is what keeps a rule from differing between a page and a tool
 	// (spec 0013, AC-4).
 	backups := startBackups(ctx, st, cfg, sender)
-	startAuditSweep(ctx, st, cfg.Retention)
+	startDailySweep(ctx, st, identitySvc, cfg.Retention)
 	startUploadSweep(ctx, uploadSvc)
 	startTunnelWatch(ctx, cfg, sender)
 
@@ -272,6 +279,7 @@ func buildAPI(ctx context.Context, st *store.Store, cfg config.Config) *http.Ser
 			ConsoleHost:       cfg.ConsoleHost,
 			ConsoleURL:        cfg.ConsoleURL,
 			TrustedHosts:      trustedHosts,
+			ConnectorLimiter:  connectorLimiter,
 		}).Register(mux)
 
 	if cluster != nil {
@@ -326,15 +334,21 @@ func tunnelMailer(s *mail.Sender) tunnelwatch.Mailer {
 	return s
 }
 
-// auditSweepInterval is how often the audit retention sweep runs. Daily: the
-// window it enforces is measured in months, so the cost of being up to a day
-// late is a day, and the cost of running it more often is a full table scan
-// nobody asked for (spec 0021, AC-18).
-const auditSweepInterval = 24 * time.Hour
+// dailySweepInterval is how often the daily housekeeping runs. Daily: the
+// windows it enforces are measured in months and in days, so the cost of being
+// up to a day late is a day, and the cost of running it more often is a full
+// table scan nobody asked for (spec 0021, AC-18).
+const dailySweepInterval = 24 * time.Hour
 
-// startAuditSweep nulls the client address on every audit row past the retention
-// window, at boot and then daily. The row itself is never deleted: the trail
-// stays and only the identifier goes.
+// startDailySweep is the one daily runner, and everything with a daily window
+// belongs on it rather than on a ticker of its own. A second scheduler for one
+// delete is a second thing that can silently stop (spec 0024, AC-8a).
+//
+// It does two jobs. It nulls the client address on every audit row past the
+// retention window, keeping the row itself: the trail stays and only the
+// identifier goes. And it deletes every connector client nobody ever approved
+// that is older than the resumable window, which is what bounds a public
+// unauthenticated write.
 //
 // It runs on a ticker in this process, the same shape the suspension sweep and
 // the backup schedule already use, rather than as a CronJob. A second workload
@@ -344,20 +358,29 @@ const auditSweepInterval = 24 * time.Hour
 // After the window a nulled row and a platform written row are indistinguishable.
 // That is accepted and specified, so a person reading an old denial knows why the
 // address is missing rather than suspecting a bug (AC-18a).
-func startAuditSweep(ctx context.Context, st *store.Store, retention time.Duration) {
+func startDailySweep(ctx context.Context, st *store.Store, svc *identity.Service, retention time.Duration) {
 	sweep := func() {
 		n, err := st.ClearOldAuditAddresses(ctx, retention)
-		if err != nil {
+		switch {
+		case err != nil:
 			slog.ErrorContext(ctx, "could not clear audit addresses past the retention window", "error", err)
-			return
-		}
-		if n > 0 {
+		case n > 0:
 			slog.InfoContext(ctx, "cleared audit addresses past the retention window", "rows", n)
+		}
+		// A client with approved_at set is never touched here, however old it
+		// is: what dies is a registration nobody ever answered (spec 0024,
+		// AC-8).
+		clients, err := svc.SweepClients(ctx)
+		switch {
+		case err != nil:
+			slog.ErrorContext(ctx, "could not sweep unapproved connector clients", "error", err)
+		case clients > 0:
+			slog.InfoContext(ctx, "swept unapproved connector clients", "rows", clients)
 		}
 	}
 	go func() {
 		sweep()
-		ticker := time.NewTicker(auditSweepInterval)
+		ticker := time.NewTicker(dailySweepInterval)
 		defer ticker.Stop()
 		for {
 			select {
@@ -368,7 +391,8 @@ func startAuditSweep(ctx context.Context, st *store.Store, retention time.Durati
 			}
 		}
 	}()
-	slog.Info("audit address sweep started", "interval", auditSweepInterval, "retention", retention)
+	slog.Info("daily sweep started", "interval", dailySweepInterval, "retention", retention,
+		"connectorRetention", identity.ClientRetention)
 }
 
 // uploadSweepInterval is how often expired uploads are cleared off the volume.

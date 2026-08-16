@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/toyinogun/deployer/internal/identity"
@@ -310,4 +311,107 @@ func mapNotFound(err error) error {
 		return identity.ErrNotFound
 	}
 	return err
+}
+
+// RegisterOAuthClient stores a client a stranger asked for. The redirect URIs
+// are kept verbatim, because the exact registered string is what a requested one
+// is compared against (spec 0024, AC-10b).
+func (a IdentityStore) RegisterOAuthClient(ctx context.Context, name string, redirectURIs []string) (identity.OAuthClient, error) {
+	client, err := a.s.CreateOAuthClient(ctx, name, redirectURIs)
+	if err != nil {
+		return identity.OAuthClient{}, err
+	}
+	return toIdentityClient(client), nil
+}
+
+// OAuthClient reads one registered client.
+func (a IdentityStore) OAuthClient(ctx context.Context, id string) (identity.OAuthClient, error) {
+	client, err := a.s.OAuthClient(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return identity.OAuthClient{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return identity.OAuthClient{}, err
+	}
+	return toIdentityClient(client), nil
+}
+
+// ApproveOAuthClientAndCreateCode stamps the client approved and writes the code
+// that approval issued, in one transaction. The stamp is conditional, so a second
+// approval changes nothing and is not an error.
+func (a IdentityStore) ApproveOAuthClientAndCreateCode(ctx context.Context, c identity.NewOAuthCode) error {
+	return a.s.ApproveOAuthClientAndCreateCode(ctx, NewOAuthCode{
+		CodeHash:      c.CodeHash,
+		ClientID:      c.ClientID,
+		AccountID:     c.AccountID,
+		RedirectURI:   c.RedirectURI,
+		CodeChallenge: c.CodeChallenge,
+		Resource:      c.Resource,
+		ExpiresAt:     c.ExpiresAt,
+	})
+}
+
+// SweepOAuthClients deletes the clients nobody ever approved that are older than
+// cutoff, and reports how many went.
+func (a IdentityStore) SweepOAuthClients(ctx context.Context, cutoff time.Time) (int, error) {
+	return a.s.SweepUnapprovedOAuthClients(ctx, cutoff)
+}
+
+// OAuthCode reads a code back, spent or not.
+func (a IdentityStore) OAuthCode(ctx context.Context, codeHash string) (identity.OAuthCode, error) {
+	code, err := a.s.OAuthCode(ctx, codeHash)
+	if errors.Is(err, ErrNotFound) {
+		return identity.OAuthCode{}, identity.ErrNotFound
+	}
+	if err != nil {
+		return identity.OAuthCode{}, err
+	}
+	expires, err := time.Parse(time.RFC3339Nano, code.ExpiresAt)
+	if err != nil {
+		return identity.OAuthCode{}, fmt.Errorf("store: reading the expiry of code %s: %w", code.CodeHash, err)
+	}
+	return identity.OAuthCode{
+		ClientID:      code.ClientID,
+		AccountID:     code.AccountID,
+		RedirectURI:   code.RedirectURI,
+		CodeChallenge: code.CodeChallenge,
+		Resource:      code.Resource,
+		TokenID:       code.TokenID,
+		ExpiresAt:     expires,
+		Consumed:      code.ConsumedAt != "",
+	}, nil
+}
+
+// GrantClientToken spends the code and mints the token in one transaction. A
+// code already spent or past its expiry is ErrGrantInvalid, and a token name the
+// account already holds live loses on the partial unique index, which is the
+// only way that is detected, exactly as the hand minted path works.
+func (a IdentityStore) GrantClientToken(ctx context.Context, g identity.ClientGrant) (identity.TokenView, error) {
+	tok, err := a.s.GrantClientToken(ctx, ClientGrant{
+		CodeHash:    g.CodeHash,
+		AccountID:   g.AccountID,
+		ClientID:    g.ClientID,
+		Name:        g.Name,
+		TokenHash:   g.TokenHash,
+		TokenPrefix: g.TokenPrefix,
+	})
+	switch {
+	case errors.Is(err, ErrTokenInvalid):
+		return identity.TokenView{}, identity.ErrGrantInvalid
+	case isUniqueViolation(err):
+		return identity.TokenView{}, identity.ErrTokenNameTaken
+	case err != nil:
+		return identity.TokenView{}, err
+	}
+	return toTokenView(tok), nil
+}
+
+// toIdentityClient maps a stored client to the shape internal/identity declared.
+func toIdentityClient(c OAuthClient) identity.OAuthClient {
+	return identity.OAuthClient{
+		ID:           c.ID,
+		Name:         c.Name,
+		RedirectURIs: c.RedirectURIs,
+		Approved:     c.ApprovedAt != "",
+	}
 }

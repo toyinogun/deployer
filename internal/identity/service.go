@@ -105,9 +105,33 @@ type Store interface {
 	AnyLiveBootstrapInvite(ctx context.Context) (bool, error)
 
 	MintToken(ctx context.Context, accountID, name, tokenHash, prefix string, expiresAt time.Time) (TokenView, error)
+	// GrantClientToken spends an authorization code and mints the token it
+	// issued, in one transaction. Spending the code is a conditional statement
+	// rather than a read followed by a write, so two token requests arriving
+	// together mint exactly once, and revoking whatever the client held before
+	// happens beside the insert so the live client index never sees two
+	// (spec 0024, AC-18a, AC-19a). A code that is spent or expired is
+	// ErrGrantInvalid; a name the account already holds live is
+	// ErrTokenNameTaken, exactly as MintToken reports it.
+	GrantClientToken(ctx context.Context, g ClientGrant) (TokenView, error)
 	ListTokens(ctx context.Context, accountID string) ([]TokenView, error)
 	TokenByID(ctx context.Context, id string) (TokenView, error)
 	RevokeToken(ctx context.Context, id string) error
+
+	RegisterOAuthClient(ctx context.Context, name string, redirectURIs []string) (OAuthClient, error)
+	OAuthClient(ctx context.Context, id string) (OAuthClient, error)
+	// ApproveOAuthClientAndCreateCode stamps the client approved and writes the
+	// code that approval issued, in one transaction. The stamp is conditional in
+	// the statement itself, so approving an already approved client leaves the
+	// original stamp and is not an error. The two writes are one method rather
+	// than two because the stamp is what exempts a client from the sweep, so a
+	// stamp landing without its code would strand the row (spec 0024, AC-8).
+	ApproveOAuthClientAndCreateCode(ctx context.Context, c NewOAuthCode) error
+	SweepOAuthClients(ctx context.Context, cutoff time.Time) (int, error)
+	// OAuthCode reads a code back whether or not it has been spent. A spent one
+	// is a real answer rather than a miss, because presenting it a second time
+	// is what costs the token it issued (spec 0024, AC-16a).
+	OAuthCode(ctx context.Context, codeHash string) (OAuthCode, error)
 }
 
 // Mailer sends one transactional message. internal/mail satisfies it. A nil

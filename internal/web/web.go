@@ -87,6 +87,14 @@ type Options struct {
 	// CF-Connecting-IP is read on. The same set every other surface holds, so
 	// one visitor is one address rather than one per surface (spec 0022, AC-14).
 	TrustedHosts []string
+	// ConnectorLimiter is the bucket the three OAuth endpoints spend from. It is
+	// a dependency rather than a value, and it lives here beside the rest of
+	// what this surface is handed, the same way internal/mcp carries its own. It
+	// must never be the sign in limiter: adding one connector spends it three
+	// times in a row from one address, so sharing that bucket would let a person
+	// adding a connector lock themselves out of the console they are signing in
+	// to (spec 0024, AC-6, AC-22). Nil means unlimited, which is a test.
+	ConnectorLimiter *identity.Limiter
 }
 
 // Server is the page surface.
@@ -119,6 +127,9 @@ type Server struct {
 	// secure is the cookie's Secure flag, derived from ConsoleURL exactly as the
 	// JSON surface derives it, so the two cannot hand out different cookies.
 	secure bool
+	// connectors is the OAuth endpoints' own bucket, lifted out of Options so
+	// every spend site reads the same field.
+	connectors *identity.Limiter
 }
 
 // New returns the page surface. data is the store, pods may be nil when there is
@@ -128,7 +139,7 @@ func New(svc *identity.Service, a *auth.Authenticator, auditor auth.Auditor, dat
 	suspension *suspend.Service, backups Backups, backupRuns BackupRuns, opts Options,
 ) *Server {
 	s := &Server{svc: svc, auth: a, auditor: auditor, data: data, pods: pods, suspension: suspension,
-		backups: backups, backupRuns: backupRuns, opts: opts}
+		backups: backups, backupRuns: backupRuns, opts: opts, connectors: opts.ConnectorLimiter}
 	if u, err := url.Parse(opts.ConsoleURL); err == nil && u.Host != "" {
 		s.origins = append(s.origins, u.Scheme+"://"+u.Host)
 		s.secure = u.Scheme == "https"
@@ -185,6 +196,18 @@ func (s *Server) Register(mux *http.ServeMux) {
 
 		{"GET /connect", http.HandlerFunc(s.connectPage)},
 		{"POST /connect", http.HandlerFunc(s.connectMint)},
+
+		// The authorization server, spec 0024. The three machine endpoints are
+		// namespaced under /oauth/ because POST /register above is already the
+		// account signup form, and all three are advertised in the metadata
+		// document so no client hardcodes a path (AC-25). Each names its method,
+		// so a wrong verb on a path that exists is a 405 from the mux and a path
+		// that does not exist is the host's own 404 (AC-25b).
+		{"GET " + identity.AuthorizationServerPath, http.HandlerFunc(s.authServerDocument)},
+		{"POST " + identity.RegisterPath, http.HandlerFunc(s.registerClient)},
+		{"GET " + identity.AuthorizePath, http.HandlerFunc(s.authorizePage)},
+		{"POST " + identity.AuthorizePath, http.HandlerFunc(s.authorizeSubmit)},
+		{"POST " + identity.TokenPath, http.HandlerFunc(s.tokenExchange)},
 
 		{"GET /tokens", http.HandlerFunc(s.tokensPage)},
 		{"POST /tokens", http.HandlerFunc(s.tokenMint)},

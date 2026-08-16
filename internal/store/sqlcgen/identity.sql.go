@@ -189,7 +189,7 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) (S
 }
 
 const getAPIToken = `-- name: GetAPIToken :one
-SELECT id, account_id, name, token_hash, token_prefix, last_used_at, expires_at, revoked_at, created_at, updated_at FROM api_tokens WHERE id = ?1
+SELECT id, account_id, name, token_hash, token_prefix, last_used_at, expires_at, revoked_at, created_at, updated_at, oauth_client_id FROM api_tokens WHERE id = ?1
 `
 
 func (q *Queries) GetAPIToken(ctx context.Context, id string) (ApiToken, error) {
@@ -206,6 +206,7 @@ func (q *Queries) GetAPIToken(ctx context.Context, id string) (ApiToken, error) 
 		&i.RevokedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.OauthClientID,
 	)
 	return i, err
 }
@@ -273,7 +274,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 }
 
 const listLiveAPITokens = `-- name: ListLiveAPITokens :many
-SELECT id, account_id, name, token_hash, token_prefix, last_used_at, expires_at, revoked_at, created_at, updated_at FROM api_tokens
+SELECT id, account_id, name, token_hash, token_prefix, last_used_at, expires_at, revoked_at, created_at, updated_at, oauth_client_id FROM api_tokens
 WHERE account_id = ?1
   AND revoked_at IS NULL
   AND (expires_at IS NULL OR expires_at > ?2)
@@ -307,6 +308,7 @@ func (q *Queries) ListLiveAPITokens(ctx context.Context, arg ListLiveAPITokensPa
 			&i.RevokedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.OauthClientID,
 		); err != nil {
 			return nil, err
 		}

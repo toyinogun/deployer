@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 
 	"github.com/toyinogun/deployer/internal/auth"
 	"github.com/toyinogun/deployer/internal/domain"
+	"github.com/toyinogun/deployer/internal/identity"
 )
 
 // accountKey is the context key the authenticated account travels under. Its own
@@ -57,6 +59,12 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 			if !errors.Is(err, auth.ErrTokenInvalid) {
 				slog.ErrorContext(ctx, "authenticating an MCP call failed", "error", err)
 			}
+			// Where a client that holds no token should go to get one. It is
+			// on this 401 and on no other refusal: the limiter's 429 and a
+			// suspended account are not about the credential, and Claude
+			// ignores the header on anything but a 401 anyway
+			// (spec 0024, AC-2, AC-2a).
+			w.Header().Set("WWW-Authenticate", s.challenge())
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
 			if err := json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"}); err != nil {
@@ -66,6 +74,15 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, accountKey{}, account)))
 	})
+}
+
+// challenge is the WWW-Authenticate value a 401 on this endpoint carries. It
+// points at the protected resource document for this exact path rather than the
+// root one, because that document's resource has to match what the person typed
+// into their client (spec 0024, AC-1, AC-2).
+func (s *Server) challenge() string {
+	return fmt.Sprintf("Bearer resource_metadata=%q, scope=%q",
+		s.opts.MCPURL+identity.ProtectedResourcePath+"/mcp", identity.ConnectorScope)
 }
 
 // denyTransport refuses a call before the MCP transport sees it, with a closed
