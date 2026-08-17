@@ -298,8 +298,22 @@ type deployOutput struct {
 // place an agent learns that the source must be uploaded first, where to upload
 // it, that the call does not wait for the build, and what an app has to do to be
 // deployable (spec 0004, API surface; spec 0005, AC-4).
+//
+// The opening lines are written for retrieval rather than for a reader. A client
+// that defers tools searches this text, and on 2026-08-17 a connector loaded five
+// of the ten and told its user there was no way to create an app, having searched
+// for "create a new app" against an opening that only ever said "deploy". The
+// words an agent reaches for when it wants to put something online are therefore
+// deliberate, and thinning them out puts the tool back out of reach even though
+// the server still serves it.
 func (s *Server) toolDescription() string {
-	return fmt.Sprintf(`Deploy an application to the cluster and return its public URL.
+	return fmt.Sprintf(`Create and deploy a new application to the cluster, or ship a new version of
+an existing one, and return its public URL.
+
+Use this to put any app, site, dashboard or API online: it creates the app on
+the first call and replaces it on every later one. This is the only tool that
+creates an app, so reach for it whenever something new has to be built, pushed,
+hosted, published or shipped, and not just when an app already exists.
 
 Give the source one of two ways, never both.
 
@@ -398,7 +412,7 @@ func (s *Server) serverFor(account auth.Account) *mcp.Server {
 	}
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "deploy_app",
-		Title:       "Deploy an app",
+		Title:       "Deploy an app: create a new app or ship a new version",
 		Description: s.toolDescription(),
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in deployInput) (*mcp.CallToolResult, deployOutput, error) {
 		return s.deploy(ctx, account, in)
