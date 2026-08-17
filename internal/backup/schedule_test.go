@@ -14,7 +14,15 @@ import (
 // runSchedule starts the schedule, gives the startup catch up time to decide,
 // then stops it and returns. The schedule owns its own timer, so the only way to
 // observe the decision is to let it make one.
-func runSchedule(t *testing.T, svc *backup.Service) {
+//
+// A test expecting the catch up to back up passes settled, and the schedule is
+// left alone until it reports true. The catch up runs synchronously inside
+// Schedule, so a flat sleep cancelled a real snapshot midway on a loaded runner
+// and the run failed with context canceled: CI lost a main build to that on
+// 2026-08-16, which held the control plane on a stale image. A test expecting no
+// backup has nothing to wait for and passes nil, where the grace period only
+// risks a false pass rather than a flake.
+func runSchedule(t *testing.T, svc *backup.Service, settled func() bool) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan struct{})
@@ -22,7 +30,14 @@ func runSchedule(t *testing.T, svc *backup.Service) {
 		svc.Schedule(ctx)
 		close(done)
 	}()
-	time.Sleep(100 * time.Millisecond)
+	if settled == nil {
+		time.Sleep(100 * time.Millisecond)
+	} else {
+		deadline := time.Now().Add(10 * time.Second)
+		for !settled() && time.Now().Before(deadline) {
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
 	cancel()
 	select {
 	case <-done:
@@ -44,7 +59,7 @@ func (h *harness) objectCount() int {
 func TestSchedule_backsUpImmediatelyWhenNothingHasEverSucceeded(t *testing.T) {
 	h := newHarness(t, 1)
 
-	runSchedule(t, h.svc)
+	runSchedule(t, h.svc, func() bool { return h.objectCount() == 1 })
 
 	if got := h.objectCount(); got != 1 {
 		t.Fatalf("the startup catch up should have taken one backup, %d objects landed", got)
@@ -63,7 +78,7 @@ func TestSchedule_doesNotBackUpAgainWhenTheLastSuccessIsRecent(t *testing.T) {
 		t.Fatalf("seeding a recent success: reason %q, err %v", reason, err)
 	}
 
-	runSchedule(t, h.svc)
+	runSchedule(t, h.svc, nil)
 
 	if got := h.objectCount(); got != 1 {
 		t.Fatalf("a recent success means not due, so the bucket should still hold 1 object, holds %d", got)
@@ -121,7 +136,7 @@ func TestSchedule_doesNotBackUpWhenTheRecordCannotBeRead(t *testing.T) {
 	h := newHarness(t, 1)
 	runs := &failingRuns{memRuns: h.runs, latestErr: errors.New("database is locked")}
 
-	runSchedule(t, withRuns(t, h, runs))
+	runSchedule(t, withRuns(t, h, runs), nil)
 
 	if got := h.objectCount(); got != 0 {
 		t.Fatalf("an unreadable record should take no backup, %d objects landed", got)
