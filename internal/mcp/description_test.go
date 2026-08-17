@@ -36,3 +36,36 @@ func TestTheToolDescriptionCarriesTheEndpointAndTheCeiling(t *testing.T) {
 		t.Errorf("the ceiling did not follow the configuration:\n%s", again)
 	}
 }
+
+// TestTheToolDescriptionIsFindableByAnAgentThatWantsSomethingNew pins the words
+// a client's tool search matches on.
+//
+// A connector that defers tools searches this text. On 2026-08-17 one loaded
+// five of the ten tools, searched for "create a new app", matched nothing, and
+// told its user the platform had no way to create an app, while the server was
+// serving deploy_app the whole time with its files argument intact. The
+// description opened with "Deploy an application" and never said create, new,
+// push, ship or host, so an agent asking for a dashboard had no reason to find
+// it. These are the terms someone reaches for when they want something put
+// online, and the tool is unreachable in practice without them however correct
+// the server is.
+func TestTheToolDescriptionIsFindableByAnAgentThatWantsSomethingNew(t *testing.T) {
+	t.Parallel()
+	s := &Server{opts: Options{
+		MCPURL:         "https://mcp.apps.example.org",
+		MaxUploadBytes: 90 << 20,
+	}}
+
+	got := strings.ToLower(s.toolDescription())
+
+	for _, term := range []string{"create", "new app", "push", "ship", "host", "site", "dashboard"} {
+		if !strings.Contains(got, term) {
+			t.Errorf("the description never says %q, so a search for it will not find this tool:\n%s", term, got)
+		}
+	}
+	// The opening is what a search ranks on, so the promise that this is the way
+	// an app comes into being belongs there rather than further down.
+	if opening, _, _ := strings.Cut(got, "give the source"); !strings.Contains(opening, "create") {
+		t.Errorf("the opening does not say the tool creates an app:\n%s", opening)
+	}
+}

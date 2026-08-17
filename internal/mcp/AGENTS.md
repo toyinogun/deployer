@@ -72,6 +72,17 @@ spec 0022, on the deploy host; it is 404 on the console hostname.
   written as literals, so the text cannot drift from the platform, and since spec
   0026 it also states both ways of giving the source. See the root
   [AGENTS.md](../../AGENTS.md) rule.
+- **The description's opening is a retrieval surface, not prose.** A connector
+  client defers tools and searches this text, loading only what its search
+  returns, so a tool the search misses does not exist as far as that agent is
+  concerned however correctly the server serves it. On 2026-08-17 a phone loaded
+  five of the ten and told its user the platform could not create an app, having
+  searched for "create a new app" against an opening that only said "deploy". The
+  words in the first two paragraphs, and the `Title`, are therefore chosen for
+  what an agent types when it wants something put online rather than for a
+  reader: `description_test.go` pins them. `deploy_app` is also the heaviest tool
+  on the surface by some way, so it is the one most worth keeping findable.
+  Rewriting that opening into something tidier is how this comes back.
 - **`New` falls back to a private limiter, and that fallback shares nothing.**
   Production passes one instance to both `mcp.New` and `httpapi.New`, so one
   caller's burst is one budget. A harness that omits `Options.Limiter` is bounded
